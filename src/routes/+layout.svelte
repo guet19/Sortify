@@ -10,6 +10,8 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
 </svelte:head>
 
+<!-- Die Navbar wird auf allen Seiten im Ordner /terminal ausgeblendet -->
+{#if !$page.url.pathname.startsWith('/terminal')}
 <nav class="navbar navbar-expand-lg bg-body-tertiary">
     <div class="container">
         <a
@@ -81,5 +83,7 @@
         </div>
     </div>
 </nav>
+{/if}
 
+<!-- Hier rendert SvelteKit die Unterseiten (entweder inkl. Navbar für Web oder im Vollbild für das Terminal) -->
 {@render children()}

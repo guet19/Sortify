@@ -73,64 +73,76 @@
         return matchSearch && matchMainCategory && matchSubCategory;
     });
 
-    // --- 3. DYNAMISCHE SIDEBAR-FILTER ---
+    // --- 3. DYNAMISCHE SIDEBAR-FILTER (KASKADIEREND & INTELLIGENT) ---
     $: availableSidebarFilters = (() => {
-        const attrMap = {}; 
+        const result = [];
         
-        baseFilteredArticles.forEach(article => {
-            if (article.attributes) {
-                for (const [attrId, value] of Object.entries(article.attributes)) {
-                    if (value !== undefined && value !== "") {
-                        if (!attrMap[attrId]) attrMap[attrId] = new Set();
-                        
-                        if (Array.isArray(value)) {
-                            value.forEach(v => attrMap[attrId].add(v));
-                        } else {
-                            attrMap[attrId].add(value);
+        attributes.forEach(attrDef => {
+            const attrId = attrDef._id;
+            const valueSet = new Set();
+            
+            // Kaskadierende Logik: Filtere Artikel für DIESEN Filter, aber wende alle ANDEREN Filter an
+            const articlesForThisAttr = baseFilteredArticles.filter(article => {
+                for (const [otherAttrId, selectedValues] of Object.entries(selectedAttributeFilters)) {
+                    if (otherAttrId === attrId) continue; 
+                    if (selectedValues && selectedValues.length > 0) {
+                        const articleValue = article.attributes ? article.attributes[otherAttrId] : undefined;
+                        if (articleValue === undefined) return false; 
+                        if (Array.isArray(articleValue)) { 
+                            if (!selectedValues.some(val => articleValue.includes(val))) return false; 
+                        } else { 
+                            if (!selectedValues.includes(articleValue)) return false; 
                         }
                     }
                 }
-            }
-        });
+                for (const [otherAttrId, range] of Object.entries(activeRangeFilters)) {
+                    if (otherAttrId === attrId) continue;
+                    if (!article.attributes || article.attributes[otherAttrId] === undefined) return false;
+                    const val = parseFloat(String(article.attributes[otherAttrId]).replace(',', '.'));
+                    if (isNaN(val) || val < range.min || val > range.max) return false;
+                }
+                return true;
+            });
 
-        const result = [];
-        for (const [attrId, valueSet] of Object.entries(attrMap)) {
-            const attrDef = attributes.find(a => a._id === attrId);
-            
-            if (attrDef) {
+            // Werte der übrig gebliebenen Artikel sammeln
+            articlesForThisAttr.forEach(article => {
+                if (article.attributes && article.attributes[attrId] !== undefined && article.attributes[attrId] !== "") {
+                    const val = article.attributes[attrId];
+                    if (Array.isArray(val)) val.forEach(v => valueSet.add(v));
+                    else valueSet.add(val);
+                }
+            });
+
+            // LOGIK-UPDATE: Prüfen, ob der Filter gerade aktiv genutzt wird
+            const isModalActive = selectedAttributeFilters[attrId] && selectedAttributeFilters[attrId].length > 0;
+            const isRangeActive = activeRangeFilters[attrId] !== undefined;
+
+            // Zeige Filter NUR an, wenn es mehr als 1 Option gibt, ODER wenn der Filter bereits aktiv ist!
+            if (valueSet.size > 1 || isModalActive || isRangeActive) {
                 const optionsArr = Array.from(valueSet);
                 const unitStr = attrDef.unit ? ` ${attrDef.unit}` : '';
 
                 if (attrDef.ui_type === 'number') {
                     const numValues = optionsArr.map(v => parseFloat(String(v).replace(',', '.'))).filter(v => !isNaN(v));
-
                     if (numValues.length > 0) {
                         const min = Math.floor(Math.min(...numValues));
                         const max = Math.ceil(Math.max(...numValues));
                         
-                        if (min < max) {
-                            result.push({
-                                id: attrId,
-                                label: attrDef.label,
-                                type: 'range',
-                                absMin: min,
-                                absMax: max,
-                                unit: unitStr
-                            });
-                            continue; 
+                        // Range-Slider nur anzeigen, wenn Spanne existiert oder Filter aktiv ist
+                        if (min < max || activeRangeFilters[attrId]) {
+                            result.push({ id: attrId, label: attrDef.label, type: 'range', absMin: min, absMax: max, unit: unitStr });
                         }
                     }
+                } else {
+                    result.push({
+                        id: attrId, label: attrDef.label, type: 'modal',
+                        options: optionsArr.sort((a, b) => String(a).localeCompare(String(b), 'de', { sensitivity: 'base', numeric: true })),
+                        unit: unitStr
+                    });
                 }
-
-                result.push({
-                    id: attrId,
-                    label: attrDef.label,
-                    type: 'modal',
-                    options: optionsArr.sort((a, b) => String(a).localeCompare(String(b), 'de', { sensitivity: 'base', numeric: true })),
-                    unit: unitStr
-                });
             }
-        }
+        });
+
         return result.sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }));
     })();
 
