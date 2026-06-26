@@ -19,7 +19,7 @@
             style="color:#22c55e;"
             href="/"
         >
-            <img
+            <im
                 src={favicon}
                 alt="Logo"
                 width="50"

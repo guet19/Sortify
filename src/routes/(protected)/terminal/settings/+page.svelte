@@ -10,7 +10,7 @@
     
     <div class="action-grid">
         <!-- Karte 1: Artikel zuweisen -->
-        <a href="/terminal/assign" class="action-card">
+        <a href="/terminal/settings/assign" class="action-card">
             <div class="icon">🔗</div>
             <div class="card-content">
                 <h3>Artikel zuweisen</h3>
@@ -19,7 +19,7 @@
         </a>
 
         <!-- Karte 2: Hardware Anlernen -->
-        <a href="/terminal/teach" class="action-card">
+        <a href="/terminal/settings/shelf" class="action-card">
             <div class="icon">💡</div>
             <div class="card-content">
                 <h3>Fächer anlernen</h3>

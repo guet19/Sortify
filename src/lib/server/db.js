@@ -588,6 +588,8 @@ async function resetUserPassword(userId, plainTextPassword) {
     }
 } 
 
+
+
 async function renewVerificationData(email) {
     try {
         const db = await getDb();
@@ -609,6 +611,195 @@ async function renewVerificationData(email) {
     }
 }
 
+async function createHardwareCommand(userId, command) {
+    try {
+        const db = await getDb();
+        const commandsCollection = db.collection('hardware_commands');
+
+        // Wenn der Befehl 0 ist (Ausschalten), leiten wir ihn direkt weiter.
+        // Die Hardware erkennt 0 oder -1 als Signal, alle LEDs zu löschen.
+        await commandsCollection.insertOne({
+            userId: userId.toString(),
+            drawer_id: parseInt(command),
+            status: "pending",
+            createdAt: new Date()
+        });
+
+        return true;
+    } catch (error) {
+        console.error("Fehler in createHardwareCommand:", error);
+        throw error;
+    }
+}
+async function getShelves(userId) {
+    try {
+        const db = await getDb();
+        const collection = db.collection('shelves');
+
+        // Mandantenfähigkeit: Strikt nach userId filtern.
+        // WICHTIG: Wir sortieren nach start_index (aufsteigend: 1), 
+        // damit SvelteKit immer das physisch letzte Regal am Ende des Arrays findet.
+        const shelves = await collection.find({ userId: userId.toString() })
+                                        .sort({ start_index: 1 })
+                                        .toArray();
+        return shelves;
+    } catch (error) {
+        console.error("Fehler beim Abrufen der Regale:", error);
+        return [];
+    }
+}
+
+async function createNewShelf(userId, shelfName, startIndex, drawerCount, barcodes) {
+    try {
+        const db = await getDb();
+        const shelvesCollection = db.collection('shelves');
+
+        // Das Regal wird erstellt und die Verknüpfung (LED <-> Barcode) 
+        // wird direkt im Regal als 'drawers' gespeichert.
+        const newShelf = {
+            userId: userId.toString(),
+            name: shelfName,
+            start_index: parseInt(startIndex),
+            drawer_count: parseInt(drawerCount),
+            drawers: barcodes, // Das komplette Mapping vom Anlern-Assistenten!
+            createdAt: new Date()
+        };
+
+        await shelvesCollection.insertOne(newShelf);
+        return true;
+    } catch (error) {
+        console.error("Fehler beim Erstellen des Regals:", error);
+        throw error;
+    }
+}
+async function updateDrawerBarcode(userId, shelfId, ledIndex, newBarcode) {
+    try {
+        const db = await getDb();
+        const collection = db.collection('shelves');
+
+        // Der $ Operator sucht in dem Array 'drawers' genau das Element, 
+        // das auf die Suchbedingung (ledIndex) zutrifft, und überschreibt dessen Barcode.
+        await collection.updateOne(
+            { 
+                _id: new ObjectId(shelfId), 
+                userId: userId.toString(), 
+                "drawers.ledIndex": parseInt(ledIndex) 
+            },
+            { 
+                $set: { "drawers.$.barcode": newBarcode } 
+            }
+        );
+        return true;
+    } catch (error) {
+        console.error("Fehler beim Aktualisieren des Barcodes:", error);
+        throw error;
+    }
+}
+
+async function deleteShelf(userId, shelfId) {
+    try {
+        const db = await getDb();
+        const collection = db.collection('shelves');
+
+        // Löscht das Regal, das zur ID und zum User passt
+        await collection.deleteOne({ 
+            _id: new ObjectId(shelfId), 
+            userId: userId.toString() 
+        });
+        
+        return true;
+    } catch (error) {
+        console.error("Fehler beim Löschen des Regals:", error);
+        throw error;
+    }
+}
+
+async function assignBarcodeToArticle(userId, articleId, barcode) {
+    try {
+        const db = await getDb();
+        const collection = db.collection('articles');
+
+        // Überschreibt oder setzt das Feld 'assigned_barcode' beim jeweiligen Artikel
+        await collection.updateOne(
+            { 
+                _id: new ObjectId(articleId), 
+                userId: userId.toString() 
+            },
+            { 
+                $set: { 
+                    assigned_barcode: barcode,
+                    updatedAt: new Date()
+                } 
+            }
+        );
+        return true;
+    } catch (error) {
+        console.error("Fehler beim Verknüpfen des Artikels:", error);
+        throw error;
+    }
+}
+
+// Prüft, ob ein Barcode physisch in den Regalen angelernt wurde
+async function checkIfBarcodeExists(userId, barcode) {
+    try {
+        const db = await getDb();
+        const collection = db.collection('shelves');
+
+        // Sucht nach einem Regal des Users, das diesen Barcode in seinem 'drawers' Array hat
+        const shelf = await collection.findOne({
+            userId: userId.toString(),
+            "drawers.barcode": barcode
+        });
+
+        // Wenn shelf existiert, gibt es 'true' zurück, ansonsten 'false'
+        return !!shelf; 
+    } catch (error) {
+        console.error("Fehler beim Prüfen des Barcodes:", error);
+        return false;
+    }
+}
+
+// Sucht den ledIndex zum Barcode und feuert den Befehl ans Raspberry Pi
+async function triggerLedByBarcode(userId, barcode) {
+    try {
+        const db = await getDb();
+        const shelvesCollection = db.collection('shelves');
+
+        // 1. Suche das Regal, das dieses Fach besitzt
+        const shelf = await shelvesCollection.findOne({
+            userId: userId.toString(),
+            "drawers.barcode": barcode
+        });
+
+        if (!shelf) {
+            throw new Error("Kein Regal mit diesem Barcode gefunden.");
+        }
+
+        // 2. Extrahiere den genauen ledIndex aus dem Regal
+        const drawer = shelf.drawers.find(d => d.barcode === barcode);
+        if (!drawer) {
+            throw new Error("Fach im Regal nicht gefunden.");
+        }
+
+        // WICHTIGER FIX: Da die Hardware led_index = drawer_id - 1 rechnet,
+        // müssen wir hier im Backend den ledIndex um 1 erhöhen!
+        const targetDrawerId = parseInt(drawer.ledIndex) + 1;
+
+        // 3. Neuen Befehl als "pending" in die Warteschlange einreihen
+        const commandsCollection = db.collection('hardware_commands');
+        await commandsCollection.insertOne({
+            userId: userId.toString(),
+            drawer_id: targetDrawerId,
+            status: "pending",
+            createdAt: new Date() // Erzeugt das korrekte BSON-Date-Format (UTC)
+        });
+
+        return drawer.ledIndex; 
+    } catch (error) {
+        console.error("Fehler in triggerLedByBarcode:", error);
+        throw error;
+    }
+}
 export default { 
     getCategories, 
     createMainCategory,
@@ -643,5 +834,13 @@ export default {
     savePasswordResetToken,
     getUserByResetToken,
     resetUserPassword,
-    renewVerificationData
+    renewVerificationData,
+    createHardwareCommand,
+    getShelves,
+    createNewShelf,
+    updateDrawerBarcode,
+    deleteShelf,
+    assignBarcodeToArticle,
+    checkIfBarcodeExists,
+    triggerLedByBarcode
 };

@@ -1,32 +1,26 @@
-import db from '$lib/server/db.js';
 import { redirect } from '@sveltejs/kit';
+import db from '$lib/server/db.js';
 
-export async function load({ params, cookies }) {
-    // 1. Die ID des aktuell eingeloggten Nutzers aus dem Cookie auslesen
-    const userId = cookies.get('session');
-    
-    // KIOSK-UX: Wenn die Session abgelaufen ist, sofort zum Login zurückschicken.
-    if (!userId) {
-        throw redirect(303, '/login');
-    }
+export async function load({ cookies, params }) {
+    const session = cookies.get('session');
+    if (!session) throw redirect(303, '/login');
 
-    // 2. Die Artikel-ID aus der URL auslesen
     const articleId = params.id;
 
-    // 3. Den spezifischen Artikel MIT der userId aus der Datenbank holen
-    const article = await db.getArticleById(userId, articleId);
+    const categories = await db.getCategories(session).catch(() => []);
+    const attributes = await db.getFilterAttributes(session).catch(() => []); 
+    
+    let article = null;
+    try {
+        article = await db.getArticleById(session, articleId);
+    } catch (e) {
+        console.error("🔴 Fehler beim Laden des Artikels:", e);
+    }
 
-    // 4. KIOSK-UX: Wenn der Artikel nicht gefunden wird (z.B. falscher Barcode-Scan),
-    // werfen wir keinen Fehlerbildschirm, sondern leiten sanft zurück zur Suche.
     if (!article) {
         throw redirect(303, '/terminal/search');
     }
 
-    // 5. Metadaten laden (streng an den User gebunden!)
-    const categories = await db.getCategories(userId);
-    const attributes = await db.getFilterAttributes(userId);
-
-    // 6. Alles "entschärft" an das Terminal Frontend (+page.svelte) übergeben
     return {
         article: JSON.parse(JSON.stringify(article)),
         categories: JSON.parse(JSON.stringify(categories)),
@@ -34,9 +28,50 @@ export async function load({ params, cookies }) {
     };
 }
 
-// HINWEIS: 
-// Der `actions = { updateStock: ... }` Block aus deiner Original-Datei 
-// wurde hier absichtlich komplett entfernt!
-// Dadurch ist es technisch völlig unmöglich, dass jemand über das Terminal 
-// den Bestand manipuliert, selbst wenn er es über die Konsole versuchen würde.
-// Das Terminal bleibt an dieser Stelle also "Read-Only" (nur Lese-Zugriff).
+export const actions = {
+    // Action zum Auslösen der Pick-by-Light Hardware
+    triggerLED: async ({ request, cookies }) => {
+        const userId = cookies.get('session');
+        if (!userId) return { success: false, error: 'Unauthorized' };
+
+        const data = await request.formData();
+        const barcode = data.get('barcode');
+
+        if (!barcode || barcode === 'null' || barcode === '') {
+            return { success: false, error: 'Kein Barcode zugewiesen' };
+        }
+
+        try {
+            const triggeredIndex = await db.triggerLedByBarcode(userId, barcode);
+            console.log(`💡 LED-Trigger gesendet! Barcode: ${barcode} -> LED Index: #${triggeredIndex}`);
+
+            // NEU: Der 10-Sekunden Timer zum automatischen Ausschalten
+            setTimeout(async () => {
+                try {
+                    await db.createHardwareCommand(userId, 0);
+                    console.log(`⏱️ 10 Sekunden um. LED für Barcode ${barcode} automatisch ausgeschaltet.`);
+                } catch (e) {
+                    console.error("Fehler beim automatischen Ausschalten der LED:", e);
+                }
+            }, 10000); // 10000 ms = 10 Sekunden
+
+            return { success: true };
+        } catch (err) {
+            console.error("🔴 Fehler beim LED Trigger:", err);
+            return { success: false, error: 'Hardwarefehler' };
+        }
+    },
+
+    // NEU: Action zum sofortigen Ausschalten (wird genutzt, wenn der User die Seite verlässt)
+    turnOffLED: async ({ cookies }) => {
+        const userId = cookies.get('session');
+        if (!userId) return { success: false };
+
+        try {
+            await db.createHardwareCommand(userId, 0);
+            return { success: true };
+        } catch (err) {
+            return { success: false };
+        }
+    }
+};

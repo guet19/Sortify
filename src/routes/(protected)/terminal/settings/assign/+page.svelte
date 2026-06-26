@@ -2,26 +2,22 @@
     export let data;
     const { categories = [], articles = [], attributes = [] } = data;
 
-    // --- NEU: DER HAUPT-FILTER ---
-    // Wir filtern direkt zu Beginn alle Artikel heraus, die keinen Barcode haben.
-    // Alles andere auf der Seite (Kategorien, Suche, Sidebar) basiert nun auf diesem Array!
-    $: assignedArticles = articles.filter(a => a.assigned_barcode && String(a.assigned_barcode).trim() !== '');
-
     // --- FILTER STATES ---
     let searchQuery = "";
     let selectedMainCategoryId = "";
     let selectedSubcategoryId = "";
     let currentSort = "name_asc";
+    let barcodeFilter = "all"; 
     
     let rangeWarnings = {};
     let rangeWarningTimeouts = {};
 
-    // 1. KATEGORIEN FILTERN (Nutzt jetzt "assignedArticles")
+    // 1. KATEGORIEN FILTERN
     $: mainCategoryOptions = categories
         .filter(cat => {
             if (!cat.subcategories || cat.subcategories.length === 0) return false;
             return cat.subcategories.some(sub => 
-                assignedArticles.some(article => article.mainCategoryId === cat._id && article.subcategoryId === sub.id)
+                articles.some(article => article.mainCategoryId === cat._id && article.subcategoryId === sub.id)
             );
         })
         .map(cat => ({ value: cat._id, label: cat.name }));
@@ -31,7 +27,7 @@
     
     $: subCategoryOptions = availableSubcategories
         .filter(sub => 
-            assignedArticles.some(article => article.mainCategoryId === selectedMainCategoryId && article.subcategoryId === sub.id)
+            articles.some(article => article.mainCategoryId === selectedMainCategoryId && article.subcategoryId === sub.id)
         )
         .map(sub => ({ value: sub.id, label: sub.name }));
 
@@ -41,8 +37,8 @@
         previousMain = selectedMainCategoryId;
     }
 
-    // 2. BASIS-FILTER (Kategorie & Suche)
-    $: baseFilteredArticles = assignedArticles.filter(article => {
+    // 2. BASIS-FILTER
+    $: baseFilteredArticles = articles.filter(article => {
         const searchStr = (searchQuery || "").toLowerCase();
         const safeTitle = article.title || "";
         const safeGtin = article.gtin || "";
@@ -52,13 +48,17 @@
                             
         const matchMainCategory = selectedMainCategoryId === "" || article.mainCategoryId === selectedMainCategoryId;
         const matchSubCategory = selectedSubcategoryId === "" || article.subcategoryId === selectedSubcategoryId;
-        return matchSearch && matchMainCategory && matchSubCategory;
+        
+        let matchBarcode = true;
+        if (barcodeFilter === "unassigned") matchBarcode = !article.assigned_barcode;
+        if (barcodeFilter === "assigned") matchBarcode = !!article.assigned_barcode;
+
+        return matchSearch && matchMainCategory && matchSubCategory && matchBarcode;
     });
 
     // 3. DYNAMISCHE SIDEBAR-FILTER
     $: availableSidebarFilters = (() => {
         const result = [];
-        
         attributes.forEach(attrDef => {
             const attrId = attrDef._id;
             const valueSet = new Set();
@@ -105,7 +105,6 @@
                     if (numValues.length > 0) {
                         const min = Math.floor(Math.min(...numValues));
                         const max = Math.ceil(Math.max(...numValues));
-                        
                         if (min < max || activeRangeFilters[attrId]) {
                             result.push({ id: attrId, label: attrDef.label, type: 'range', absMin: min, absMax: max, unit: unitStr });
                         }
@@ -166,9 +165,9 @@
     }
 
     function clearAttributeFilters() { selectedAttributeFilters = {}; activeRangeFilters = {}; }
-    function clearCategorySelection() { selectedMainCategoryId = ""; selectedSubcategoryId = ""; }
+    function clearCategorySelection() { selectedMainCategoryId = ""; selectedSubcategoryId = ""; barcodeFilter = "all"; }
 
-    // 5. FINALES ARRAY FÜR DIE KARTEN
+    // 5. FINALES ARRAY
     $: finalFilteredArticles = baseFilteredArticles.filter(article => {
         for (const [attrId, selectedValues] of Object.entries(selectedAttributeFilters)) {
             if (selectedValues && selectedValues.length > 0) {
@@ -197,8 +196,8 @@
 
 <div class="terminal-page space-grotesk">
     <div class="header">
-        <h1>Artikel suchen</h1>
-        <a href="/terminal" class="btn-back">
+        <h1>Artikel verknüpfen</h1>
+        <a href="/terminal/settings" class="btn-back">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
             Zurück
         </a>
@@ -228,7 +227,16 @@
                 </div>
             {/if}
 
-            {#if selectedMainCategoryId || selectedSubcategoryId}
+            <div class="dropdown-group">
+                <label>Barcode-Status</label>
+                <select class="dark-select" bind:value={barcodeFilter}>
+                    <option value="all">Alle Artikel</option>
+                    <option value="unassigned">Ohne Barcode (Rot)</option>
+                    <option value="assigned">Mit Barcode (Grün)</option>
+                </select>
+            </div>
+
+            {#if selectedMainCategoryId || selectedSubcategoryId || barcodeFilter !== "all"}
                 <button class="btn-clear-categories" on:click={clearCategorySelection}>✕ Auswahl aufheben</button>
             {/if}
         </div>
@@ -236,7 +244,7 @@
         <div class="filter-right">
             <div class="search-box">
                 <label>Suchen (Titel oder GTIN)</label>
-                <input type="text" bind:value={searchQuery} placeholder="Artikelname oder Nummer..." class="dark-input"/>
+                <input type="text" bind:value={searchQuery} placeholder="Artikelname oder Nummer..." class="dark-input" >
             </div>
         </div>
     </div>
@@ -250,7 +258,7 @@
                 {/if}
             </div>
 
-            <input type="text" bind:value={sidebarAttributeSearch} placeholder="Attribut suchen..." class="dark-input sidebar-search"/>
+            <input type="text" bind:value={sidebarAttributeSearch} placeholder="Attribut suchen..." class="dark-input sidebar-search" >
 
             <div class="sidebar-filters-list">
                 {#each visibleSidebarFilters as filter (filter.id)}
@@ -270,9 +278,9 @@
                             </button>
                         {:else if filter.type === 'range'}
                             <div class="range-inputs">
-                                <input type="number" value={activeRangeFilters[filter.id]?.min ?? filter.absMin} on:change={(e) => updateRange(filter.id, 'min', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" />
+                                <input type="number" value={activeRangeFilters[filter.id]?.min ?? filter.absMin} on:change={(e) => updateRange(filter.id, 'min', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" >
                                 <span>-</span>
-                                <input type="number" value={activeRangeFilters[filter.id]?.max ?? filter.absMax} on:change={(e) => updateRange(filter.id, 'max', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" />
+                                <input type="number" value={activeRangeFilters[filter.id]?.max ?? filter.absMax} on:change={(e) => updateRange(filter.id, 'max', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" >
                             </div>
                         {/if}
                     </div>
@@ -296,31 +304,32 @@
 
             <div class="article-grid">
                 {#each finalFilteredArticles as article}
-                    <a href="/terminal/search/{article._id}" class="card">
+                    <div class="card">
                         <div class="card-image">
                             {#if article.imagePath}
-                                <img src={article.imagePath} alt={article.title} />
+                                <img src={article.imagePath} alt={article.title} >
                             {:else}
                                 <div class="no-image">Kein Bild</div>
                             {/if}
                         </div>
                         <div class="card-content">
                             <h3>{article.title}</h3>
-                            <div class="badge-container">
-                                <p class="stock-badge" class:low={(article.istBestand || 0) === 0}>
-                                    {article.istBestand ?? 0} Stk.
-                                </p>
-                                <p class="barcode-badge">Platz: {article.assigned_barcode}</p>
-                            </div>
+                            <p class="stock-badge" class:low={(article.istBestand || 0) === 0}>
+                                {article.istBestand ?? 0} Stk.
+                            </p>
+
+                            {#if article.assigned_barcode}
+                                <div class="barcode-badge assigned">Barcode: {article.assigned_barcode}</div>
+                            {:else}
+                                <div class="barcode-badge unassigned">Barcode nicht zugewiesen</div>
+                            {/if}
+
+                            <a href="/terminal/settings/assign/{article._id}" class="btn-assign">
+                                Artikel Barcode zuweisen
+                            </a>
                         </div>
-                    </a>
-                {/each}
-                
-                {#if finalFilteredArticles.length === 0}
-                    <div class="empty-state">
-                        <p>Keine Artikel im Lager gefunden.</p>
                     </div>
-                {/if}
+                {/each}
             </div>
         </div>
     </div>
@@ -334,7 +343,7 @@
             <button class="btn-close-modal" on:click={closeFilterModal}>✕</button>
         </div>
         <div class="modal-search">
-            <input type="text" bind:value={modalSearchQuery} placeholder="Suchen..." class="dark-input"/>
+            <input type="text" bind:value={modalSearchQuery} placeholder="Suchen..." class="dark-input" >
         </div>
         <div class="modal-body">
             {#each filteredModalOptions as opt}
@@ -352,6 +361,7 @@
 {/if}
 
 <style>
+    /* ... (Deine bestehenden Styles für Grid, Sidebar, etc.) ... */
     :global(html), :global(body) { overflow-x: hidden; margin: 0; padding: 0; width: 100%; }
     * { box-sizing: border-box; }
 
@@ -362,7 +372,6 @@
     
     .btn-back { display: flex; align-items: center; gap: 0.5rem; background: #1e293b; color: white; padding: 0.8rem 1.5rem; border-radius: 8px; border: 1px solid #334155; text-decoration: none; font-weight: 600; }
     
-    /* Top Bar */
     .top-bar { background: #1e293b; padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; margin-bottom: 2rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; }
     .filter-left { display: flex; gap: 1rem; flex-wrap: wrap; flex: 1; align-items: flex-end;}
     .filter-right { width: 100%; max-width: 400px; }
@@ -374,22 +383,9 @@
     
     .btn-clear-categories { background: none; border: none; color: #ef4444; cursor: pointer; padding: 0.8rem 0; font-weight: 600; }
 
-    /* Layout Wrapper */
     .content-wrapper { display: flex; gap: 2rem; align-items: flex-start; }
     
-    /* Sidebar */
-    .sidebar-section { 
-        flex: 0 0 300px; 
-        background: #1e293b; 
-        border-radius: 12px; 
-        border: 1px solid #334155; 
-        padding: 1.5rem; 
-        position: sticky; 
-        top: 1rem; 
-        max-height: calc(100vh - 2rem); 
-        overflow-y: auto; 
-    }
-
+    .sidebar-section { flex: 0 0 300px; background: #1e293b; border-radius: 12px; border: 1px solid #334155; padding: 1.5rem; position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow-y: auto; }
     .sidebar-section::-webkit-scrollbar { width: 8px; }
     .sidebar-section::-webkit-scrollbar-track { background: transparent; border-radius: 8px; }
     .sidebar-section::-webkit-scrollbar-thumb { background: #475569; border-radius: 8px; }
@@ -408,106 +404,32 @@
     .range-inputs { display: flex; align-items: center; gap: 0.5rem; }
     .range-num { text-align: center; }
 
-    /* Main Content (Grid) */
     .articles-section { flex: 1; min-width: 0;}
     .results-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; }
     .results-info { color: #94a3b8; font-weight: 600; }
     .sort-select { width: auto; min-width: 200px; }
 
-    .article-grid { 
-        display: grid; 
-        grid-template-columns: repeat(3, 1fr); 
-        gap: 2rem; 
-    }    
+    .article-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2rem; }    
     
-    /* Cards */
-    .card { 
-        background: #1e293b; 
-        border: 2px solid #334155; 
-        border-radius: 12px; 
-        display: flex; 
-        flex-direction: column; 
-        text-align: left; 
-        padding: 0; 
-        cursor: pointer; 
-        overflow: hidden; 
-        transition: all 0.2s; 
-        color: white; 
-        text-decoration: none; 
-    }
-    .card:hover { 
-        border-color: #22c55e; 
-        transform: translateY(-4px); 
-    }
-    
-    .card-image { 
-        height: 220px; 
-        background: white; 
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        border-bottom: 1px solid #334155; 
-    }
-    .card-image img { 
-        width: 100%; 
-        height: 100%; 
-        object-fit: contain; 
-        padding: 1.5rem; 
-    }
+    .card { background: #1e293b; border: 2px solid #334155; border-radius: 12px; display: flex; flex-direction: column; text-align: left; padding: 0; overflow: hidden; color: white; height: 100%; }
+    .card-image { height: 200px; background: white; display: flex; justify-content: center; align-items: center; border-bottom: 1px solid #334155; }
+    .card-image img { width: 100%; height: 100%; object-fit: contain; padding: 1.5rem; }
     .no-image { color: #94a3b8; font-size: 1.2rem; }
     
-    .card-content { 
-        padding: 1.5rem; 
-        display: flex; 
-        flex-direction: column; 
-        flex-grow: 1;
-        gap: 0.8rem; 
-    }
-    
-    .card-content h3 { 
-        margin: 0; 
-        font-size: 1.15rem;
-        line-height: 1.4;
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
-        white-space: normal;
-    }
+    .card-content { padding: 1.5rem; display: flex; flex-direction: column; gap: 0.8rem; flex-grow: 1; }
+    .card-content h3 { margin: 0; font-size: 1.15rem; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
-    .badge-container { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: auto; align-items: center; }
+    .stock-badge { align-self: flex-start; margin: 0; background: rgba(34, 197, 94, 0.2); color: #86efac; border: 1px solid #22c55e; padding: 0.4rem 0.8rem; border-radius: 6px; font-weight: bold; font-size: 1.1rem; }
+    .stock-badge.low { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border-color: #ef4444; }
 
-    .stock-badge { 
-        margin: 0; 
-        background: rgba(34, 197, 94, 0.2); 
-        color: #86efac; 
-        border: 1px solid #22c55e; 
-        padding: 0.4rem 0.8rem; 
-        border-radius: 6px; 
-        font-weight: bold; 
-        font-size: 1.1rem; 
-    }
-    .stock-badge.low { 
-        background: rgba(239, 68, 68, 0.2); 
-        color: #fca5a5; 
-        border-color: #ef4444; 
-    }
+    .barcode-badge { padding: 0.5rem; border-radius: 6px; font-weight: bold; font-size: 0.95rem; text-align: center; }
+    .barcode-badge.assigned { background: rgba(34, 197, 94, 0.1); color: #4ade80; border: 1px solid #22c55e; }
+    .barcode-badge.unassigned { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px dashed #ef4444; }
 
-    /* NEU: Blaue Info-Plakette für den Barcode in der Pick-Ansicht */
-    .barcode-badge {
-        margin: 0;
-        background: rgba(56, 189, 248, 0.1);
-        color: #38bdf8;
-        border: 1px solid #38bdf8;
-        padding: 0.4rem 0.8rem;
-        border-radius: 6px;
-        font-weight: bold;
-        font-size: 1rem;
-    }
+    /* Button ist jetzt ein a-Tag! */
+    .btn-assign { margin-top: auto; background: #38bdf8; color: #0f172a; border: none; padding: 1rem; border-radius: 8px; font-weight: bold; font-size: 1rem; text-align: center; text-decoration: none; display: block; transition: background 0.2s; width: 100%; }
+    .btn-assign:hover { background: #0ea5e9; }
 
-    .empty-state { grid-column: 1 / -1; background: #1e293b; padding: 3rem; text-align: center; border-radius: 12px; border: 1px dashed #475569; color: #94a3b8; font-size: 1.2rem; }
-
-    /* Modals */
     .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; }
     .modal-window { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1e293b; border: 1px solid #475569; width: 90%; max-width: 500px; max-height: 80vh; display: flex; flex-direction: column; border-radius: 12px; z-index: 1001; }
     .modal-header { display: flex; justify-content: space-between; padding: 1.5rem; border-bottom: 1px solid #334155; }
