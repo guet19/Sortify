@@ -800,6 +800,104 @@ async function triggerLedByBarcode(userId, barcode) {
         throw error;
     }
 }
+async function getArticleByBarcode(userId, barcode) {
+    try {
+        const db = await getDb();
+        const collection = db.collection('articles');
+        
+        // Findet den Artikel des spezifischen Nutzers anhand des Barcodes
+        return await collection.findOne({
+            userId: userId.toString(),
+            assigned_barcode: barcode
+        });
+    } catch (error) {
+        console.error("Fehler bei getArticleByBarcode:", error);
+        return null;
+    }
+}
+
+// 1. Erstellt die Anfrage für das Raspberry Pi
+async function createScaleRequest(userId, barcode) {
+    const db = await getDb();
+    const result = await db.collection('scale_requests').insertOne({
+        userId: userId.toString(),
+        barcode: barcode,
+        status: 'pending',  // Pi sucht nach 'pending'
+        weight: null,       // Hier trägt der Pi später das Gewicht in Gramm ein
+        createdAt: new Date()
+    });
+    return result.insertedId.toString();
+}
+
+// 2. Liest den Status der Anfrage aus (für das 0.5s Polling)
+async function getScaleRequest(requestId) {
+    const db = await getDb();
+    return await db.collection('scale_requests').findOne({ 
+        _id: new ObjectId(requestId) 
+    });
+}
+
+// 3. Aktualisiert den Bestand nach dem Buchen
+async function updateArticleStock(userId, articleId, newStock) {
+    const db = await getDb();
+    await db.collection('articles').updateOne(
+        { _id: new ObjectId(articleId), userId: userId.toString() },
+        { $set: { istBestand: newStock } }
+    );
+}
+async function assignBarcodeAndWeights(userId, articleId, barcode, boxWeight, itemWeight) {
+    try {
+        const db = await getDb();
+        
+        // 1. Artikel aktualisieren (Barcode & Stückgewicht)
+        // Hinweis: boxWeight wird hier absichtlich weggelassen!
+        const articlesCollection = db.collection('articles');
+        await articlesCollection.updateOne(
+            { _id: new ObjectId(articleId), userId: userId.toString() },
+            { 
+                $set: { 
+                    assigned_barcode: barcode,
+                    "attributes.itemWeight": parseFloat(itemWeight)
+                } 
+            }
+        );
+
+        // 2. Regal-Fach aktualisieren (boxWeight / Fachnettogewicht)
+        // Wir suchen das Regal mit diesem Barcode und updaten über den $ Operator exakt dieses Fach im Array
+        const shelvesCollection = db.collection('shelves');
+        await shelvesCollection.updateOne(
+            { 
+                userId: userId.toString(), 
+                "drawers.barcode": barcode 
+            },
+            { 
+                $set: { 
+                    "drawers.$.boxWeight": parseFloat(boxWeight) 
+                } 
+            }
+        );
+
+        return true;
+    } catch (error) {
+        console.error("Fehler bei assignBarcodeAndWeights:", error);
+        throw error;
+    }
+}
+// Holt exakt das eine Fach (Drawer) aus den Regalen anhand des Barcodes
+async function getDrawerByBarcode(userId, barcode) {
+    try {
+        const db = await getDb();
+        const shelf = await db.collection('shelves').findOne({
+            userId: userId.toString(),
+            "drawers.barcode": barcode
+        });
+        
+        return shelf ? shelf.drawers.find(d => d.barcode === barcode) : null;
+    } catch (error) {
+        console.error("Fehler bei getDrawerByBarcode:", error);
+        return null;
+    }
+}
 export default { 
     getCategories, 
     createMainCategory,
@@ -842,5 +940,11 @@ export default {
     deleteShelf,
     assignBarcodeToArticle,
     checkIfBarcodeExists,
-    triggerLedByBarcode
+    triggerLedByBarcode,
+    getArticleByBarcode,
+    createScaleRequest,
+    getScaleRequest,
+    updateArticleStock,
+    assignBarcodeAndWeights,
+    getDrawerByBarcode
 };

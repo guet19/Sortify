@@ -1,29 +1,44 @@
 <script>
     import { enhance } from '$app/forms'; 
     import { invalidateAll } from '$app/navigation'; 
+    import { onDestroy } from 'svelte';
 
     export let data;
 
-    // --- 1. REAKTIVITÄT ---
     $: article = data.article;
     $: categories = data.categories;
     $: attributes = data.attributes;
+    $: originalStock = article.istBestand || 0;
 
-    $: mainCategory = categories.find(c => c._id === article.mainCategoryId);
-    $: mainCategoryName = mainCategory ? mainCategory.name : 'Unbekannte Kategorie';
+    // --- Modal & Wizard States ---
+    let showModal = false;
+    // Mögliche States: 'scan', 'weigh_box', 'weigh_box_polling', 'ask_item_weight', 'weigh_item', 'weigh_item_polling', 'summary', 'success'
+    let wizardState = 'scan'; 
     
-    $: subCategoryName = (() => {
-        if (mainCategory && article.subcategoryId) {
-            const subCat = mainCategory.subcategories.find(s => s.id === article.subcategoryId);
-            return subCat ? subCat.name : "";
-        }
-        return "";
-    })();
+    // Daten-Speicher für den Durchlauf
+    let activeBarcode = '';
+    let boxWeight = 0;
+    let itemWeight = 0;
+    let tempTotalWeight = 0;
 
-    $: displayAttributes = (() => {
+    // Waagen Polling
+    let requestId = null;
+    let pollInterval = null;
+
+    // Konflikt States
+    let barcodeError = false; 
+    let showConflictModal = false;
+    let conflictingArticle = null;
+    let showUnlinkConflictConfirmation = false;
+    let showUnlinkConfirmation = false;
+    let scanInput = '';
+    let scanInputRef;
+
+    // Reaktive Attribute für das Konflikt-Modal
+    $: conflictDisplayAttributes = (() => {
         let arr = [];
-        if (article.attributes) {
-            for (const [attrId, value] of Object.entries(article.attributes)) {
+        if (conflictingArticle && conflictingArticle.attributes) {
+            for (const [attrId, value] of Object.entries(conflictingArticle.attributes)) {
                 const attrDef = attributes.find(a => a._id === attrId);
                 if (attrDef && value !== undefined && value !== "") {
                     const displayValue = Array.isArray(value) ? value.join(', ') : value;
@@ -39,268 +54,386 @@
         return arr;
     })();
 
-    $: originalStock = article.istBestand || 0;
-
-    // --- 2. Scanner & Modal States ---
-    let showScanner = false;
-    let showSuccess = false;
-    let showOverwriteWarning = false; 
-    let showUnlinkConfirmation = false;
-    let barcodeError = false; 
-    let lastScannedBarcode = '';
-
-    let scanInput = '';
-    let scanInputRef;
-
-    function openScanner() {
-        showScanner = true;
-        showSuccess = false;
-        showOverwriteWarning = false;
+    function openWizard() {
+        showModal = true;
+        wizardState = 'scan';
         barcodeError = false;
+        showConflictModal = false;
         scanInput = '';
         setTimeout(() => scanInputRef?.focus(), 100);
     }
 
-    function closeScanner() {
-        showScanner = false;
-        showSuccess = false;
-        showOverwriteWarning = false;
-        barcodeError = false;
-        scanInput = '';
-    }
-
-    function resetScannerAfterError() {
-        barcodeError = false;
-        scanInput = '';
-        setTimeout(() => scanInputRef?.focus(), 100);
+    function closeWizard() {
+        showModal = false;
+        if (pollInterval) clearInterval(pollInterval);
     }
 
     function focusOnInit(node) {
         node.focus();
         return { destroy() {} };
     }
+
+    // --- Die Waagen-Logik ---
+    function startPolling(step) {
+        if (pollInterval) clearInterval(pollInterval);
+        
+        pollInterval = setInterval(async () => {
+            try {
+                const res = await fetch(`/api/scale/${requestId}`);
+                const data = await res.json();
+
+                if (data.status === 'done' && data.weight !== null) {
+                    clearInterval(pollInterval);
+                    
+                    if (step === 'box') {
+                        boxWeight = data.weight;
+                        
+                        // Gabelung: Hat der Artikel schon ein Stückgewicht?
+                        if (article.attributes && article.attributes.itemWeight) {
+                            wizardState = 'ask_item_weight';
+                        } else {
+                            wizardState = 'weigh_item';
+                        }
+                    } else if (step === 'item') {
+                        tempTotalWeight = data.weight;
+                        itemWeight = Math.max(0.1, tempTotalWeight - boxWeight); 
+                        wizardState = 'summary';
+                    }
+                }
+            } catch (err) {
+                console.error("Polling Fehler", err);
+            }
+        }, 500);
+    }
+
+    onDestroy(() => {
+        if (pollInterval) clearInterval(pollInterval);
+    });
 </script>
 
 <div class="terminal-page space-grotesk">
     <div class="header">
         <div class="title-area">
-            <nav class="breadcrumb">
-                <span class="cat">{mainCategoryName}</span>
-                {#if subCategoryName}
-                    <span class="separator">/</span>
-                    <span class="cat">{subCategoryName}</span>
-                {/if}
-            </nav>
             <h1>{article.title}</h1>
         </div>
-        
-        <a href="/terminal/settings/assign" class="btn-back">
-            <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Zurück zur Übersicht
-        </a>
+        <a href="/terminal/settings/assign" class="btn-back">Zurück zur Übersicht</a>
     </div>
 
     <div class="article-layout">
-        
         <div class="left-column">
             <div class="image-section">
                 {#if article.imagePath}
                     <img src={article.imagePath} alt={article.title} class="main-image" >
                 {:else}
-                    <div class="no-image-placeholder">
-                        <span>Kein Artikelbild vorhanden</span>
-                    </div>
+                    <div class="no-image-placeholder">Kein Bild</div>
                 {/if}
             </div>
 
-            <button class="hardware-trigger-btn" on:click={openScanner}>
-                <span class="icon">📠</span>
-                Artikel Barcode zuweisen
+            <!-- BUTTON STARTET NUN DEN WIZARD -->
+            <button class="hardware-trigger-btn" on:click={openWizard}>
+                <span class="icon">📠</span> Barcode & Gewicht zuweisen
             </button>
 
             {#if article.assigned_barcode != null && String(article.assigned_barcode).trim() !== ''}
                 <button class="btn-unlink-secondary" on:click={() => showUnlinkConfirmation = true}>
-                    🗑️ Barcode-Verknüpfung entfernen
+                    🗑️ Verknüpfung entfernen
                 </button>
             {/if}
         </div>
 
         <div class="info-section">
-            <div class="price-stock-box">
-                {#if article.price}
-                    <div class="price">{article.price.toFixed(2)} CHF <span class="unit">/ Stk.</span></div>
-                {/if}
-                
-                <div class="stock-info" 
-                     class:low-stock={article.mindestBestand !== undefined && article.mindestBestand !== null && originalStock <= article.mindestBestand && originalStock > 0} 
-                     class:out-of-stock={originalStock === 0}>
-                    <span class="indicator"></span>
-                    {#if originalStock === 0}
-                        Nicht auf Lager
-                    {:else}
-                        {originalStock} Stück auf Lager
-                    {/if}
-                </div>
-            </div>
-
             <div class="drawer-highlight">
                 <span class="label">Zugewiesener Barcode</span>
                 <span class="value" style="font-size: 2rem; color: {article.assigned_barcode ? '#4ade80' : '#ffffff'};">
                     {article.assigned_barcode ? article.assigned_barcode : 'Nicht zugewiesen'}
                 </span>
             </div>
-
             <div class="meta-grid">
-                {#if article.supplier}
-                    <div class="meta-item">
-                        <span class="meta-label">Lieferant</span>
-                        <span class="meta-value">{article.supplier}</span>
-                    </div>
-                {/if}
-                {#if article.gtin}
-                    <div class="meta-item">
-                        <span class="meta-label">GTIN / EAN / Art.Nr.</span>
-                        <span class="meta-value">{article.gtin}</span>
-                    </div>
-                {/if}
                 <div class="meta-item">
-                    <span class="meta-label">Soll-Bestand</span>
-                    <span class="meta-value">{article.sollBestand !== undefined && article.sollBestand !== null ? article.sollBestand : '-'}</span>
+                    <!-- Das Fachgewicht anzeigen (falls geladen) -->
+                    <span class="meta-label">Aktuelles Tara (Fach)</span>
+                    <span class="meta-value">- g</span> <!-- Zeigen wir hier nur, wenn wir es aus den shelves laden -->
                 </div>
                 <div class="meta-item">
-                    <span class="meta-label">Mindestbestand</span>
-                    <span class="meta-value">{article.mindestBestand !== undefined && article.mindestBestand !== null ? article.mindestBestand : '-'}</span>
+                    <span class="meta-label">Einzel-Gewicht</span>
+                    <span class="meta-value">{article.attributes?.itemWeight ? `${article.attributes.itemWeight} g` : '-'}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Aktueller Bestand</span>
+                    <span class="meta-value">{originalStock} Stk.</span>
                 </div>
             </div>
-
-            {#if article.description}
-                <div class="description-box">
-                    <h3>Beschreibung</h3>
-                    <p>{article.description}</p>
-                </div>
-            {/if}
-
-            {#if displayAttributes.length > 0}
-                <div class="specs-section">
-                    <h3>Spezifikationen</h3>
-                    <div class="specs-grid">
-                        {#each displayAttributes as attr}
-                            <div class="spec-row">
-                                <span class="spec-label">{attr.label}</span>
-                                <span class="spec-value">{attr.value}{attr.unit}</span>
-                            </div>
-                        {/each}
-                    </div>
-                </div>
-            {/if}
         </div>
     </div>
 </div>
 
-{#if showScanner}
-    <div class="modal-backdrop" on:click={() => scanInputRef?.focus()}></div>
+<!-- ============================================== -->
+<!-- DER SETUP-WIZARD MODAL                         -->
+<!-- ============================================== -->
+{#if showModal}
+    <div class="modal-backdrop"></div>
     <div class="modal-window scan-modal">
         <div class="modal-header">
-            <h3>Barcode verknüpfen</h3>
-            <button class="btn-close-modal" on:click={closeScanner}>✕</button>
+            <h3>Setup-Assistent</h3>
+            <button class="btn-close-modal" on:click={closeWizard}>✕</button>
         </div>
         
-        <div class="modal-body" style="text-align: center; padding: 3rem 2rem;">
-            {#if showSuccess}
-                <div style="font-size: 5rem; margin-bottom: 1rem;">✅</div>
-                <h2 style="color: #22c55e; margin-bottom: 0.5rem;">Erfolgreich!</h2>
-                <p style="color: #94a3b8; font-size: 1.1rem;">Der Artikel wurde verknüpft.</p>
+        <div class="modal-body" style="text-align: center; padding: 2rem;">
             
-            {:else if barcodeError}
-                <div class="warning-box">
-                    <span class="warning-icon">❌</span>
-                    <div>
-                        <h4>Unbekannter Barcode!</h4>
-                        <p>Der Barcode <strong class="highlight-code">{lastScannedBarcode}</strong> wurde im System nicht gefunden.</p>
-                        <p style="margin-top: 0.5rem;">Ein Fach mit diesem Barcode muss zuerst unter <strong>Fächer anlernen</strong> hinzugefügt werden.</p>
+            <!-- SCHRITT 1: SCANNER -->
+            {#if wizardState === 'scan'}
+                {#if barcodeError}
+                    <div class="warning-box">
+                        <span class="warning-icon">❌</span>
+                        <div><h4>Unbekannter Barcode!</h4><p>Der Barcode wurde im System nicht gefunden.</p></div>
                     </div>
-                </div>
-                <div class="button-row" style="margin-top: 2rem;">
-                    <button type="button" class="btn-cancel" style="background: transparent; border: 1px solid #475569;" on:click={closeScanner}>Abbrechen</button>
-                    <button type="button" class="btn-primary" on:click={resetScannerAfterError}>Erneut scannen</button>
-                </div>
+                    <button class="btn-primary" style="margin-top: 1rem;" on:click={() => {barcodeError=false; scanInput=''; setTimeout(() => scanInputRef?.focus(), 100);}}>Erneut scannen</button>
+                {:else}
+                    <div class="step-indicator">Schritt 1 von 3</div>
+                    <div style="font-size: 4rem; margin-bottom: 1rem;">📠</div>
+                    <h2 style="color: #38bdf8;">1. Barcode scannen</h2>
+                    <p style="color: #94a3b8;">Scanne den Barcode des Regalfachs.</p>
 
-            {:else}
-                <h2 style="color: #38bdf8; margin: 0 0 1rem 0; font-size: 1.5rem;">{article.title}</h2>
+                    <form method="POST" action="?/checkBarcode" use:enhance={() => {
+                        return async ({ result, update }) => {
+                            if (result.data && !result.data.success) {
+                                if (result.data.error === 'not_in_shelves') { barcodeError = true; return; }
+                                if (result.data.error === 'already_assigned') {
+                                    conflictingArticle = result.data.conflictingArticle;
+                                    showConflictModal = true; showModal = false; return;
+                                }
+                            }
+                            // Erfolg! Barcode speichern und zu Schritt 2 gehen
+                            activeBarcode = result.data.barcode;
+                            wizardState = 'weigh_box';
+                        };
+                    }}>
+                        <input bind:this={scanInputRef} bind:value={scanInput} type="text" name="barcode" class="hidden-scan-input" required use:focusOnInit>
+                        <button type="submit" style="display: none;"></button>
+                    </form>
+                {/if}
 
-                <form method="POST" action="?/linkArticle" use:enhance={({ cancel }) => {
-                    if (article.assigned_barcode && !showOverwriteWarning) {
-                        cancel(); 
-                        if (scanInput.trim() !== '') {
-                            showOverwriteWarning = true; 
+            <!-- SCHRITT 2: FACH WIEGEN -->
+            {:else if wizardState === 'weigh_box'}
+                <div class="step-indicator">Schritt 2 von 3</div>
+                <div style="font-size: 4rem; margin-bottom: 1rem;">📦</div>
+                <h2 style="color: #f59e0b;">2. Leeres Fach wiegen (Tara)</h2>
+                <p style="color: #94a3b8; font-size: 1.1rem;">Nimm das leere Fach aus dem Regal und stelle es auf die Waage.</p>
+
+                <form method="POST" action="?/requestScale" use:enhance={() => {
+                    wizardState = 'weigh_box_polling';
+                    return async ({ result }) => {
+                        if(result.data.success) {
+                            requestId = result.data.requestId;
+                            startPolling('box');
                         }
-                        return;
-                    }
-                    
-                    return async ({ result, update }) => {
-                        if (result.data && result.data.success === false && result.data.error === 'not_in_shelves') {
-                            barcodeError = true;
-                            lastScannedBarcode = scanInput; 
-                            scanInput = ''; 
-                            return; 
-                        }
-
-                        await update();
-                        await invalidateAll(); 
-                        showSuccess = true;
-                        showOverwriteWarning = false;
-                        barcodeError = false;
-                        setTimeout(() => { closeScanner(); }, 2000);
                     };
                 }}>
-                    <input type="hidden" name="articleId" value={article._id} >
-                    
-                    {#if showOverwriteWarning}
-                        <div class="warning-box" style="border-color: #f59e0b; background: rgba(245, 158, 11, 0.1);">
-                            <span class="warning-icon">⚠️</span>
-                            <div>
-                                <h4 style="color: #f59e0b;">Achtung: Artikel wird neu zugewiesen!</h4>
-                                <p>Dieser Artikel ist bereits mit dem Barcode <strong>{article.assigned_barcode}</strong> verknüpft.</p>
-                                <p style="margin-top: 0.5rem;">Soll er nun fest mit dem Barcode <strong class="highlight-code">{scanInput}</strong> überschrieben werden?</p>
-                            </div>
-                        </div>
-
-                        <input type="hidden" name="barcode" value={scanInput} >
-
-                        <div class="button-row" style="margin-top: 2rem;">
-                            <button type="button" class="btn-cancel" on:click={() => {
-                                showOverwriteWarning = false;
-                                scanInput = '';
-                                setTimeout(() => scanInputRef?.focus(), 100);
-                            }}>
-                                Abbrechen
-                            </button>
-                            <button type="submit" class="btn-primary" style="background: #f59e0b; color: #000;">Ja, überschreiben</button>
-                        </div>
-                    {:else}
-                        <div class="scanner-prompt pulse-anim">
-                            <div style="font-size: 4rem; margin-bottom: 1rem;">📠</div>
-                            <h3 style="color: #22c55e; font-size: 1.5rem; margin: 0;">Warte auf Scanner...</h3>
-                        </div>
-
-                        <input 
-                            bind:this={scanInputRef}
-                            bind:value={scanInput}
-                            type="text" 
-                            name="barcode"
-                            class="hidden-scan-input"
-                            required
-                            use:focusOnInit
-                        >
-                        <button type="submit" style="display: none;">Verknüpfen</button>
-                    {/if}
+                    <button type="submit" class="btn-primary huge-btn" style="margin-top: 2rem;">Waage starten</button>
                 </form>
+
+            {:else if wizardState === 'weigh_box_polling'}
+                <div class="scale-animation">
+                    <div class="spinner"></div>
+                    <h2>Messe Leergewicht...</h2>
+                    <p>Bitte das Fach ruhig auf der Waage stehen lassen.</p>
+                </div>
+
+            <!-- SCHRITT 3a: ABFRAGE (Nur wenn Stückgewicht schon bekannt) -->
+            {:else if wizardState === 'ask_item_weight'}
+                <div class="step-indicator">Schritt 3 von 3</div>
+                <div style="font-size: 4rem; margin-bottom: 1rem;">⚖️</div>
+                <h2 style="color: #22c55e;">Stückgewicht bekannt</h2>
+                <p style="color: #94a3b8; font-size: 1.1rem;">In der Datenbank ist für diesen Artikel bereits ein Gewicht von <strong>{article.attributes.itemWeight} g</strong> pro Stück hinterlegt.</p>
+
+                <div style="display: flex; flex-direction: column; gap: 1rem; margin-top: 2rem;">
+                    <button type="button" class="btn-primary huge-btn" style="background: #22c55e;" on:click={() => {
+                        itemWeight = parseFloat(article.attributes.itemWeight);
+                        wizardState = 'summary';
+                    }}>
+                        ✅ Bekanntes Gewicht nutzen ({article.attributes.itemWeight} g)
+                    </button>
+                    <button type="button" class="btn-cancel" style="padding: 1rem; font-size: 1.1rem; width: 100%; border-radius: 12px;" on:click={() => wizardState = 'weigh_item'}>
+                        🔄 Nein, Gewicht neu messen
+                    </button>
+                </div>
+
+            <!-- SCHRITT 3b: ARTIKEL WIEGEN (Wenn neues Gewicht benötigt) -->
+            {:else if wizardState === 'weigh_item'}
+                <div class="step-indicator">Schritt 3 von 3</div>
+                <div style="font-size: 4rem; margin-bottom: 1rem;">🔩</div>
+                <h2 style="color: #22c55e;">3. Einzelgewicht ermitteln</h2>
+                <p style="color: #94a3b8; font-size: 1.1rem;">Lege nun <strong>exakt 1 Stück</strong> des Artikels in das Fach auf der Waage.</p>
+
+                <form method="POST" action="?/requestScale" use:enhance={() => {
+                    wizardState = 'weigh_item_polling';
+                    return async ({ result }) => {
+                        if(result.data.success) {
+                            requestId = result.data.requestId;
+                            startPolling('item');
+                        }
+                    };
+                }}>
+                    <button type="submit" class="btn-primary huge-btn" style="margin-top: 2rem;">Waage starten</button>
+                </form>
+
+            {:else if wizardState === 'weigh_item_polling'}
+                <div class="scale-animation">
+                    <div class="spinner"></div>
+                    <h2>Messe Gesamtgewicht...</h2>
+                    <p>Berechne das Einzelgewicht des Artikels.</p>
+                </div>
+
+            <!-- SCHRITT 4: ZUSAMMENFASSUNG & SPEICHERN -->
+            {:else if wizardState === 'summary'}
+                <h2 style="color: #38bdf8; margin-bottom: 2rem;">Zusammenfassung</h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="label">Barcode</span>
+                        <span class="value" style="color: #f8fafc; font-size: 1.2rem;">{activeBarcode}</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Leeres Fach (Tara)</span>
+                        <span class="value" style="color: #f59e0b;">{boxWeight} g</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="label">Einzelgewicht</span>
+                        <span class="value" style="color: #22c55e;">{itemWeight.toFixed(1)} g</span>
+                    </div>
+                </div>
+
+                <form method="POST" action="?/saveAll" use:enhance={() => {
+                    return async ({ update }) => {
+                        await update();
+                        await invalidateAll();
+                        wizardState = 'success';
+                        setTimeout(() => closeWizard(), 3000);
+                    };
+                }}>
+                    <input type="hidden" name="articleId" value={article._id}>
+                    <input type="hidden" name="barcode" value={activeBarcode}>
+                    <input type="hidden" name="boxWeight" value={boxWeight}>
+                    <input type="hidden" name="itemWeight" value={itemWeight.toFixed(1)}>
+                    
+                    <button type="submit" class="btn-primary huge-btn" style="margin-top: 2rem; background: #22c55e;">
+                        Alles speichern & Verknüpfen
+                    </button>
+                    <button type="button" class="btn-cancel" style="margin-top: 1rem; width: 100%;" on:click={() => wizardState = 'scan'}>Abbrechen & Neu starten</button>
+                </form>
+
+            <!-- ERFOLG -->
+            {:else if wizardState === 'success'}
+                <div style="font-size: 5rem; margin-bottom: 1rem;">✅</div>
+                <h2 style="color: #22c55e;">Setup abgeschlossen!</h2>
+                <p style="color: #94a3b8;">Barcode und Gewichte wurden erfolgreich im Artikel hinterlegt.</p>
             {/if}
         </div>
     </div>
 {/if}
 
-{#if showUnlinkConfirmation}
+<!-- ============================================== -->
+<!-- KONFLIKT-MODAL (DOPPELBELEGUNG)                -->
+<!-- ============================================== -->
+{#if showConflictModal && conflictingArticle}
+    <div class="modal-overlay">
+        <div class="modal-content conflict-large-modal">
+            <div class="modal-header" style="border-bottom: 1px solid #ef4444; padding-bottom: 1rem;">
+                <h2 style="color: #ef4444; margin: 0;">⚠️ Doppelbelegung blockiert!</h2>
+                <button class="btn-close-modal" on:click={() => { showConflictModal = false; openWizard(); }}>✕</button>
+            </div>
+
+            <!-- Fehlermeldung oben drüber -->
+            <div class="warning-box" style="margin: 1.5rem 0;">
+                <span class="warning-icon">❌</span>
+                <div>
+                    <h4>Der Barcode ist bereits vergeben</h4>
+                    <p>Er ist aktuell fest dem Artikel <strong>{conflictingArticle.title}</strong> zugewiesen. Du musst die Zuweisung dort erst aufheben, bevor du ihn verwenden kannst.</p>
+                </div>
+            </div>
+
+            {#if !showUnlinkConflictConfirmation}
+                <div class="article-layout" style="text-align: left; margin-top: 1rem;">
+                    <div class="left-column" style="flex: 0 0 250px;">
+                        <div class="image-section" style="height: 220px;">
+                            {#if conflictingArticle.imagePath}
+                                <img src={conflictingArticle.imagePath} alt={conflictingArticle.title} class="main-image" >
+                            {:else}
+                                <div class="no-image-placeholder">Kein Bild</div>
+                            {/if}
+                        </div>
+                        <button type="button" class="btn-danger" style="width: 100%; padding: 1rem; margin-top: 1rem;" on:click={() => showUnlinkConflictConfirmation = true}>
+                            🗑️ Verknüpfung hier aufheben
+                        </button>
+                    </div>
+
+                    <div class="info-section" style="max-height: 400px; overflow-y: auto; padding-right: 0.5rem;">
+                        <h2 style="color: #38bdf8; margin: 0;">{conflictingArticle.title}</h2>
+                        <p style="color: #94a3b8; font-family: monospace;">SKU: {conflictingArticle.sku || '-'}</p>
+                        
+                        {#if conflictingArticle.description}
+                            <div class="description-box" style="margin-top: 1rem;">
+                                <h3 style="font-size: 1.1rem; margin-bottom: 0.3rem;">Beschreibung</h3>
+                                <p style="font-size: 0.95rem; color: #cbd5e1;">{conflictingArticle.description}</p>
+                            </div>
+                        {/if}
+
+                        {#if conflictDisplayAttributes.length > 0}
+                            <div class="specs-section" style="margin-top: 1.5rem;">
+                                <h3 style="font-size: 1.1rem; margin-bottom: 0.5rem;">Spezifikationen</h3>
+                                <div class="specs-grid">
+                                    {#each conflictDisplayAttributes as attr}
+                                        <div class="spec-row" style="font-size: 0.95rem; padding: 0.6rem 1rem;">
+                                            <span class="spec-label">{attr.label}</span>
+                                            <span class="spec-value">{attr.value}{attr.unit}</span>
+                                        </div>
+                                    {/each}
+                                </div>
+                            </div>
+                        {/if}
+                    </div>
+                </div>
+                
+                <div class="button-row" style="margin-top: 2rem; justify-content: flex-end;">
+                    <button type="button" class="btn-cancel" on:click={() => { showConflictModal = false; openWizard(); }}>Abbrechen & Zurück zum Scan</button>
+                </div>
+            {:else}
+                <div style="padding: 2rem 1rem;">
+                    <div class="warning-box" style="border-color: #ef4444; background: rgba(239, 68, 68, 0.15); margin-bottom: 2rem;">
+                        <span class="warning-icon" style="font-size: 2.5rem;">⚠️</span>
+                        <div>
+                            <h3 style="color: #ef4444; margin: 0 0 0.5rem 0;">Bist du absolut sicher?</h3>
+                            <p>Du löst gerade den Barcode vom Artikel <strong>{conflictingArticle.title}</strong> ab.</p>
+                            <p style="margin-top: 0.5rem; font-weight: bold; color: #fca5a5;">Konsequenz: Dieser Artikel kann ab sofort physisch NICHT MEHR per Pick-by-Light im Regal aufleuchten!</p>
+                        </div>
+                    </div>
+
+                    <form method="POST" action="?/unlinkBarcode" use:enhance={() => {
+                        return async ({ update }) => {
+                            await update();
+                            await invalidateAll(); 
+                            showUnlinkConflictConfirmation = false;
+                            showConflictModal = false;
+                            openWizard(); 
+                        };
+                    }}>
+                        <input type="hidden" name="articleId" value={conflictingArticle._id} >
+
+                        <div class="button-row">
+                            <button type="button" class="btn-cancel" on:click={() => showUnlinkConflictConfirmation = false}>Abbrechen</button>
+                            <button type="submit" class="btn-danger" style="font-size: 1.2rem; padding: 1rem 2rem;">Endgültig entfernen & Platz freigeben</button>
+                        </div>
+                    </form>
+                </div>
+            {/if}
+        </div>
+    </div>
+{/if}
+
+<!-- ============================================== -->
+<!-- MODAL: LÖSCHEN AUS DER HAUPTANSICHT            -->
+<!-- ============================================== -->
+{#if showUnlinkConfirmation && !showModal}
     <div class="modal-backdrop" on:click={() => showUnlinkConfirmation = false}></div>
     <div class="modal-window scan-modal">
         <div class="modal-header">
@@ -314,7 +447,6 @@
                 <div>
                     <h4 style="color: #ef4444;">Verknüpfung wirklich aufheben?</h4>
                     <p>Der Barcode <strong>{article.assigned_barcode}</strong> wird unwiderruflich von diesem Artikel gelöst.</p>
-                    <p style="margin-top: 0.5rem;">Der Artikel ist danach physisch <strong>nicht mehr</strong> über das Pick-by-Light System auffindbar!</p>
                 </div>
             </div>
 
@@ -328,9 +460,7 @@
                 <input type="hidden" name="articleId" value={article._id} >
 
                 <div class="button-row" style="margin-top: 2rem;">
-                    <button type="button" class="btn-cancel" on:click={() => showUnlinkConfirmation = false}>
-                        Abbrechen
-                    </button>
+                    <button type="button" class="btn-cancel" on:click={() => showUnlinkConfirmation = false}>Abbrechen</button>
                     <button type="submit" class="btn-danger">Endgültig entfernen</button>
                 </div>
             </form>
@@ -341,93 +471,72 @@
 <style>
     /* Generelles Layout - Terminal Dark Mode */
     .terminal-page { max-width: 1400px; margin: 0 auto; padding: 1rem 2rem; color: #f8fafc; }
-
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
-    .title-area h1 { margin: 0.5rem 0 0 0; font-size: 2.5rem; color: #22c55e; line-height: 1.2; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; border-bottom: 1px solid #334155; padding-bottom: 1.5rem;}
+    h1 { color: #22c55e; margin: 0; font-size: 2.5rem; }
+    .btn-back { background: #1e293b; color: white; padding: 1rem 1.5rem; border-radius: 12px; border: 1px solid #475569; text-decoration: none; font-weight: bold; }
     
-    .breadcrumb { display: flex; align-items: center; gap: 0.5rem; font-size: 1.1rem; color: #94a3b8; }
-    .separator { color: #475569; }
-    .cat { font-weight: 600; color: #cbd5e1; }
-
-    .btn-back { display: inline-flex; align-items: center; gap: 0.5rem; background: #1e293b; color: #f8fafc; border: 1px solid #475569; padding: 1rem 1.5rem; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 1.2rem; transition: all 0.2s; }
-    .btn-back:hover { background: #334155; border-color: #64748b; }
-
     .article-layout { display: flex; gap: 3rem; align-items: flex-start; }
     .left-column { flex: 0 0 450px; display: flex; flex-direction: column; gap: 1.5rem; position: sticky; top: 2rem; }
-    .image-section { background: #ffffff; border-radius: 16px; padding: 2rem; display: flex; align-items: center; justify-content: center; height: 400px; border: 2px solid #334155; }
+    .image-section { background: white; border-radius: 16px; height: 350px; display: flex; align-items: center; justify-content: center; }
     .main-image { max-width: 100%; max-height: 100%; object-fit: contain; }
-    .no-image-placeholder { color: #94a3b8; font-size: 1.2rem; font-weight: 500; }
-
-    .hardware-trigger-btn { width: 100%; background: #3b82f6; color: white; border: none; padding: 2.5rem 2rem; border-radius: 16px; font-size: 1.5rem; font-weight: bold; cursor: pointer; display: flex; justify-content: center; align-items: center; gap: 1rem; transition: all 0.2s; box-shadow: 0 8px 20px rgba(59, 130, 246, 0.25); }
-    .hardware-trigger-btn:hover { background: #2563eb; transform: translateY(-3px); }
-
-    .btn-unlink-secondary { width: 100%; background: transparent; color: #ef4444; border: 2px dashed #ef4444; padding: 1.2rem; border-radius: 12px; font-size: 1.1rem; font-weight: bold; cursor: pointer; transition: all 0.2s; margin-top: 1rem; }
-    .btn-unlink-secondary:hover { background: rgba(239, 68, 68, 0.1); transform: translateY(-2px); }
-
-    .info-section { flex: 1; display: flex; flex-direction: column; gap: 2rem; }
-    .price-stock-box { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
-    .price { font-size: 2.5rem; font-weight: 700; color: #38bdf8; }
-    .price .unit { font-size: 1.2rem; color: #94a3b8; font-weight: 500; }
-
-    .stock-info { display: inline-flex; align-items: center; gap: 0.8rem; font-weight: bold; font-size: 1.3rem; color: #86efac; background: rgba(34, 197, 94, 0.15); padding: 0.8rem 1.5rem; border-radius: 12px; border: 1px solid #22c55e; }
-    .indicator { width: 14px; height: 14px; border-radius: 50%; background: #22c55e; }
-    .stock-info.low-stock { color: #fca5a5; background: rgba(239, 68, 68, 0.15); border-color: #ef4444; }
-    .stock-info.low-stock .indicator { background: #ef4444; }
-    .stock-info.out-of-stock { color: #fca5a5; background: rgba(239, 68, 68, 0.15); border-color: #ef4444; }
-    .stock-info.out-of-stock .indicator { background: #ef4444; }
-
+    .no-image-placeholder { color: #94a3b8; font-size: 1.2rem; font-weight: bold; }
+    
+    .hardware-trigger-btn { background: #3b82f6; color: white; border: none; padding: 2rem; border-radius: 16px; font-size: 1.3rem; font-weight: bold; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 1rem; box-shadow: 0 8px 20px rgba(59, 130, 246, 0.25); transition: background 0.2s; }
+    .hardware-trigger-btn:hover { background: #2563eb; }
+    .btn-unlink-secondary { background: transparent; color: #ef4444; border: 2px dashed #ef4444; padding: 1.2rem; border-radius: 12px; font-weight: bold; cursor: pointer; font-size: 1.1rem; }
+    
+    .info-section { flex: 1; display: flex; flex-direction: column; gap: 1.5rem; }
     .drawer-highlight { background: rgba(59, 130, 246, 0.1); border: 2px solid #3b82f6; padding: 1.5rem; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; }
-    .drawer-highlight .label { color: #93c5fd; font-size: 1.2rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .drawer-highlight .value { font-size: 3rem; font-weight: bold; color: #ffffff; }
-
+    .drawer-highlight .label { color: #93c5fd; font-weight: bold; text-transform: uppercase; font-size: 1.2rem; }
     .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; background: #1e293b; padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; }
-    .meta-item { display: flex; flex-direction: column; gap: 0.4rem; }
-    .meta-label { font-size: 0.9rem; color: #94a3b8; text-transform: uppercase; font-weight: 600; }
-    .meta-value { font-weight: 600; color: #f8fafc; font-size: 1.1rem; }
+    .meta-item { display: flex; flex-direction: column; gap: 0.5rem; }
+    .meta-label { color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; font-weight: bold; }
+    .meta-value { font-size: 1.2rem; font-weight: bold; color: white; }
 
-    .description-box h3, .specs-section h3 { font-size: 1.5rem; color: #f8fafc; margin: 0 0 1rem 0; border-bottom: 2px solid #334155; padding-bottom: 0.8rem; }
-    .description-box p { line-height: 1.6; color: #cbd5e1; margin: 0; white-space: pre-wrap; font-size: 1.1rem; }
-
-    .specs-grid { display: flex; flex-direction: column; background: #1e293b; border-radius: 12px; border: 1px solid #334155; overflow: hidden; }
-    .spec-row { display: flex; padding: 1rem 1.5rem; border-bottom: 1px solid #334155; font-size: 1.1rem; }
-    .spec-row:last-child { border-bottom: none; }
-    .spec-row:nth-child(even) { background: #0f172a; }
-    .spec-label { width: 40%; color: #94a3b8; font-weight: 600; }
-    .spec-value { color: #f8fafc; font-weight: 600; }
-
-    /* Modals & Scanner Styles */
-    .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; }
-    .modal-window { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1e293b; border: 1px solid #475569; width: 90%; border-radius: 12px; z-index: 1001; }
+    /* Modals & Wizard */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: flex; justify-content: center; align-items: center; }
+    .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 1000; }
+    .modal-window, .modal-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1e293b; border: 1px solid #475569; border-radius: 16px; z-index: 1001; }
+    .scan-modal { width: 90%; max-width: 600px; }
+    .conflict-large-modal { position: relative; top: auto; left: auto; transform: none; width: 95%; max-width: 900px; max-height: 90vh; overflow-y: auto; }
+    
     .modal-header { display: flex; justify-content: space-between; padding: 1.5rem; border-bottom: 1px solid #334155; }
-    .modal-header h3 { margin: 0; color: white; }
+    .modal-header h3 { margin: 0; color: white; font-size: 1.2rem; }
     .btn-close-modal { background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; }
     
-    .scan-modal { max-width: 600px; }
-    .pulse-anim { animation: pulse 2s infinite; }
+    .step-indicator { display: inline-block; background: #334155; color: #cbd5e1; padding: 0.4rem 1rem; border-radius: 20px; font-weight: bold; font-size: 0.9rem; margin-bottom: 1.5rem; }
     .hidden-scan-input { opacity: 0; position: absolute; height: 1px; width: 1px; z-index: -1; }
     
-    /* Warnungs- & Fehler-Styles */
-    .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; text-align: left; margin-bottom: 1.5rem; }
+    .huge-btn { width: 100%; padding: 1.5rem; font-size: 1.2rem; border-radius: 12px; font-weight: bold; cursor: pointer; border: none; color: white; background: #3b82f6; transition: background 0.2s; }
+    .huge-btn:hover { background: #2563eb; }
+    .btn-cancel { background: transparent; border: 1px solid #475569; color: #94a3b8; padding: 1rem; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    .btn-primary { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 1.1rem; }
+    .btn-danger { background: #ef4444; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    
+    .button-row { display: flex; gap: 1rem; justify-content: center; }
+
+    /* Warnings & Alerts */
+    .warning-box { background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; border-radius: 8px; padding: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; text-align: left; }
     .warning-icon { font-size: 2rem; line-height: 1; }
     .warning-box h4 { margin: 0 0 0.5rem 0; color: #ef4444; font-size: 1.2rem; }
     .warning-box p { margin: 0; color: #cbd5e1; font-size: 1.1rem; line-height: 1.4; }
-    .highlight-code { color: #f8fafc; background: #334155; padding: 0.2rem 0.5rem; border-radius: 4px; font-family: monospace; font-size: 1.2rem; }
+    
+    /* Waage-Animation */
+    .scale-animation { padding: 3rem 2rem; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border: 1px dashed #3b82f6; margin-top: 1.5rem; }
+    .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem auto; }
+    
+    /* Summary Grid */
+    .stats-grid { display: flex; justify-content: center; gap: 1rem; margin-bottom: 2rem; }
+    .stat-box { flex: 1; display: flex; flex-direction: column; background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #334155; }
+    .stat-box .label { color: #94a3b8; font-size: 0.8rem; text-transform: uppercase; margin-bottom: 0.5rem; }
+    .stat-box .value { font-size: 1.5rem; font-weight: bold; }
 
-    .button-row { display: flex; gap: 1rem; justify-content: center; }
-    .btn-cancel { background: #334155; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.2s; font-size: 1.1rem; }
-    .btn-cancel:hover { background: #475569; }
-    .btn-primary { background: #3b82f6; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.2s; font-size: 1.1rem; }
-    .btn-primary:hover { background: #2563eb; }
-    .btn-danger { background: #ef4444; color: white; border: none; padding: 1rem 2rem; border-radius: 8px; font-weight: bold; cursor: pointer; transition: background 0.2s; font-size: 1.1rem; }
-    .btn-danger:hover { background: #dc2626; }
+    /* Spezifikationen im Konflikt-Modal */
+    .specs-grid { display: flex; flex-direction: column; background: #0f172a; border-radius: 8px; border: 1px solid #334155; overflow: hidden; }
+    .spec-row { display: flex; border-bottom: 1px solid #334155; }
+    .spec-row:last-child { border-bottom: none; }
+    .spec-label { width: 40%; color: #94a3b8; font-weight: 600; }
+    .spec-value { color: #f8fafc; font-weight: 600; }
 
-    @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-
-    @media (max-width: 1024px) {
-        .article-layout { flex-direction: column; }
-        .left-column { flex: auto; width: 100%; position: static; }
-        .image-section { height: 350px; }
-        .header { flex-direction: column; align-items: flex-start; gap: 1.5rem; }
-        .btn-back { align-self: flex-start; width: 100%; justify-content: center; }
-    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 </style>

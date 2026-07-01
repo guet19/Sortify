@@ -1,13 +1,8 @@
 <script>
+    import { assignFilterStore } from '$lib/filterStore.js';
+
     export let data;
     const { categories = [], articles = [], attributes = [] } = data;
-
-    // --- FILTER STATES ---
-    let searchQuery = "";
-    let selectedMainCategoryId = "";
-    let selectedSubcategoryId = "";
-    let currentSort = "name_asc";
-    let barcodeFilter = "all"; 
     
     let rangeWarnings = {};
     let rangeWarningTimeouts = {};
@@ -22,36 +17,36 @@
         })
         .map(cat => ({ value: cat._id, label: cat.name }));
 
-    $: selectedMainCategory = categories.find(cat => cat._id === selectedMainCategoryId) || null;
+    $: selectedMainCategory = categories.find(cat => cat._id === $assignFilterStore.selectedMainCategoryId) || null;
     $: availableSubcategories = selectedMainCategory ? selectedMainCategory.subcategories : [];
     
     $: subCategoryOptions = availableSubcategories
         .filter(sub => 
-            articles.some(article => article.mainCategoryId === selectedMainCategoryId && article.subcategoryId === sub.id)
+            articles.some(article => article.mainCategoryId === $assignFilterStore.selectedMainCategoryId && article.subcategoryId === sub.id)
         )
         .map(sub => ({ value: sub.id, label: sub.name }));
 
-    let previousMain = "";
-    $: if (selectedMainCategoryId !== previousMain) {
-        selectedSubcategoryId = "";
-        previousMain = selectedMainCategoryId;
+    let previousMain = $assignFilterStore.selectedMainCategoryId;
+    $: if ($assignFilterStore.selectedMainCategoryId !== previousMain) {
+        $assignFilterStore.selectedSubcategoryId = "";
+        previousMain = $assignFilterStore.selectedMainCategoryId;
     }
 
     // 2. BASIS-FILTER
     $: baseFilteredArticles = articles.filter(article => {
-        const searchStr = (searchQuery || "").toLowerCase();
+        const searchStr = ($assignFilterStore.searchQuery || "").toLowerCase();
         const safeTitle = article.title || "";
         const safeGtin = article.gtin || "";
         
         const matchSearch = safeTitle.toLowerCase().includes(searchStr) || 
                             safeGtin.toLowerCase().includes(searchStr);
                             
-        const matchMainCategory = selectedMainCategoryId === "" || article.mainCategoryId === selectedMainCategoryId;
-        const matchSubCategory = selectedSubcategoryId === "" || article.subcategoryId === selectedSubcategoryId;
+        const matchMainCategory = $assignFilterStore.selectedMainCategoryId === "" || article.mainCategoryId === $assignFilterStore.selectedMainCategoryId;
+        const matchSubCategory = $assignFilterStore.selectedSubcategoryId === "" || article.subcategoryId === $assignFilterStore.selectedSubcategoryId;
         
         let matchBarcode = true;
-        if (barcodeFilter === "unassigned") matchBarcode = !article.assigned_barcode;
-        if (barcodeFilter === "assigned") matchBarcode = !!article.assigned_barcode;
+        if ($assignFilterStore.barcodeFilter === "unassigned") matchBarcode = !article.assigned_barcode;
+        if ($assignFilterStore.barcodeFilter === "assigned") matchBarcode = !!article.assigned_barcode;
 
         return matchSearch && matchMainCategory && matchSubCategory && matchBarcode;
     });
@@ -64,7 +59,7 @@
             const valueSet = new Set();
             
             const articlesForThisAttr = baseFilteredArticles.filter(article => {
-                for (const [otherAttrId, selectedValues] of Object.entries(selectedAttributeFilters)) {
+                for (const [otherAttrId, selectedValues] of Object.entries($assignFilterStore.selectedAttributeFilters)) {
                     if (otherAttrId === attrId) continue; 
                     if (selectedValues && selectedValues.length > 0) {
                         const articleValue = article.attributes ? article.attributes[otherAttrId] : undefined;
@@ -76,7 +71,7 @@
                         }
                     }
                 }
-                for (const [otherAttrId, range] of Object.entries(activeRangeFilters)) {
+                for (const [otherAttrId, range] of Object.entries($assignFilterStore.activeRangeFilters)) {
                     if (otherAttrId === attrId) continue;
                     if (!article.attributes || article.attributes[otherAttrId] === undefined) return false;
                     const val = parseFloat(String(article.attributes[otherAttrId]).replace(',', '.'));
@@ -93,8 +88,8 @@
                 }
             });
 
-            const isModalActive = selectedAttributeFilters[attrId] && selectedAttributeFilters[attrId].length > 0;
-            const isRangeActive = activeRangeFilters[attrId] !== undefined;
+            const isModalActive = $assignFilterStore.selectedAttributeFilters[attrId] && $assignFilterStore.selectedAttributeFilters[attrId].length > 0;
+            const isRangeActive = $assignFilterStore.activeRangeFilters[attrId] !== undefined;
 
             if (valueSet.size > 1 || isModalActive || isRangeActive) {
                 const optionsArr = Array.from(valueSet);
@@ -105,7 +100,7 @@
                     if (numValues.length > 0) {
                         const min = Math.floor(Math.min(...numValues));
                         const max = Math.ceil(Math.max(...numValues));
-                        if (min < max || activeRangeFilters[attrId]) {
+                        if (min < max || $assignFilterStore.activeRangeFilters[attrId]) {
                             result.push({ id: attrId, label: attrDef.label, type: 'range', absMin: min, absMax: max, unit: unitStr });
                         }
                     }
@@ -128,8 +123,6 @@
     );
 
     // 4. DETAIL-FILTER STATES & MODAL
-    let selectedAttributeFilters = {}; 
-    let activeRangeFilters = {};       
     let activeFilterModal = null;    
     let tempSelectedOptions = [];    
     let modalSearchQuery = "";
@@ -138,38 +131,57 @@
         ? activeFilterModal.options.filter(opt => String(opt || "").toLowerCase().includes((modalSearchQuery || "").toLowerCase()))
         : [];
 
-    function openFilterModal(filter) { activeFilterModal = filter; tempSelectedOptions = selectedAttributeFilters[filter.id] ? [...selectedAttributeFilters[filter.id]] : []; modalSearchQuery = ""; }
+    function openFilterModal(filter) { 
+        activeFilterModal = filter; 
+        tempSelectedOptions = $assignFilterStore.selectedAttributeFilters[filter.id] ? [...$assignFilterStore.selectedAttributeFilters[filter.id]] : []; 
+        modalSearchQuery = ""; 
+    }
     function closeFilterModal() { activeFilterModal = null; tempSelectedOptions = []; modalSearchQuery = ""; }
     function toggleTempOption(opt) { tempSelectedOptions = tempSelectedOptions.includes(opt) ? tempSelectedOptions.filter(v => v !== opt) : [...tempSelectedOptions, opt]; }
     function deselectAllTempOptions() { tempSelectedOptions = []; }
     
     function confirmFilterModal() {
-        if (tempSelectedOptions.length > 0) selectedAttributeFilters[activeFilterModal.id] = [...tempSelectedOptions];
-        else delete selectedAttributeFilters[activeFilterModal.id];
-        selectedAttributeFilters = { ...selectedAttributeFilters }; 
+        if (tempSelectedOptions.length > 0) {
+            $assignFilterStore.selectedAttributeFilters[activeFilterModal.id] = [...tempSelectedOptions];
+        } else {
+            delete $assignFilterStore.selectedAttributeFilters[activeFilterModal.id];
+        }
+        $assignFilterStore.selectedAttributeFilters = { ...$assignFilterStore.selectedAttributeFilters }; 
         closeFilterModal();
     }
 
     function updateRange(attrId, type, rawValue, absMin, absMax, event = null) {
         let val = parseFloat(String(rawValue).replace(',', '.'));
         if (isNaN(val)) return;
-        if (!activeRangeFilters[attrId]) activeRangeFilters[attrId] = { min: absMin, max: absMax };
-        if (type === 'min') {
-            if (val > activeRangeFilters[attrId].max) val = activeRangeFilters[attrId].max;
-            activeRangeFilters[attrId].min = val;
-        } else {
-            if (val < activeRangeFilters[attrId].min) val = activeRangeFilters[attrId].min;
-            activeRangeFilters[attrId].max = val;
+        
+        if (!$assignFilterStore.activeRangeFilters[attrId]) {
+            $assignFilterStore.activeRangeFilters[attrId] = { min: absMin, max: absMax };
         }
-        activeRangeFilters = { ...activeRangeFilters };
+        
+        if (type === 'min') {
+            if (val > $assignFilterStore.activeRangeFilters[attrId].max) val = $assignFilterStore.activeRangeFilters[attrId].max;
+            $assignFilterStore.activeRangeFilters[attrId].min = val;
+        } else {
+            if (val < $assignFilterStore.activeRangeFilters[attrId].min) val = $assignFilterStore.activeRangeFilters[attrId].min;
+            $assignFilterStore.activeRangeFilters[attrId].max = val;
+        }
+        $assignFilterStore.activeRangeFilters = { ...$assignFilterStore.activeRangeFilters };
     }
 
-    function clearAttributeFilters() { selectedAttributeFilters = {}; activeRangeFilters = {}; }
-    function clearCategorySelection() { selectedMainCategoryId = ""; selectedSubcategoryId = ""; barcodeFilter = "all"; }
+    function clearAttributeFilters() { 
+        $assignFilterStore.selectedAttributeFilters = {}; 
+        $assignFilterStore.activeRangeFilters = {}; 
+    }
+    
+    function clearCategorySelection() { 
+        $assignFilterStore.selectedMainCategoryId = ""; 
+        $assignFilterStore.selectedSubcategoryId = ""; 
+        $assignFilterStore.barcodeFilter = "all"; 
+    }
 
     // 5. FINALES ARRAY
     $: finalFilteredArticles = baseFilteredArticles.filter(article => {
-        for (const [attrId, selectedValues] of Object.entries(selectedAttributeFilters)) {
+        for (const [attrId, selectedValues] of Object.entries($assignFilterStore.selectedAttributeFilters)) {
             if (selectedValues && selectedValues.length > 0) {
                 const articleValue = article.attributes ? article.attributes[attrId] : undefined;
                 if (articleValue === undefined) return false; 
@@ -177,14 +189,14 @@
                 else { if (!selectedValues.includes(articleValue)) return false; }
             }
         }
-        for (const [attrId, range] of Object.entries(activeRangeFilters)) {
+        for (const [attrId, range] of Object.entries($assignFilterStore.activeRangeFilters)) {
             if (!article.attributes || article.attributes[attrId] === undefined) return false;
             const val = parseFloat(String(article.attributes[attrId]).replace(',', '.'));
             if (isNaN(val) || val < range.min || val > range.max) return false;
         }
         return true; 
     }).sort((a, b) => {
-        switch(currentSort) {
+        switch($assignFilterStore.currentSort) {
             case 'name_asc': return (a.title || "").localeCompare(b.title || "", 'de');
             case 'name_desc': return (b.title || "").localeCompare(a.title || "", 'de');
             case 'stock_desc': return (b.istBestand || 0) - (a.istBestand || 0);
@@ -207,7 +219,7 @@
         <div class="filter-left">
             <div class="dropdown-group">
                 <label>Hauptkategorie</label>
-                <select class="dark-select" bind:value={selectedMainCategoryId}>
+                <select class="dark-select" bind:value={$assignFilterStore.selectedMainCategoryId}>
                     <option value="">Alle Hauptkategorien</option>
                     {#each mainCategoryOptions as opt}
                         <option value={opt.value}>{opt.label}</option>
@@ -215,10 +227,10 @@
                 </select>
             </div>
             
-            {#if selectedMainCategoryId && subCategoryOptions.length > 0}
+            {#if $assignFilterStore.selectedMainCategoryId && subCategoryOptions.length > 0}
                 <div class="dropdown-group">
                     <label>Unterkategorie</label>
-                    <select class="dark-select" bind:value={selectedSubcategoryId}>
+                    <select class="dark-select" bind:value={$assignFilterStore.selectedSubcategoryId}>
                         <option value="">Alle Unterkategorien</option>
                         {#each subCategoryOptions as opt}
                             <option value={opt.value}>{opt.label}</option>
@@ -229,14 +241,14 @@
 
             <div class="dropdown-group">
                 <label>Barcode-Status</label>
-                <select class="dark-select" bind:value={barcodeFilter}>
+                <select class="dark-select" bind:value={$assignFilterStore.barcodeFilter}>
                     <option value="all">Alle Artikel</option>
                     <option value="unassigned">Ohne Barcode (Rot)</option>
                     <option value="assigned">Mit Barcode (Grün)</option>
                 </select>
             </div>
 
-            {#if selectedMainCategoryId || selectedSubcategoryId || barcodeFilter !== "all"}
+            {#if $assignFilterStore.selectedMainCategoryId || $assignFilterStore.selectedSubcategoryId || $assignFilterStore.barcodeFilter !== "all"}
                 <button class="btn-clear-categories" on:click={clearCategorySelection}>✕ Auswahl aufheben</button>
             {/if}
         </div>
@@ -244,7 +256,7 @@
         <div class="filter-right">
             <div class="search-box">
                 <label>Suchen (Titel oder GTIN)</label>
-                <input type="text" bind:value={searchQuery} placeholder="Artikelname oder Nummer..." class="dark-input" >
+                <input type="text" bind:value={$assignFilterStore.searchQuery} placeholder="Artikelname oder Nummer..." class="dark-input" >
             </div>
         </div>
     </div>
@@ -253,7 +265,7 @@
         <div class="sidebar-section">
             <div class="sidebar-header">
                 <h3>Spezifikationen</h3>
-                {#if Object.values(selectedAttributeFilters).some(arr => arr?.length > 0) || Object.keys(activeRangeFilters).length > 0}
+                {#if Object.values($assignFilterStore.selectedAttributeFilters).some(arr => arr?.length > 0) || Object.keys($assignFilterStore.activeRangeFilters).length > 0}
                     <button class="btn-clear" on:click={clearAttributeFilters}>Löschen</button>
                 {/if}
             </div>
@@ -268,8 +280,8 @@
                         {#if filter.type === 'modal'}
                             <button class="btn-open-modal" on:click={() => openFilterModal(filter)}>
                                 <span>
-                                    {#if selectedAttributeFilters[filter.id]?.length > 0}
-                                        <span class="badge">{selectedAttributeFilters[filter.id].length}</span> gewählt
+                                    {#if $assignFilterStore.selectedAttributeFilters[filter.id]?.length > 0}
+                                        <span class="badge">{$assignFilterStore.selectedAttributeFilters[filter.id].length}</span> gewählt
                                     {:else}
                                         Wählen...
                                     {/if}
@@ -278,9 +290,9 @@
                             </button>
                         {:else if filter.type === 'range'}
                             <div class="range-inputs">
-                                <input type="number" value={activeRangeFilters[filter.id]?.min ?? filter.absMin} on:change={(e) => updateRange(filter.id, 'min', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" >
+                                <input type="number" value={$assignFilterStore.activeRangeFilters[filter.id]?.min ?? filter.absMin} on:change={(e) => updateRange(filter.id, 'min', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" >
                                 <span>-</span>
-                                <input type="number" value={activeRangeFilters[filter.id]?.max ?? filter.absMax} on:change={(e) => updateRange(filter.id, 'max', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" >
+                                <input type="number" value={$assignFilterStore.activeRangeFilters[filter.id]?.max ?? filter.absMax} on:change={(e) => updateRange(filter.id, 'max', e.target.value, filter.absMin, filter.absMax)} class="dark-input range-num" >
                             </div>
                         {/if}
                     </div>
@@ -294,7 +306,7 @@
         <div class="articles-section">
             <div class="results-header">
                 <span class="results-info">Zeige {finalFilteredArticles.length} Artikel</span>
-                <select class="dark-select sort-select" bind:value={currentSort}>
+                <select class="dark-select sort-select" bind:value={$assignFilterStore.currentSort}>
                     <option value="name_asc">Name (A-Z)</option>
                     <option value="name_desc">Name (Z-A)</option>
                     <option value="stock_desc">Bestand absteigend</option>
@@ -361,7 +373,6 @@
 {/if}
 
 <style>
-    /* ... (Deine bestehenden Styles für Grid, Sidebar, etc.) ... */
     :global(html), :global(body) { overflow-x: hidden; margin: 0; padding: 0; width: 100%; }
     * { box-sizing: border-box; }
 
@@ -426,7 +437,6 @@
     .barcode-badge.assigned { background: rgba(34, 197, 94, 0.1); color: #4ade80; border: 1px solid #22c55e; }
     .barcode-badge.unassigned { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px dashed #ef4444; }
 
-    /* Button ist jetzt ein a-Tag! */
     .btn-assign { margin-top: auto; background: #38bdf8; color: #0f172a; border: none; padding: 1rem; border-radius: 8px; font-weight: bold; font-size: 1rem; text-align: center; text-decoration: none; display: block; transition: background 0.2s; width: 100%; }
     .btn-assign:hover { background: #0ea5e9; }
 
