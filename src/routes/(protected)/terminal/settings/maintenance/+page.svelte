@@ -46,16 +46,6 @@
     let scanInput = '';
     let scanInputRef;
 
-    // --- STATE FÜR DEN UPDATE-WEIGHT WIZARD ---
-    let pendingSlotsToUpdate = [];
-    let currentUpdateSlot = '';
-    let currentUpdateBoxWeight = 0;
-    let hiddenLedFormBtn; 
-    
-    // Tara-Gewicht der leeren Box für das Update
-    let uwBoxWeight = 0; 
-    let updatedSlotsData = []; 
-
     $: conflictDisplayAttributes = (() => {
         let arr = [];
         if (conflictingArticle && conflictingArticle.attributes) {
@@ -75,60 +65,8 @@
         return arr;
     })();
 
-    // --- BERECHNUNG: ALT VS NEU IN DER PFLICHT-INVENTUR ---
-    $: oldDrawerStock_uw = (() => {
-        if (!article || !currentUpdateSlot) return 0;
-        if (Array.isArray(article.assigned_barcodes)) {
-            const drawer = article.assigned_barcodes.find(b => typeof b === 'object' && b.barcode === currentUpdateSlot);
-            if (drawer && !isNaN(parseFloat(drawer.stock))) return parseFloat(drawer.stock);
-        }
-        return parseFloat(article.istBestand) || 0;
-    })();
-    $: difference_uw = calculatedStock - oldDrawerStock_uw;
-
-    // --- START DES UPDATE WIZARDS ---
-    function startUpdateWeightWizard() {
-        showModal = true;
-        updatedSlotsData = []; 
-        uwBoxWeight = 0;
-        wizardState = 'uw_start';
-        
-        if (displaySlots.length > 0) {
-            currentUpdateSlot = displaySlots[0]; 
-            setTimeout(() => { if (hiddenLedFormBtn) hiddenLedFormBtn.click(); }, 100);
-        }
-    }
-
-    // --- LOGIK FÜR DIE PFLICHT-INVENTUR SCHLEIFE ---
-    function processNextUpdateSlot() {
-        if (pendingSlotsToUpdate.length === 0) {
-            wizardState = 'uw_final_summary';
-            return;
-        }
-        currentUpdateSlot = pendingSlotsToUpdate[0];
-        
-        let bw = 0;
-        // 1. Suche im Artikel (falls es dort mal gespeichert wurde)
-        if (Array.isArray(article.assigned_barcodes)) {
-            const drawer = article.assigned_barcodes.find(b => typeof b === 'object' && b.barcode === currentUpdateSlot);
-            if (drawer && !isNaN(parseFloat(drawer.boxWeight))) bw = parseFloat(drawer.boxWeight);
-        }
-        if (bw === 0 && !isNaN(parseFloat(article.boxWeight))) bw = parseFloat(article.boxWeight);
-        if (bw === 0 && article.attributes && !isNaN(parseFloat(article.attributes.boxWeight))) bw = parseFloat(article.attributes.boxWeight);
-        
-        // 2. Fallback: Wenn die Datenbank nichts liefert, nutzen wir die gewogene Box
-        if (bw === 0 && uwBoxWeight > 0) {
-            bw = uwBoxWeight;
-        }
-        
-        currentUpdateBoxWeight = bw;
-        wizardState = 'uw_weigh_slot';
-
-        setTimeout(() => { if (hiddenLedFormBtn) hiddenLedFormBtn.click(); }, 100);
-    }
-
     function openWizard() {
-        if (displaySlots.length >= 10) return; 
+        if (displaySlots.length >= 10) return; // Sicherheits-Blockade
         showModal = true;
         wizardState = 'scan';
         barcodeError = false;
@@ -174,20 +112,6 @@
                         const netWeight = Math.max(0, measuredWeight - boxWeight);
                         calculatedStock = Math.round(netWeight / itemWeight);
                         wizardState = 'confirm_total_stock';
-                    } 
-                    
-                    // --- POLLING FÜR DEN UPDATE-WIZARD ---
-                    else if (step === 'uw_box') {
-                        uwBoxWeight = data.weight;
-                        wizardState = 'uw_weigh_item';
-                    } else if (step === 'uw_item') {
-                        itemWeight = Math.max(0.001, data.weight - uwBoxWeight); 
-                        wizardState = 'uw_confirm_weight';
-                    } else if (step === 'uw_slot') {
-                        measuredWeight = data.weight;
-                        const netWeight = Math.max(0, measuredWeight - currentUpdateBoxWeight);
-                        calculatedStock = Math.round(netWeight / itemWeight);
-                        wizardState = 'uw_confirm_slot';
                     }
                 }
             } catch (err) {
@@ -227,6 +151,7 @@
                 {/if}
             </div>
 
+            <!-- Dynamischer Button (Ausgegraut wenn 10 Fächer erreicht) -->
             {#if displaySlots.length >= 10}
                 <button class="hardware-trigger-btn primary-action disabled" disabled>
                     <span class="icon-large">🛑</span>
@@ -257,10 +182,12 @@
                 <div class="highlight-header">
                     <span class="icon">🗄️</span>
                     <span class="label">Zugewiesene Lagerplätze</span>
+                    <!-- 10er Limit in der Anzeige -->
                     <span class="badge">{displaySlots.length} / 10 Belegt</span>
                 </div>
                 
                 <div class="slot-list">
+                    <!-- Dynamische Liste ohne leere Platzhalter -->
                     {#if displaySlots.length === 0}
                         <div class="slot-item empty" style="justify-content: center; padding: 2rem;">
                             <span class="empty-text">Noch keine Fächer zugewiesen.</span>
@@ -295,12 +222,6 @@
                     <div class="meta-content">
                         <span class="meta-label">Artikel-Stückgewicht</span>
                         <span class="meta-value highlight-blue">{article.attributes?.itemWeight ? `${parseFloat(article.attributes.itemWeight).toFixed(2)} g` : '-'}</span>
-                        
-                        {#if article.attributes?.itemWeight}
-                            <button class="btn-update-weight" on:click={startUpdateWeightWizard}>
-                                <span class="icon">🔄</span> Aktualisieren
-                            </button>
-                        {/if}
                     </div>
                 </div>
                 <div class="meta-item total-stock-item">
@@ -322,237 +243,13 @@
     <div class="modal-backdrop"></div>
     <div class="modal-window scan-modal">
         <div class="modal-header">
-            <h3><span class="icon">⚙️</span> {wizardState.startsWith('uw_') ? 'Stückgewicht anpassen' : 'Setup-Assistent'}</h3>
+            <h3><span class="icon">⚙️</span> Setup-Assistent</h3>
             <button class="btn-close-modal" on:click={closeWizard}>✕</button>
         </div>
         
         <div class="modal-body">
             
-            <!-- ============================================== -->
-            <!-- DER UPDATE-WEIGHT WIZARD FLOW (MIT BOX TARA)   -->
-            <!-- ============================================== -->
-            
-            {#if wizardState === 'uw_start'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
-                {#if currentUpdateSlot}
-                    <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
-                        <input type="hidden" name="barcode" value={currentUpdateSlot}>
-                        <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
-                    </form>
-                {/if}
-
-                <div class="step-indicator">Schritt 1: Tara (Box)</div>
-                <div class="emoji-hero">📦</div>
-                <h2 class="step-title text-blue">Leere Box wiegen</h2>
-                
-                {#if currentUpdateSlot}
-                    <div class="info-card mb-3 mt-2">
-                        <p>Das erste Fach <strong>({currentUpdateSlot})</strong> leuchtet im Regal auf, damit du den Artikel findest.</p>
-                    </div>
-                {/if}
-                
-                <p class="step-desc">Stelle eine <strong>leere Box</strong> auf die Waage. Wir nutzen diese als Basis (Tara), genau wie beim normalen Verknüpfen.</p>
-
-                <form method="POST" action="?/requestScale" use:enhance={() => {
-                    wizardState = 'uw_box_polling';
-                    return async ({ result }) => {
-                        if(result.data.success) { requestId = result.data.requestId; startPolling('uw_box'); }
-                    };
-                }}>
-                    <button type="submit" class="btn-primary huge-btn btn-blue mt-3">Tara messen</button>
-                </form>
-
-            {:else if wizardState === 'uw_box_polling'}
-                <div class="scale-animation box-shadow-glow">
-                    <div class="spinner"></div>
-                    <h2>Messe Leergewicht...</h2>
-                    <p>Bitte die Waage nicht berühren.</p>
-                </div>
-
-            {:else if wizardState === 'uw_weigh_item'}
-                <div class="step-indicator">Schritt 2: Messung</div>
-                <div class="emoji-hero">🔩</div>
-                <h2 class="step-title text-blue">Artikel wiegen</h2>
-                <p class="step-desc">Lege nun <strong>exakt 1 Stück</strong> des Artikels in die leere Box auf der Waage.</p>
-
-                <form method="POST" action="?/requestScale" use:enhance={() => {
-                    wizardState = 'uw_weigh_item_polling';
-                    return async ({ result }) => {
-                        if(result.data.success) { requestId = result.data.requestId; startPolling('uw_item'); }
-                    };
-                }}>
-                    <button type="submit" class="btn-primary huge-btn btn-blue mt-3">Messen</button>
-                </form>
-
-            {:else if wizardState === 'uw_weigh_item_polling'}
-                <div class="scale-animation box-shadow-glow">
-                    <div class="spinner"></div>
-                    <h2>Messe Artikel...</h2>
-                    <p>Bitte die Waage nicht berühren.</p>
-                </div>
-
-            {:else if wizardState === 'uw_confirm_weight'}
-                <h2 class="step-title text-green mb-2">Neues Gewicht berechnet</h2>
-                <div class="stats-grid modern-stats mb-3">
-                    <div class="stat-box">
-                        <span class="label">Neues Stückgewicht</span>
-                        <span class="value text-green">{itemWeight.toFixed(2)} g</span>
-                    </div>
-                </div>
-                
-                {#if displaySlots.length > 0}
-                    <div class="warning-box mb-3" style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                        <span class="warning-icon">⚠️</span>
-                        <div>
-                            <h4 style="color: var(--color-yellow);">Pflicht-Inventur erforderlich</h4>
-                            <p style="color: var(--text-main);">Da sich das Gewicht ändert, müssen alle <strong>{displaySlots.length} Fächer</strong> jetzt neu gewogen werden, um den Bestand zu korrigieren.</p>
-                        </div>
-                    </div>
-                {/if}
-
-                <button type="button" class="btn-primary huge-btn btn-yellow" on:click={() => {
-                    pendingSlotsToUpdate = [...displaySlots];
-                    processNextUpdateSlot();
-                }}>
-                    {#if displaySlots.length > 0}Pflicht-Inventur starten{:else}Gewicht speichern{/if}
-                </button>
-
-            {:else if wizardState === 'uw_weigh_slot'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
-                <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
-                    <input type="hidden" name="barcode" value={currentUpdateSlot}>
-                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
-                </form>
-
-                <div class="step-indicator">Pflicht-Inventur</div>
-                <div class="emoji-hero">📦</div>
-                <h2 class="step-title text-yellow">Bestand prüfen</h2>
-                <div class="info-card mb-3 mt-2">
-                    <p>Das Fach <strong>{currentUpdateSlot}</strong> leuchtet im Regal auf.</p>
-                    <strong class="text-white">Nimm die komplette Box aus dem Regal und stelle sie auf die Waage.</strong>
-                </div>
-                
-                <form method="POST" action="?/requestScale" use:enhance={() => {
-                    wizardState = 'uw_weigh_slot_polling';
-                    return async ({ result }) => {
-                        if(result.data.success) { requestId = result.data.requestId; startPolling('uw_slot'); }
-                    };
-                }}>
-                    <button type="submit" class="btn-primary huge-btn btn-yellow mt-3">Waage starten</button>
-                </form>
-
-            {:else if wizardState === 'uw_weigh_slot_polling'}
-                <div class="scale-animation box-shadow-glow">
-                    <div class="spinner"></div>
-                    <h2>Messe Bestand...</h2>
-                    <p>Waage beruhigt sich.</p>
-                </div>
-
-            {:else if wizardState === 'uw_confirm_slot'}
-                <h2 class="step-title mb-2">Fach {currentUpdateSlot}</h2>
-                <div class="stats-grid modern-stats mb-2">
-                    <div class="stat-box">
-                        <span class="label">Gesamtgewicht</span>
-                        <span class="value">{measuredWeight.toFixed(2)} g</span>
-                    </div>
-                    <div class="stat-box">
-                        <span class="label">Netto (ohne Box)</span>
-                        <span class="value text-blue">
-                            {Math.max(0, measuredWeight - currentUpdateBoxWeight).toFixed(2)} g
-                            {#if currentUpdateBoxWeight === 0}
-                                <small style="display:block; color:var(--color-red); font-size:0.6rem; margin-top:4px;">(Fehlt in Datenbank)</small>
-                            {/if}
-                        </span>
-                    </div>
-                </div>
-                
-                <div class="result-card">
-                    <span class="label">Neuer Bestand</span>
-                    <h3 class="result-value">{calculatedStock} <small>Stück</small></h3>
-                    <div class="diff-indicator mt-1">
-                        {#if difference_uw > 0}<span class="text-green">+{difference_uw} gefunden</span>
-                        {:else if difference_uw < 0}<span class="text-red">{difference_uw} verbucht</span>
-                        {:else}<span class="text-gray">Keine Differenz</span>{/if}
-                    </div>
-                </div>
-
-                <button type="button" class="btn-primary huge-btn btn-blue mt-3" on:click={() => {
-                    updatedSlotsData.push({ barcode: currentUpdateSlot, newStock: calculatedStock });
-                    wizardState = 'uw_put_back';
-                    setTimeout(() => { if (hiddenLedFormBtn) hiddenLedFormBtn.click(); }, 100);
-                }}>
-                    <span class="icon">✨</span> Bestätigen & Einräumen
-                </button>
-
-            {:else if wizardState === 'uw_put_back'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
-                <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
-                    <input type="hidden" name="barcode" value={currentUpdateSlot}>
-                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
-                </form>
-
-                <div class="step-indicator">Einräumen</div>
-                <div class="emoji-hero bounce">📥</div>
-                <h2 class="step-title text-green">Box zurückstellen</h2>
-                <div class="info-card mb-3 mt-2">
-                    <p>Das Fach <strong>{currentUpdateSlot}</strong> leuchtet nun erneut auf.</p>
-                    <strong class="text-white">Bitte räume die Box jetzt wieder zurück ins Regal.</strong>
-                </div>
-
-                <button type="button" class="btn-primary huge-btn btn-blue mt-3" on:click={() => {
-                    pendingSlotsToUpdate.shift();
-                    processNextUpdateSlot();
-                }}>
-                    <span class="icon">➡️</span> {pendingSlotsToUpdate.length > 1 ? 'Erledigt & Nächstes Fach' : 'Erledigt & Zusammenfassung'}
-                </button>
-
-            {:else if wizardState === 'uw_final_summary'}
-                <div class="step-indicator">Abschluss</div>
-                <div class="emoji-hero">💾</div>
-                <h2 class="step-title text-green">Alles erfasst!</h2>
-                <p class="step-desc">Du hast alle betroffenen Fächer erfolgreich kontrolliert.</p>
-                
-                <div class="info-card mb-3">
-                    <p><strong>Zusammenfassung:</strong></p>
-                    <ul style="color: var(--text-main); margin-top: 0.5rem; padding-left: 1.5rem;">
-                        <li>Neues Einzelgewicht: <strong class="text-blue">{itemWeight.toFixed(2)} g</strong></li>
-                        <li>Fächer aktualisiert: <strong>{updatedSlotsData.length}</strong></li>
-                    </ul>
-                </div>
-
-                <form method="POST" action="?/saveWeightAndAllStocks" use:enhance={() => {
-                    return async ({ update, result }) => {
-                        await update();
-                        await invalidateAll();
-                        if (result.data?.success) {
-                            wizardState = 'success_update';
-                            setTimeout(() => closeWizard(), 4000);
-                        }
-                    };
-                }}>
-                    <input type="hidden" name="articleId" value={article._id}>
-                    <input type="hidden" name="itemWeight" value={itemWeight.toFixed(3)}>
-                    <input type="hidden" name="slotsData" value={JSON.stringify(updatedSlotsData)}>
-                    
-                    <button type="submit" class="btn-primary huge-btn btn-green">
-                        <span class="icon">✅</span> Alles speichern & Abschließen
-                    </button>
-                </form>
-
-            {:else if wizardState === 'success_update'}
-                <div class="success-animation">
-                    <div class="emoji-hero bounce">✅</div>
-                    <h2 class="step-title text-green">Super!</h2>
-                    <div class="info-card mt-2">
-                        <p>Das neue Stückgewicht und alle aktualisierten Bestände wurden erfolgreich im System gespeichert.</p>
-                    </div>
-                </div>
-
-            <!-- ============================================== -->
-            <!-- ORIGINAL: ASSIGN WIZARD FLOW                   -->
-            <!-- ============================================== -->
-
-            {:else if wizardState === 'scan'}
+            {#if wizardState === 'scan'}
                 {#if barcodeError}
                     <div class="warning-box error-box">
                         <span class="warning-icon">❌</span>
@@ -685,6 +382,8 @@
                 }}>
                     <input type="hidden" name="articleId" value={article._id}>
                     <input type="hidden" name="barcode" value={activeBarcode}>
+                    
+                    <!-- 🔥 HIER: Volle 3 Kommastellen für die DB-Speicherung! -->
                     <input type="hidden" name="boxWeight" value={boxWeight.toFixed(3)}>
                     <input type="hidden" name="itemWeight" value={itemWeight.toFixed(3)}>
                     
@@ -742,10 +441,12 @@
                 <div class="stats-grid modern-stats mb-2">
                     <div class="stat-box">
                         <span class="label">Gesamtgewicht</span>
+                        <!-- 🔥 HIER: Anzeige auf 2 Kommastellen -->
                         <span class="value">{measuredWeight.toFixed(2)} g</span>
                     </div>
                     <div class="stat-box">
                         <span class="label">Netto (ohne Box)</span>
+                        <!-- 🔥 HIER: Anzeige auf 2 Kommastellen -->
                         <span class="value text-blue">{Math.max(0, measuredWeight - boxWeight).toFixed(2)} g</span>
                     </div>
                 </div>
@@ -772,12 +473,6 @@
                 </form>
 
             {:else if wizardState === 'success'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
-                <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
-                    <input type="hidden" name="barcode" value={activeBarcode}>
-                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
-                </form>
-
                 <div class="success-animation">
                     <div class="emoji-hero bounce">✅</div>
                     <h2 class="step-title text-green">Alles erledigt!</h2>
@@ -922,93 +617,60 @@
     </div>
 {/if}
 
-<!-- ============================================== -->
-<!-- VERSTECKTES FORMULAR FÜR LED-STEUERUNG         -->
-<!-- ============================================== -->
-<form method="POST" action="?/triggerLedOnly" use:enhance style="display:none;">
-    <input type="hidden" name="barcode" value={currentUpdateSlot}>
-    <button type="submit" bind:this={hiddenLedFormBtn}></button>
-</form>
-
 <style>
     /* --- Globale Variablen & Basis --- */
     :root {
-        --bg-dark: #0f172a; --bg-card: #1e293b; --bg-card-hover: #334155;
-        --border-color: #334155; --border-highlight: #475569;
-        --text-main: #f8fafc; --text-muted: #94a3b8;
-        --color-blue: #3b82f6; --color-blue-hover: #2563eb; --color-blue-light: #60a5fa;
-        --color-green: #22c55e; --color-green-hover: #16a34a;
-        --color-red: #ef4444; --color-red-hover: #dc2626; --color-red-light: #fca5a5;
-        --color-yellow: #f59e0b; --color-yellow-hover: #d97706;
+        --bg-dark: #0f172a;
+        --bg-card: #1e293b;
+        --bg-card-hover: #334155;
+        --border-color: #334155;
+        --border-highlight: #475569;
+        
+        --text-main: #f8fafc;
+        --text-muted: #94a3b8;
+        
+        --color-blue: #3b82f6;
+        --color-blue-hover: #2563eb;
+        --color-blue-light: #60a5fa;
+        
+        --color-green: #22c55e;
+        --color-green-hover: #16a34a;
+        
+        --color-red: #ef4444;
+        --color-red-hover: #dc2626;
+        --color-red-light: #fca5a5;
+        
+        --color-yellow: #f59e0b;
+        --color-yellow-hover: #d97706;
+        
         --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         --shadow-md: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15);
         --shadow-lg: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
         --shadow-glow-blue: 0 0 15px rgba(59, 130, 246, 0.3);
-        --radius-md: 12px; --radius-lg: 16px; --radius-xl: 24px;
+        
+        --radius-md: 12px;
+        --radius-lg: 16px;
+        --radius-xl: 24px;
     }
 
     .terminal-page { max-width: 1400px; margin: 0 auto; padding: 2rem; color: var(--text-main); }
     
+    /* --- Utility Classes --- */
     .mt-1 { margin-top: 0.5rem; } .mt-2 { margin-top: 1rem; } .mt-3 { margin-top: 1.5rem; }
     .mb-1 { margin-bottom: 0.5rem; } .mb-2 { margin-bottom: 1rem; } .mb-3 { margin-bottom: 1.5rem; }
-    .p-4 { padding: 2rem; } .text-center { text-align: center; }
-    .text-white { color: white !important; } .text-gray { color: var(--text-muted); }
-    .text-blue { color: var(--color-blue-light); } .text-green { color: var(--color-green); }
-    .text-yellow { color: var(--color-yellow); } .text-red-light { color: var(--color-red-light); }
-    .full-width { width: 100%; } .flex-end { justify-content: flex-end; } .justify-center { justify-content: center; }
+    .p-4 { padding: 2rem; }
+    .text-center { text-align: center; }
+    .text-white { color: white !important; }
+    .text-gray { color: var(--text-muted); }
+    .text-blue { color: var(--color-blue-light); }
+    .text-green { color: var(--color-green); }
+    .text-yellow { color: var(--color-yellow); }
+    .text-red-light { color: var(--color-red-light); }
+    .full-width { width: 100%; }
+    .flex-end { justify-content: flex-end; }
+    .justify-center { justify-content: center; }
 
-    /* --- Button Stylings --- */
-    .btn-update-weight {
-        background: transparent; 
-        border: 1px dashed var(--color-blue-light); 
-        color: var(--color-blue-light);
-        padding: 0.3rem 0.6rem; 
-        border-radius: 6px; 
-        font-size: 0.75rem; 
-        font-weight: bold; 
-        cursor: pointer;
-        transition: all 0.2s; 
-        display: inline-flex; 
-        align-items: center; 
-        gap: 0.3rem;
-        margin-top: 0.5rem; 
-        align-self: flex-start;
-    }
-    .btn-update-weight:hover { 
-        background: rgba(59, 130, 246, 0.1); 
-        border-style: solid; 
-    }
-
-    /* 🔥 NEU: Komplett überarbeitetes Styling für den LED Button (Frei & Größer) */
-    .retrigger-form {
-        position: absolute;
-        top: 2.5rem; /* Exakt bündig mit dem inneren Padding des Modals */
-        right: 2rem;
-        margin: 0;
-        z-index: 10; /* Garantiert, dass der Button immer ganz oben anklickbar bleibt */
-    }
-    .btn-retrigger-led {
-        background: rgba(59, 130, 246, 0.1);
-        border: 1px dashed rgba(59, 130, 246, 0.4);
-        color: var(--color-blue-light);
-        padding: 0.5rem 0.8rem; /* Größerer Klickbereich */
-        border-radius: 8px; /* Etwas runder */
-        font-size: 0.95rem; /* Größere Schrift */
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.2s;
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-    }
-    .btn-retrigger-led:hover {
-        background: rgba(59, 130, 246, 0.2);
-        border-style: solid;
-        color: white;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
-    }
-
+    /* --- Header --- */
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; }
     .title-area { display: flex; flex-direction: column; gap: 0.5rem; }
     .page-title { color: var(--color-green); margin: 0; font-size: 2.5rem; letter-spacing: -0.02em; }
@@ -1016,15 +678,18 @@
     .btn-back { display: flex; align-items: center; gap: 0.5rem; background: var(--bg-card); color: white; padding: 0.8rem 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--border-highlight); text-decoration: none; font-weight: 600; transition: all 0.2s; }
     .btn-back:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
 
+    /* --- Layout --- */
     .article-layout { display: grid; grid-template-columns: 450px 1fr; gap: 3rem; align-items: start; }
     .left-column { display: flex; flex-direction: column; gap: 1.5rem; position: sticky; top: 2rem; }
     .info-section { display: flex; flex-direction: column; gap: 2rem; }
 
+    /* --- Image Section --- */
     .image-section { background: white; border-radius: var(--radius-lg); height: 350px; display: flex; align-items: center; justify-content: center; padding: 1rem; box-shadow: var(--shadow-sm); overflow: hidden; }
     .main-image { max-width: 100%; max-height: 100%; object-fit: contain; mix-blend-mode: multiply; }
     .no-image-placeholder { display: flex; flex-direction: column; align-items: center; gap: 1rem; color: #cbd5e1; }
     .no-image-placeholder .icon { font-size: 3rem; filter: grayscale(1); opacity: 0.5; }
 
+    /* --- Primary Action Button --- */
     .hardware-trigger-btn { background: linear-gradient(135deg, var(--color-blue), #2563eb); color: white; border: none; padding: 2rem 1.5rem; border-radius: var(--radius-lg); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 1.5rem; box-shadow: var(--shadow-glow-blue); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-align: left; }
     .hardware-trigger-btn:hover:not(.disabled) { transform: translateY(-4px); box-shadow: 0 12px 25px rgba(59, 130, 246, 0.4); }
     .hardware-trigger-btn:active:not(.disabled) { transform: translateY(0); }
@@ -1038,6 +703,7 @@
     .btn-unlink-secondary { display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: transparent; color: var(--color-red); border: 1px dashed var(--color-red); padding: 1rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; font-size: 1rem; transition: all 0.2s; }
     .btn-unlink-secondary:hover { background: rgba(239, 68, 68, 0.1); border-style: solid; }
 
+    /* --- Info Boxes (Right Column) --- */
     .drawer-highlight { background: var(--bg-card); border: 1px solid var(--border-color); padding: 2rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
     .highlight-header { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; }
     .highlight-header .icon { font-size: 1.5rem; }
@@ -1066,12 +732,9 @@
     .highlight-green { color: var(--color-green); font-size: 1.6rem; }
     .meta-value small { font-size: 0.6em; color: var(--text-muted); font-weight: 600; }
 
+    /* --- Modals & Wizard --- */
     .modal-overlay, .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); z-index: 1000; display: flex; justify-content: center; align-items: center; }
-    
-    /* 🔥 NEU: .modal-body bekommt position relative, damit der Button sich darin orientieren kann */
     .modal-window, .modal-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--bg-card); border: 1px solid var(--border-highlight); border-radius: var(--radius-xl); z-index: 1001; box-shadow: var(--shadow-lg); overflow: hidden; }
-    .modal-body { padding: 2.5rem 2rem; position: relative; }
-    
     .scan-modal { width: 95%; max-width: 550px; }
     
     .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 2rem; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.2); }
@@ -1081,20 +744,24 @@
     .btn-close-modal { background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; transition: color 0.2s; padding: 0.5rem; margin: -0.5rem; border-radius: 50%; }
     .btn-close-modal:hover { color: white; background: rgba(255,255,255,0.1); }
     
+    .modal-body { padding: 2.5rem 2rem; }
     .text-center .modal-body { text-align: center; }
 
+    /* --- Wizard Elements --- */
     .step-indicator { display: inline-block; background: var(--bg-dark); color: var(--color-blue-light); padding: 0.4rem 1rem; border-radius: 20px; font-weight: 700; font-size: 0.85rem; margin-bottom: 1.5rem; border: 1px solid rgba(59, 130, 246, 0.2); text-transform: uppercase; letter-spacing: 0.05em; }
     .emoji-hero { font-size: 4.5rem; margin-bottom: 1rem; line-height: 1; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.2)); }
     .step-title { margin: 0 0 0.5rem 0; font-size: 1.8rem; letter-spacing: -0.02em; }
     .step-desc { color: var(--text-muted); font-size: 1.1rem; margin-bottom: 2rem; line-height: 1.5; }
     .highlight-text { color: white; font-weight: bold; background: rgba(255,255,255,0.1); padding: 0.2rem 0.5rem; border-radius: 6px; }
 
+    /* --- Scanner Input --- */
     .scan-animation-wrapper { background: var(--bg-dark); border: 2px dashed var(--color-blue); border-radius: var(--radius-md); padding: 2rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s; }
     .scan-animation-wrapper:hover { background: rgba(59, 130, 246, 0.05); border-style: solid; }
     .scan-animation-wrapper span { color: var(--color-blue-light); font-weight: 600; font-family: monospace; letter-spacing: 0.05em; }
     .scan-line { width: 80%; height: 2px; background: var(--color-blue); box-shadow: 0 0 10px var(--color-blue); animation: scan 2s linear infinite; position: absolute; top: 0; }
     .hidden-scan-input { opacity: 0; position: absolute; height: 1px; width: 1px; z-index: -1; }
 
+    /* --- Buttons --- */
     .button-stack { display: flex; flex-direction: column; gap: 1rem; }
     .button-row { display: flex; gap: 1rem; }
     
@@ -1112,23 +779,25 @@
     .btn-cancel { background: transparent; border: 1px solid var(--border-highlight); color: var(--text-muted); padding: 1rem 1.5rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; font-size: 1rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
     .btn-cancel:hover { background: rgba(255,255,255,0.05); color: white; }
 
+    /* --- Warnings & Info Cards --- */
     .warning-box { border-radius: var(--radius-md); padding: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; text-align: left; }
     .error-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
     .warning-icon { font-size: 2rem; line-height: 1; }
     .warning-box h4 { margin: 0 0 0.4rem 0; color: var(--color-red); font-size: 1.1rem; }
     .warning-box p { margin: 0; color: var(--text-main); font-size: 1rem; line-height: 1.4; }
 
-    /* 🔥 Das padding-right für die Box wurde entfernt, da der Button aus der Box geholt wurde */
     .info-card { background: var(--bg-dark); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: var(--radius-md); text-align: left; }
     .info-card p { margin: 0; line-height: 1.5; color: var(--text-muted); }
     .info-card strong { color: white; }
 
+    /* --- Animations --- */
     .scale-animation { padding: 3rem 2rem; background: var(--bg-dark); border-radius: var(--radius-lg); border: 1px solid var(--border-highlight); margin-top: 1.5rem; position: relative; overflow: hidden; }
     .box-shadow-glow { box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
     .spinner { width: 50px; height: 50px; border: 4px solid var(--border-highlight); border-top-color: var(--color-blue); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem auto; }
     
     .bounce { animation: bounce 2s infinite; }
 
+    /* --- Data Grids & Results --- */
     .modern-stats { display: flex; gap: 1rem; justify-content: center; background: var(--bg-dark); padding: 1rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color); }
     .modern-stats .stat-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; position: relative; }
     .modern-stats .stat-box:not(:last-child)::after { content: ''; position: absolute; right: -0.5rem; top: 10%; height: 80%; width: 1px; background: var(--border-highlight); }
@@ -1140,6 +809,7 @@
     .result-value { font-size: 3.5rem; margin: 0; color: var(--color-green); line-height: 1; }
     .result-value small { font-size: 1.2rem; color: var(--text-muted); font-weight: 600; margin-left: 0.2rem; }
 
+    /* --- Conflict Modal Specifics --- */
     .conflict-modal-modern { width: 95%; max-width: 600px; }
     .conflict-article-card { display: flex; gap: 1.5rem; background: var(--bg-dark); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-top: 1rem; align-items: center; }
     .conflict-image { width: 100px; height: 100px; background: white; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0.5rem; }

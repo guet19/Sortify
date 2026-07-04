@@ -35,25 +35,33 @@ export const actions = {
         if (!userId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
-        const barcode = data.get('barcode');
+        // 🔥 NEU: Wir fangen jetzt 'barcodes' (Mehrzahl) als String auf
+        const barcodesStr = data.get('barcodes');
 
-        if (!barcode || barcode === 'null' || barcode === '') {
-            return { success: false, error: 'Kein Barcode zugewiesen' };
+        if (!barcodesStr || barcodesStr === '[]' || barcodesStr === 'null') {
+            return { success: false, error: 'Keine Barcodes zugewiesen' };
         }
 
         try {
-            const triggeredIndex = await db.triggerLedByBarcode(userId, barcode);
-            console.log(`💡 LED-Trigger gesendet! Barcode: ${barcode} -> LED Index: #${triggeredIndex}`);
+            // String wieder in ein echtes JavaScript-Array umwandeln
+            const barcodes = JSON.parse(barcodesStr);
 
-            // NEU: Der 10-Sekunden Timer zum automatischen Ausschalten
+            // Alle Barcodes durchlaufen und anpingen
+            for (const barcode of barcodes) {
+                const triggeredIndex = await db.triggerLedByBarcode(userId, barcode);
+                console.log(`💡 LED-Trigger gesendet! Barcode: ${barcode} -> LED Index: #${triggeredIndex}`);
+            }
+
+            // Der 10-Sekunden Timer zum automatischen Ausschalten
             setTimeout(async () => {
                 try {
+                    // Befehl 0 schaltet auf dem Controller alle aktiven LEDs aus
                     await db.createHardwareCommand(userId, 0);
-                    console.log(`⏱️ 10 Sekunden um. LED für Barcode ${barcode} automatisch ausgeschaltet.`);
+                    console.log(`⏱️ 10 Sekunden um. LEDs für ${barcodes.length} Fächer automatisch ausgeschaltet.`);
                 } catch (e) {
                     console.error("Fehler beim automatischen Ausschalten der LED:", e);
                 }
-            }, 10000); // 10000 ms = 10 Sekunden
+            }, 10000); 
 
             return { success: true };
         } catch (err) {
@@ -62,7 +70,7 @@ export const actions = {
         }
     },
 
-    // NEU: Action zum sofortigen Ausschalten (wird genutzt, wenn der User die Seite verlässt)
+    // Action zum sofortigen Ausschalten (wird genutzt, wenn der User die Seite verlässt)
     turnOffLED: async ({ cookies }) => {
         const userId = cookies.get('session');
         if (!userId) return { success: false };

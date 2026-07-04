@@ -13,7 +13,6 @@ export async function load({ cookies }) {
 }
 
 export const actions = {
-    // 1. Nur Scannen und Daten laden (keine Waage starten!)
     scanForReturn: async ({ request, cookies }) => {
         const userId = cookies.get('session');
         if (!userId) return { success: false, error: 'Unauthorized' };
@@ -37,7 +36,6 @@ export const actions = {
                 return { success: false, error: 'missing_weights', article: JSON.parse(JSON.stringify(article)) };
             }
             
-            // GEÄNDERT: Wir übergeben direkt den Schritt 'instruction' und starten KEINE Waage
             return { 
                 success: true, 
                 step: 'instruction', 
@@ -51,40 +49,73 @@ export const actions = {
         }
     },
 
-    // 2. NEUE ACTION: Waage starten (Wird per Button-Klick ausgelöst)
     requestScale: async ({ request, cookies }) => {
         const userId = cookies.get('session');
         const data = await request.formData();
         const barcode = data.get('barcode');
 
-        // 🔥 Der Trick: Wir lassen das System 1 Sekunde warten, damit die Box ruhig liegt
         await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // Jetzt erst schicken wir den Befehl an die Datenbank für den Raspberry Pi
         const requestId = await db.createScaleRequest(userId, barcode);
         return { success: true, requestId };
     },
 
-    // 3. Buchen
     bookReturn: async ({ request, cookies }) => {
         const userId = cookies.get('session');
         const data = await request.formData();
         
         const articleId = data.get('articleId');
         const barcode = data.get('barcode');
-        const newStock = parseInt(data.get('newStock'));
+        const newDrawerStock = parseInt(data.get('newStock'));
+
+        if (!articleId || !barcode || isNaN(newDrawerStock)) {
+            return { success: false, error: 'Fehlende Buchungsdaten' };
+        }
 
         try {
-            await db.updateArticleStock(userId, articleId, newStock);
-            const triggeredLedIndex = await db.triggerLedByBarcode(userId, barcode);
+            // Bestand buchen (setzt intern lastWeighedAt und lastReturnedAt)
+            await db.updateArticleStockFromWeights(userId, articleId, barcode, newDrawerStock);
+            await db.triggerLedByBarcode(userId, barcode, true);
             
             setTimeout(async () => {
-                await db.createHardwareCommand(userId, 0);
+                try { await db.createHardwareCommand(userId, [0]); } catch (e) {}
             }, 10000);
 
             return { success: true, step: 'done' };
         } catch (err) {
+            console.error("🔴 Fehler in Action bookReturn:", err);
             return { success: false, error: 'Buchungsfehler' };
+        }
+    },
+
+    // 🔥 NEUE ACTION: Direktes Einlagern ohne Waage (Wiegen überspringen)
+    returnWithoutWeighing: async ({ request, cookies }) => {
+        const userId = cookies.get('session');
+        if (!userId) return { success: false };
+
+        const data = await request.formData();
+        const articleId = data.get('articleId');
+        const barcode = data.get('barcode');
+
+        if (!articleId || !barcode) {
+            return { success: false, error: 'Fehlende Daten' };
+        }
+
+        try {
+            // Nur den Zeitstempel für die Retoure aktualisieren, da nicht gewogen wurde!
+            await db.logArticleAction(userId, articleId, 'return');
+            
+            // LED für dieses eine Fach aktivieren
+            await db.triggerLedByBarcode(userId, barcode, true);
+            
+            // 10-Sekunden Timer zum automatischen Hardware-Ausschalten
+            setTimeout(async () => {
+                try { await db.createHardwareCommand(userId, [0]); } catch (e) {}
+            }, 10000);
+
+            return { success: true, step: 'done' };
+        } catch (err) {
+            console.error("🔴 Fehler in Action returnWithoutWeighing:", err);
+            return { success: false };
         }
     }
 };

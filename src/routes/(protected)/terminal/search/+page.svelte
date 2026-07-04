@@ -2,10 +2,14 @@
     export let data;
     const { categories = [], articles = [], attributes = [] } = data;
 
-    // --- NEU: DER HAUPT-FILTER ---
-    // Wir filtern direkt zu Beginn alle Artikel heraus, die keinen Barcode haben.
-    // Alles andere auf der Seite (Kategorien, Suche, Sidebar) basiert nun auf diesem Array!
-    $: assignedArticles = articles.filter(a => a.assigned_barcode && String(a.assigned_barcode).trim() !== '');
+    // --- NEU: DER HAUPT-FILTER (Multi-Slot Kompatibel) ---
+    // Filtern alle Artikel heraus, die keine Barcodes zugewiesen haben.
+    // Prüft, ob das Array 'assigned_barcodes' existiert UND mindestens 1 Eintrag hat.
+    // Fallback auf den alten 'assigned_barcode' String, falls noch Altlasten existieren.
+    $: assignedArticles = articles.filter(a => 
+        (Array.isArray(a.assigned_barcodes) && a.assigned_barcodes.length > 0) || 
+        (a.assigned_barcode && String(a.assigned_barcode).trim() !== '')
+    );
 
     // --- FILTER STATES ---
     let searchQuery = "";
@@ -16,7 +20,7 @@
     let rangeWarnings = {};
     let rangeWarningTimeouts = {};
 
-    // 1. KATEGORIEN FILTERN (Nutzt jetzt "assignedArticles")
+    // 1. KATEGORIEN FILTERN
     $: mainCategoryOptions = categories
         .filter(cat => {
             if (!cat.subcategories || cat.subcategories.length === 0) return false;
@@ -193,6 +197,14 @@
             default: return 0;
         }
     });
+
+    // Hilfsfunktion: Fügt das Array für die Badge-Anzeige schön zusammen
+   function getDisplayBarcodes(article) {
+        if (Array.isArray(article.display_barcodes) && article.display_barcodes.length > 0) {
+            return article.display_barcodes.join(', ');
+        }
+        return article.assigned_barcode || '-';
+    }
 </script>
 
 <div class="terminal-page space-grotesk">
@@ -310,7 +322,8 @@
                                 <p class="stock-badge" class:low={(article.istBestand || 0) === 0}>
                                     {article.istBestand ?? 0} Stk.
                                 </p>
-                                <p class="barcode-badge">Platz: {article.assigned_barcode}</p>
+                                <!-- NEU: Die aufbereitete Anzeige der Slots -->
+                                <p class="barcode-badge">Platz: {getDisplayBarcodes(article)}</p>
                             </div>
                         </div>
                     </a>
@@ -493,7 +506,7 @@
         border-color: #ef4444; 
     }
 
-    /* NEU: Blaue Info-Plakette für den Barcode in der Pick-Ansicht */
+    /* Blaue Info-Plakette für den Barcode in der Pick-Ansicht */
     .barcode-badge {
         margin: 0;
         background: rgba(56, 189, 248, 0.1);

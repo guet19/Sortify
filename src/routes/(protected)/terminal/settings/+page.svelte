@@ -27,6 +27,14 @@
             </div>
         </a>
 
+        <a href="/terminal/settings/maintenance" class="action-card">
+            <div class="icon">💡</div>
+            <div class="card-content">
+                <h3>Inventarpflege</h3>
+                <p>Aktualisierung der Bestände</p>
+            </div>
+        </a>
+
         <!-- Karte 3: Abmelden -->
         <!-- Nutzt deine bestehende /logout Route mit reload, um die Session sauber zu beenden -->
         <a href="/logout" data-sveltekit-reload class="action-card danger">
@@ -36,6 +44,8 @@
                 <p>Sitzung auf diesem Terminal beenden und zum Login zurückkehren.</p>
             </div>
         </a>
+
+        
     </div>
 </div>
 

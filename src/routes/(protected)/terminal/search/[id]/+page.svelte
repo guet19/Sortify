@@ -37,6 +37,17 @@
 
     let originalStock = article.istBestand || 0;
 
+    // --- NEU: Fächer-Logik für Multi-Slot-System ---
+    $: displaySlots = (() => {
+        let slots = [];
+        if (Array.isArray(article.assigned_barcodes) && article.assigned_barcodes.length > 0) {
+            slots = article.assigned_barcodes.map(b => typeof b === 'object' ? b.barcode : b);
+        } else if (article.assigned_barcode) {
+            slots = [article.assigned_barcode]; // Fallback für noch nicht migrierte alte Artikel
+        }
+        return slots;
+    })();
+
     // --- 3. Terminal Hardware Logik (Form State & Sicherheit) ---
     let commandSent = false;
 
@@ -98,26 +109,25 @@
             <form method="POST" action="?/triggerLED" use:enhance={() => {
                 commandSent = true;
                 return async ({ update }) => {
-                    // NEU: Der Button bleibt nun exakt 10 Sekunden im "Aktiv"-Zustand
                     setTimeout(() => { commandSent = false; }, 10000);
-                    
                     await update({ reset: false });
                 };
             }}>
-                <input type="hidden" name="barcode" value={article.assigned_barcode} />
+                <!-- 🔥 NEU: Wir senden ein JSON-Array mit allen Barcodes an das Backend -->
+                <input type="hidden" name="barcodes" value={JSON.stringify(displaySlots)} />
                 
                 <button 
                     type="submit" 
                     class="hardware-trigger-btn {commandSent ? 'active' : ''}" 
-                    disabled={commandSent || !article.assigned_barcode}
+                    disabled={commandSent || displaySlots.length === 0}
                 >
                     <span class="icon">{commandSent ? '✓' : '💡'}</span>
-                    {#if !article.assigned_barcode}
+                    {#if displaySlots.length === 0}
                         Kein Platz zugewiesen
                     {:else if commandSent}
-                        Fach leuchtet für 10s!
+                        LEDs leuchten für 10s!
                     {:else}
-                        Fach leuchten lassen
+                        {displaySlots.length > 1 ? 'Alle Fächer leuchten lassen' : 'Fach leuchten lassen'}
                     {/if}
                 </button>
             </form>
@@ -142,10 +152,21 @@
             </div>
 
             <div class="drawer-highlight">
-                <span class="label">Lagerplatz (Barcode)</span>
-                <span class="value" style="color: {article.assigned_barcode ? '#ffffff' : '#94a3b8'};">
-                    {article.assigned_barcode ? article.assigned_barcode : 'Unbekannt'}
-                </span>
+                <span class="label">Zugewiesene Lagerplätze</span>
+                
+                <!-- 🔥 NEU: Dynamische Darstellung der Lagerplätze -->
+                {#if displaySlots.length === 0}
+                    <span class="value" style="color: #94a3b8; font-size: 1.5rem;">Unbekannt / Nicht zugewiesen</span>
+                {:else}
+                    <div class="slot-badge-container">
+                        {#each displaySlots as slot}
+                            <div class="slot-badge">
+                                <span class="badge-icon">📟</span>
+                                {slot}
+                            </div>
+                        {/each}
+                    </div>
+                {/if}
             </div>
 
             <div class="meta-grid">
@@ -196,7 +217,6 @@
 </div>
 
 <style>
-    /* Generelles Layout - Terminal Dark Mode */
     .terminal-page { max-width: 1400px; margin: 0 auto; padding: 1rem 2rem; color: #f8fafc; }
 
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
@@ -215,7 +235,6 @@
     .main-image { max-width: 100%; max-height: 100%; object-fit: contain; }
     .no-image-placeholder { color: #94a3b8; font-size: 1.2rem; font-weight: 500; }
 
-    /* Hardware Button Styles */
     form { width: 100%; }
     .hardware-trigger-btn { 
         width: 100%; background: #3b82f6; color: white; border: none; 
@@ -241,9 +260,13 @@
     .stock-info.out-of-stock { color: #fca5a5; background: rgba(239, 68, 68, 0.15); border-color: #ef4444; }
     .stock-info.out-of-stock .indicator { background: #ef4444; }
 
-    .drawer-highlight { background: rgba(59, 130, 246, 0.1); border: 2px solid #3b82f6; padding: 1.5rem; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .drawer-highlight { background: rgba(59, 130, 246, 0.1); border: 2px solid #3b82f6; padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; }
     .drawer-highlight .label { color: #93c5fd; font-size: 1.2rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
-    .drawer-highlight .value { font-size: 3rem; font-weight: bold; }
+    
+    /* 🔥 Neue Styles für die Barcode Badges */
+    .slot-badge-container { display: flex; flex-wrap: wrap; gap: 0.8rem; }
+    .slot-badge { display: flex; align-items: center; gap: 0.5rem; background: #0f172a; padding: 0.6rem 1.2rem; border-radius: 8px; border: 1px solid #4ade80; color: #4ade80; font-family: monospace; font-size: 1.2rem; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+    .badge-icon { font-size: 1.1rem; }
 
     .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; background: #1e293b; padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; }
     .meta-item { display: flex; flex-direction: column; gap: 0.4rem; }

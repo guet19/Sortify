@@ -32,7 +32,7 @@
         previousMain = $assignFilterStore.selectedMainCategoryId;
     }
 
-    // 2. BASIS-FILTER
+    // 2. BASIS-FILTER (Angepasst für Multi-Slot Barcodes)
     $: baseFilteredArticles = articles.filter(article => {
         const searchStr = ($assignFilterStore.searchQuery || "").toLowerCase();
         const safeTitle = article.title || "";
@@ -44,9 +44,12 @@
         const matchMainCategory = $assignFilterStore.selectedMainCategoryId === "" || article.mainCategoryId === $assignFilterStore.selectedMainCategoryId;
         const matchSubCategory = $assignFilterStore.selectedSubcategoryId === "" || article.subcategoryId === $assignFilterStore.selectedSubcategoryId;
         
+        // 🔥 NEU: Prüft auf die neuen Arrays ODER die alten Strings
         let matchBarcode = true;
-        if ($assignFilterStore.barcodeFilter === "unassigned") matchBarcode = !article.assigned_barcode;
-        if ($assignFilterStore.barcodeFilter === "assigned") matchBarcode = !!article.assigned_barcode;
+        const hasBarcodes = (Array.isArray(article.display_barcodes) && article.display_barcodes.length > 0) || !!article.assigned_barcode;
+        
+        if ($assignFilterStore.barcodeFilter === "unassigned") matchBarcode = !hasBarcodes;
+        if ($assignFilterStore.barcodeFilter === "assigned") matchBarcode = hasBarcodes;
 
         return matchSearch && matchMainCategory && matchSubCategory && matchBarcode;
     });
@@ -204,6 +207,14 @@
             default: return 0;
         }
     });
+
+    // Hilfsfunktion für die Anzeige der zugewiesenen Plätze
+    function getDisplayBarcodes(article) {
+        if (Array.isArray(article.display_barcodes) && article.display_barcodes.length > 0) {
+            return article.display_barcodes.join(', ');
+        }
+        return article.assigned_barcode || null;
+    }
 </script>
 
 <div class="terminal-page space-grotesk">
@@ -330,14 +341,16 @@
                                 {article.istBestand ?? 0} Stk.
                             </p>
 
-                            {#if article.assigned_barcode}
-                                <div class="barcode-badge assigned">Barcode: {article.assigned_barcode}</div>
+                            <!-- 🔥 NEU: Die Anzeige unterstützt jetzt die durch Kommata getrennten Slots -->
+                            {#if getDisplayBarcodes(article)}
+                                <div class="barcode-badge assigned">Platz: {getDisplayBarcodes(article)}</div>
                             {:else}
-                                <div class="barcode-badge unassigned">Barcode nicht zugewiesen</div>
+                                <div class="barcode-badge unassigned">Platz nicht zugewiesen</div>
                             {/if}
 
+                            <!-- Der Link zeigt direkt auf den Artikel, damit du dort Fächer anlegen/löschen kannst -->
                             <a href="/terminal/settings/assign/{article._id}" class="btn-assign">
-                                Artikel Barcode zuweisen
+                                Artikel Barcode(s) verwalten
                             </a>
                         </div>
                     </div>
