@@ -16,6 +16,7 @@
     let currentScanInput = '';
     let scanInputRef; 
     let ledTriggered = false; 
+    let scanError = ''; // 🔥 NEU: Speicher für Scan-Fehlermeldungen
 
     // --- State für aufklappbare Detailansicht ---
     let expandedShelfId = null;
@@ -50,7 +51,6 @@
         }
     });
 
-    // Hilfsfunktion zum Schließen des Edit-Modals
     async function closeEditModal() {
         editingDrawer = null;
         showOverwriteWarning = false;
@@ -68,12 +68,12 @@
     async function startCalibration() {
         currentView = 'calibration';
         scannedBarcodes = [];
+        scanError = ''; // Fehler beim Start zurücksetzen
         currentLedIndex = data?.nextFreeLedIndex || 0;
         await triggerLed(currentLedIndex);
         setTimeout(() => scanInputRef?.focus(), 100);
     }
 
-    // Modal öffnen, State zurücksetzen und LED blinken lassen
     async function startEditDrawer(shelfId, ledIndex, currentBarcode) {
         editingDrawer = { shelfId, ledIndex, currentBarcode };
         editScanInput = '';
@@ -95,18 +95,66 @@
         setTimeout(() => { ledTriggered = false; }, 1000);
     }
 
+    // 🔥 NEU: Die intelligente Validierung beim Scannen
     async function handleScanSubmit() {
-        if (!currentScanInput.trim()) return;
+        const barcode = currentScanInput.trim();
+        if (!barcode) return;
 
+        scanError = ''; // Alte Fehler ausblenden
+
+        // 1. Lokale Prüfung (wurde er in dieser Kalibrierungs-Runde schon gescannt?)
+        if (scannedBarcodes.some(b => b.barcode === barcode)) {
+            scanError = `Der Barcode '${barcode}' wurde in dieser Sitzung bereits erfasst!`;
+            currentScanInput = '';
+            setTimeout(() => scanInputRef?.focus(), 100);
+            return; // 🛑 Blockiert das Weiterschalten der LED!
+        }
+
+        // 2. Globale Prüfung (ist er schon in einem bestehenden Regal?)
+        let duplicateShelfName = null;
+        for (const shelf of shelves) {
+            if (shelf.drawers && shelf.drawers.some(d => d.barcode === barcode)) {
+                duplicateShelfName = shelf.name;
+                break;
+            }
+        }
+
+        if (duplicateShelfName) {
+            scanError = `Der Barcode '${barcode}' ist bereits im Regal '${duplicateShelfName}' vergeben!`;
+            currentScanInput = '';
+            setTimeout(() => scanInputRef?.focus(), 100);
+            return; // 🛑 Blockiert das Weiterschalten der LED!
+        }
+
+        // Wenn kein Fehler gefunden wurde -> Normal fortfahren!
         scannedBarcodes = [...scannedBarcodes, { 
             ledIndex: currentLedIndex, 
-            barcode: currentScanInput.trim() 
+            barcode: barcode 
         }];
         
         currentScanInput = '';
         currentLedIndex++;
         await triggerLed(currentLedIndex);
         scanInputRef?.focus();
+    }
+
+    async function undoLastScan() {
+        if (scannedBarcodes.length === 0) return;
+
+        // 1. Letztes Element entfernen
+        scannedBarcodes = scannedBarcodes.slice(0, -1);
+        
+        // 2. LED-Index verringern
+        const startIndex = data?.nextFreeLedIndex || 0;
+        if (currentLedIndex > startIndex) {
+            currentLedIndex--;
+        }
+
+        // 3. Fehler ausblenden und vorherige LED reaktivieren
+        scanError = ''; 
+        currentScanInput = '';
+        await triggerLed(currentLedIndex);
+        setTimeout(() => scanInputRef?.focus(), 100);
     }
 
     function focusOnInit(node) {
@@ -212,6 +260,17 @@
                 <p>Sobald alle Fächer des Regals gescannt wurden, bitte "Erfassung beenden und Speichern" anwählen.</p>
             </div>
 
+            <!-- 🔥 NEU: Die Fehlermeldung bei Duplikaten -->
+            {#if scanError}
+                <div class="warning-box error-box" style="margin-bottom: 1.5rem;">
+                    <span class="warning-icon">❌</span>
+                    <div>
+                        <h4 style="margin-bottom: 0.3rem;">Doppelter Barcode</h4>
+                        <p>{scanError}</p>
+                    </div>
+                </div>
+            {/if}
+
             <form on:submit|preventDefault={handleScanSubmit} class="scan-form">
                 <input 
                     bind:this={scanInputRef}
@@ -225,7 +284,20 @@
             </form>
 
             <div class="scanned-list">
-                <h3>Bisher erfasst ({scannedBarcodes.length} Fächer):</h3>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;">Bisher erfasst ({scannedBarcodes.length} Fächer):</h3>
+                    
+                    {#if scannedBarcodes.length > 0}
+                        <button type="button" class="btn-undo-scan" on:click={undoLastScan}>
+                            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="9 14 4 9 9 4"></polyline>
+                                <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path>
+                            </svg>
+                            Letzten Scan rückgängig
+                        </button>
+                    {/if}
+                </div>
+
                 <div class="tags">
                     {#each scannedBarcodes as item}
                         <span class="scan-tag">#{item.ledIndex}: {item.barcode}</span>
@@ -483,6 +555,17 @@
     .scan-tag { background: #334155; color: #f8fafc; padding: 0.4rem 0.8rem; border-radius: 6px; font-family: monospace; font-size: 1.1rem; }
     .empty-state { color: #475569; font-style: italic; }
 
+    /* Undo Button Styles */
+    .btn-undo-scan {
+        display: flex; align-items: center; gap: 0.4rem;
+        background: transparent; color: #f59e0b; border: 1px dashed #f59e0b;
+        padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.85rem; font-weight: bold;
+        cursor: pointer; transition: all 0.2s;
+    }
+    .btn-undo-scan:hover {
+        background: rgba(245, 158, 11, 0.1); border-style: solid;
+    }
+
     /* Actions Column (Speichern/Abbrechen) */
     .action-buttons-column { display: flex; flex-direction: column; gap: 1rem; }
     .btn-finish {
@@ -518,6 +601,7 @@
         padding: 1rem; display: flex; align-items: flex-start; gap: 1rem; text-align: left;
         margin-top: 1rem;
     }
+    .error-box { border-color: #ef4444; background: rgba(239, 68, 68, 0.1); }
     .warning-icon { font-size: 1.5rem; line-height: 1; }
     .warning-box h4 { margin: 0 0 0.5rem 0; color: #ef4444; }
     .warning-box p { margin: 0; color: #cbd5e1; font-size: 0.95rem; line-height: 1.4; }

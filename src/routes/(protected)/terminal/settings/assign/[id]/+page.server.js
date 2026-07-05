@@ -1,8 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 
-// 🔥 Globaler Speicher für den LED-Timeout, damit wir ihn abbrechen können,
-// wenn der User schneller ist als die 10 Sekunden!
+// 🔥 Globaler Speicher für den LED-Timeout, damit wir ihn abbrechen können
 let globalLedTimeout = null;
 
 export async function load({ cookies, params }) {
@@ -24,6 +23,33 @@ export async function load({ cookies, params }) {
 }
 
 export const actions = {
+    // Lässt alle freien Fächer blau leuchten
+    lightUpEmptySlots: async ({ cookies }) => {
+        const userId = cookies.get('session');
+        if (!userId) return { success: false };
+
+        try {
+            if (globalLedTimeout) {
+                clearTimeout(globalLedTimeout);
+                globalLedTimeout = null;
+            }
+
+            if (typeof db.triggerEmptyLedsBlue === 'function') {
+                await db.triggerEmptyLedsBlue(userId);
+            }
+
+            globalLedTimeout = setTimeout(async () => {
+                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                globalLedTimeout = null;
+            }, 15000);
+
+            return { success: true };
+        } catch (err) {
+            console.error("Fehler beim blauen Aufleuchten:", err);
+            return { success: false };
+        }
+    },
+
     checkBarcode: async ({ request, cookies, params }) => {
         const userId = cookies.get('session');
         if (!userId) return { success: false, error: 'Unauthorized' };
@@ -51,6 +77,22 @@ export const actions = {
             if (!barcodeExists) {
                 return { success: false, error: 'not_in_shelves' };
             }
+
+            // 🔥 NEU: Schalte alle anderen Fächer aus und nur das gewählte blau an!
+            if (globalLedTimeout) {
+                clearTimeout(globalLedTimeout);
+                globalLedTimeout = null;
+            }
+            
+            if (typeof db.triggerSingleLedBlue === 'function') {
+                await db.triggerSingleLedBlue(userId, barcode);
+            }
+
+            // Verlängerter Timer (30s), da das Wiegen der Box etwas dauern kann
+            globalLedTimeout = setTimeout(async () => {
+                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                globalLedTimeout = null;
+            }, 30000);
 
             return { success: true, barcode };
         } catch (err) {
@@ -103,14 +145,12 @@ export const actions = {
         }
     },
 
-    // Der LED-Trigger räumt jetzt immer auf, bevor er feuerte!
     triggerLedOnly: async ({ request, cookies }) => {
         const userId = cookies.get('session');
         const data = await request.formData();
         const barcode = data.get('barcode');
         
         try {
-            // Alten, noch laufenden Timeout sofort stoppen (verhindert das Abwürgen!)
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
@@ -118,7 +158,6 @@ export const actions = {
 
             await db.triggerLedByBarcode(userId, barcode, true);
             
-            // Neuen, exakten 10-Sekunden-Timer setzen
             globalLedTimeout = setTimeout(async () => {
                 try { await db.createHardwareCommand(userId, [0]); } catch(e){}
                 globalLedTimeout = null;
@@ -130,7 +169,6 @@ export const actions = {
         }
     },
 
-    // Auch hier räumen wir alte Timeouts sauber auf!
     updateStockAndLightUp: async ({ request, cookies }) => {
         const userId = cookies.get('session');
         const data = await request.formData();
@@ -142,7 +180,6 @@ export const actions = {
         try {
             await db.updateArticleStockFromWeights(userId, articleId, barcode, newStock);
             
-            // Alten Timeout stoppen
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
@@ -150,7 +187,6 @@ export const actions = {
 
             await db.triggerLedByBarcode(userId, barcode, true);
             
-            // Neuen Timeout setzen
             globalLedTimeout = setTimeout(async () => {
                 try { await db.createHardwareCommand(userId, [0]); } catch(e){}
                 globalLedTimeout = null;
@@ -162,7 +198,6 @@ export const actions = {
         }
     },
 
-    // Speichert das Gewicht und alle veränderten Fächer im letzten Schritt
     saveWeightAndAllStocks: async ({ request, cookies }) => {
         const userId = cookies.get('session');
         const data = await request.formData();
@@ -181,7 +216,6 @@ export const actions = {
                 }
             }
 
-            // Beim finalen Speichern wollen wir das Licht immer hart aus haben
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;

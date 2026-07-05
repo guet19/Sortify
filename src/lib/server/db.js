@@ -1097,6 +1097,93 @@ async function updateArticleItemWeight(userId, articleId, newItemWeight) {
     }
 }
 
+async function triggerEmptyLedsBlue(userId) {
+    try {
+        const db = await getDb();
+        const safeUserId = userId.toString();
+
+        // 1. Alle existierenden Fächer aus den Regalen holen
+        const shelves = await db.collection('shelves').find({ userId: safeUserId }).toArray();
+        let allDrawers = [];
+        shelves.forEach(shelf => {
+            if (shelf.drawers) {
+                shelf.drawers.forEach(d => {
+                    if (d.barcode) allDrawers.push(d);
+                });
+            }
+        });
+
+        // 2. Alle belegten Barcodes aus sämtlichen Artikeln sammeln
+        const articles = await db.collection('articles').find({ userId: safeUserId }).toArray();
+        let assignedBarcodes = new Set();
+        articles.forEach(article => {
+            if (Array.isArray(article.assigned_barcodes)) {
+                article.assigned_barcodes.forEach(b => {
+                    const code = typeof b === 'object' ? b.barcode : b;
+                    if (code) assignedBarcodes.add(code);
+                });
+            } else if (article.assigned_barcode) {
+                assignedBarcodes.add(article.assigned_barcode);
+            }
+        });
+
+        // 3. Freie Fächer ermitteln (Barcodes, die in shelves sind, aber NICHT in assignedBarcodes)
+        let emptyDrawerIds = [];
+        allDrawers.forEach(drawer => {
+            if (!assignedBarcodes.has(drawer.barcode)) {
+                emptyDrawerIds.push(parseInt(drawer.ledIndex) + 1); // +1 für den Raspberry Pi
+            }
+        });
+
+        // 4. Hardware-Befehl absetzen (falls es freie Fächer gibt)
+        if (emptyDrawerIds.length > 0) {
+            await db.collection('hardware_commands').insertOne({
+                userId: safeUserId,
+                drawer_ids: emptyDrawerIds,
+                color: "blue",     // Parameter für das Raspberry Pi Skript
+                mode: "solid",     // Parameter: durchgehend, nicht blinken
+                status: "pending",
+                createdAt: new Date()
+            });
+        }
+
+        return emptyDrawerIds.length;
+    } catch (error) {
+        console.error("Fehler in triggerEmptyLedsBlue:", error);
+        throw error;
+    }
+}
+// 🔥 NEU: Lässt ein einzelnes Fach durchgehend blau leuchten
+async function triggerSingleLedBlue(userId, barcode) {
+    try {
+        const db = await getDb();
+        const shelf = await db.collection('shelves').findOne({
+            userId: userId.toString(),
+            "drawers.barcode": barcode
+        });
+        
+        if (shelf && shelf.drawers) {
+            const drawer = shelf.drawers.find(d => d.barcode === barcode);
+            if (drawer) {
+                const ledIndex = parseInt(drawer.ledIndex) + 1; // +1 für Raspberry
+                await db.collection('hardware_commands').insertOne({
+                    userId: userId.toString(),
+                    drawer_ids: [ledIndex],
+                    color: "blue",
+                    mode: "solid",
+                    status: "pending",
+                    createdAt: new Date()
+                });
+                return true;
+            }
+        }
+        return false;
+    } catch (error) {
+        console.error("Fehler in triggerSingleLedBlue:", error);
+        throw error;
+    }
+}
+
 
 export default { 
     getDb,
@@ -1151,5 +1238,7 @@ export default {
     updateArticleStockFromWeights,
     removeBarcodes,
     logArticleAction,
-    updateArticleItemWeight
+    updateArticleItemWeight,
+    triggerEmptyLedsBlue,
+    triggerSingleLedBlue
 };

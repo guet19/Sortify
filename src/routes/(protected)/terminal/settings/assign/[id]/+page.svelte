@@ -5,16 +5,16 @@
 
     export let data;
 
-    $: article = data.article;
-    $: categories = data.categories;
-    $: attributes = data.attributes;
-    $: originalStock = article.istBestand || 0;
+    $: article = data?.article;
+    $: categories = data?.categories || [];
+    $: attributes = data?.attributes || [];
+    $: originalStock = article?.istBestand || 0;
 
     $: displaySlots = (() => {
         let slots = [];
-        if (Array.isArray(article.assigned_barcodes) && article.assigned_barcodes.length > 0) {
+        if (Array.isArray(article?.assigned_barcodes) && article.assigned_barcodes.length > 0) {
             slots = article.assigned_barcodes.map(b => typeof b === 'object' ? b.barcode : b);
-        } else if (article.assigned_barcode) {
+        } else if (article?.assigned_barcode) {
             slots = [article.assigned_barcode];
         }
         return slots;
@@ -46,15 +46,19 @@
     let scanInput = '';
     let scanInputRef;
 
-    // --- STATE FÜR DEN UPDATE-WEIGHT WIZARD ---
+    // --- STATES FÜR DEN WIZARD ---
     let pendingSlotsToUpdate = [];
     let currentUpdateSlot = '';
     let currentUpdateBoxWeight = 0;
     let hiddenLedFormBtn; 
+    let hiddenFindEmptyBtn; 
     
-    // Tara-Gewicht der leeren Box für das Update
     let uwBoxWeight = 0; 
     let updatedSlotsData = []; 
+
+    // 🔥 NEU: Feedback-States für das Scannen
+    let isScanning = false;
+    let scanError = '';
 
     $: conflictDisplayAttributes = (() => {
         let arr = [];
@@ -75,7 +79,6 @@
         return arr;
     })();
 
-    // --- BERECHNUNG: ALT VS NEU IN DER PFLICHT-INVENTUR ---
     $: oldDrawerStock_uw = (() => {
         if (!article || !currentUpdateSlot) return 0;
         if (Array.isArray(article.assigned_barcodes)) {
@@ -86,7 +89,6 @@
     })();
     $: difference_uw = calculatedStock - oldDrawerStock_uw;
 
-    // --- START DES UPDATE WIZARDS ---
     function startUpdateWeightWizard() {
         showModal = true;
         updatedSlotsData = []; 
@@ -99,7 +101,6 @@
         }
     }
 
-    // --- LOGIK FÜR DIE PFLICHT-INVENTUR SCHLEIFE ---
     function processNextUpdateSlot() {
         if (pendingSlotsToUpdate.length === 0) {
             wizardState = 'uw_final_summary';
@@ -108,7 +109,6 @@
         currentUpdateSlot = pendingSlotsToUpdate[0];
         
         let bw = 0;
-        // 1. Suche im Artikel (falls es dort mal gespeichert wurde)
         if (Array.isArray(article.assigned_barcodes)) {
             const drawer = article.assigned_barcodes.find(b => typeof b === 'object' && b.barcode === currentUpdateSlot);
             if (drawer && !isNaN(parseFloat(drawer.boxWeight))) bw = parseFloat(drawer.boxWeight);
@@ -116,7 +116,6 @@
         if (bw === 0 && !isNaN(parseFloat(article.boxWeight))) bw = parseFloat(article.boxWeight);
         if (bw === 0 && article.attributes && !isNaN(parseFloat(article.attributes.boxWeight))) bw = parseFloat(article.attributes.boxWeight);
         
-        // 2. Fallback: Wenn die Datenbank nichts liefert, nutzen wir die gewogene Box
         if (bw === 0 && uwBoxWeight > 0) {
             bw = uwBoxWeight;
         }
@@ -130,11 +129,12 @@
     function openWizard() {
         if (displaySlots.length >= 10) return; 
         showModal = true;
-        wizardState = 'scan';
+        wizardState = 'find_empty'; 
         barcodeError = false;
+        scanError = '';
         showConflictModal = false;
         scanInput = '';
-        setTimeout(() => scanInputRef?.focus(), 100);
+        setTimeout(() => { if (hiddenFindEmptyBtn) hiddenFindEmptyBtn.click(); }, 100);
     }
 
     function closeWizard() {
@@ -160,7 +160,7 @@
                     
                     if (step === 'box') {
                         boxWeight = data.weight;
-                        if (article.attributes && article.attributes.itemWeight) {
+                        if (article?.attributes && article.attributes.itemWeight) {
                             wizardState = 'ask_item_weight';
                         } else {
                             wizardState = 'weigh_item';
@@ -174,10 +174,7 @@
                         const netWeight = Math.max(0, measuredWeight - boxWeight);
                         calculatedStock = Math.round(netWeight / itemWeight);
                         wizardState = 'confirm_total_stock';
-                    } 
-                    
-                    // --- POLLING FÜR DEN UPDATE-WIZARD ---
-                    else if (step === 'uw_box') {
+                    } else if (step === 'uw_box') {
                         uwBoxWeight = data.weight;
                         wizardState = 'uw_weigh_item';
                     } else if (step === 'uw_item') {
@@ -204,9 +201,9 @@
 <div class="terminal-page space-grotesk">
     <div class="header">
         <div class="title-area">
-            <h1 class="page-title">{article.title}</h1>
-            {#if article.sku}
-                <span class="sku-badge">SKU: {article.sku}</span>
+            <h1 class="page-title">{article?.title || 'Lade Artikel...'}</h1>
+            {#if article?.sku}
+                <span class="sku-badge">SKU: {article?.sku}</span>
             {/if}
         </div>
         <a href="/terminal/settings/assign" class="btn-back">
@@ -217,8 +214,8 @@
     <div class="article-layout">
         <div class="left-column">
             <div class="image-section">
-                {#if article.imagePath}
-                    <img src={article.imagePath} alt={article.title} class="main-image" >
+                {#if article?.imagePath}
+                    <img src={article?.imagePath} alt={article?.title} class="main-image" >
                 {:else}
                     <div class="no-image-placeholder">
                         <span class="icon">📷</span>
@@ -240,7 +237,7 @@
                     <span class="icon-large">📠</span>
                     <div class="btn-text">
                         <strong>Neues Fach zuweisen</strong>
-                        <span>Barcode scannen & Gewicht erfassen</span>
+                        <span>Leeres Fach suchen & scannen</span>
                     </div>
                 </button>
             {/if}
@@ -294,9 +291,9 @@
                     <div class="meta-icon">🔩</div>
                     <div class="meta-content">
                         <span class="meta-label">Artikel-Stückgewicht</span>
-                        <span class="meta-value highlight-blue">{article.attributes?.itemWeight ? `${parseFloat(article.attributes.itemWeight).toFixed(2)} g` : '-'}</span>
+                        <span class="meta-value highlight-blue">{article?.attributes?.itemWeight ? `${parseFloat(article.attributes.itemWeight).toFixed(2)} g` : '-'}</span>
                         
-                        {#if article.attributes?.itemWeight}
+                        {#if article?.attributes?.itemWeight}
                             <button class="btn-update-weight" on:click={startUpdateWeightWizard}>
                                 <span class="icon">🔄</span> Aktualisieren
                             </button>
@@ -315,9 +312,6 @@
     </div>
 </div>
 
-<!-- ============================================== -->
-<!-- DER SETUP-WIZARD MODAL                         -->
-<!-- ============================================== -->
 {#if showModal}
     <div class="modal-backdrop"></div>
     <div class="modal-window scan-modal">
@@ -326,14 +320,10 @@
             <button class="btn-close-modal" on:click={closeWizard}>✕</button>
         </div>
         
-        <div class="modal-body">
-            
-            <!-- ============================================== -->
-            <!-- DER UPDATE-WEIGHT WIZARD FLOW (MIT BOX TARA)   -->
-            <!-- ============================================== -->
+        <!-- 🔥 NEU: on:click Falle fängt Klicks im Modal ab und gibt sie an den Scanner zurück -->
+        <div class="modal-body" on:click={() => { if(wizardState === 'scan') scanInputRef?.focus(); }}>
             
             {#if wizardState === 'uw_start'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
                 {#if currentUpdateSlot}
                     <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
                         <input type="hidden" name="barcode" value={currentUpdateSlot}>
@@ -418,7 +408,6 @@
                 </button>
 
             {:else if wizardState === 'uw_weigh_slot'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
                 <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
                     <input type="hidden" name="barcode" value={currentUpdateSlot}>
                     <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
@@ -485,7 +474,6 @@
                 </button>
 
             {:else if wizardState === 'uw_put_back'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
                 <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
                     <input type="hidden" name="barcode" value={currentUpdateSlot}>
                     <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
@@ -530,7 +518,7 @@
                         }
                     };
                 }}>
-                    <input type="hidden" name="articleId" value={article._id}>
+                    <input type="hidden" name="articleId" value={article?._id}>
                     <input type="hidden" name="itemWeight" value={itemWeight.toFixed(3)}>
                     <input type="hidden" name="slotsData" value={JSON.stringify(updatedSlotsData)}>
                     
@@ -552,6 +540,25 @@
             <!-- ORIGINAL: ASSIGN WIZARD FLOW                   -->
             <!-- ============================================== -->
 
+            {:else if wizardState === 'find_empty'}
+                <div class="scale-animation box-shadow-glow">
+                    <div class="spinner"></div>
+                    <h2>Bereite Regal vor...</h2>
+                    <p>Ermittle freie Fächer und steuere LEDs an.</p>
+                </div>
+
+                <!-- 🔥 NEU: update() entfernt, da SvelteKit Formular-Resets sonst State zerstören können -->
+                <form method="POST" action="?/lightUpEmptySlots" use:enhance={() => {
+                    return async ({ result }) => {
+                        if (result.type === 'success') {
+                            wizardState = 'scan';
+                            setTimeout(() => scanInputRef?.focus(), 150);
+                        }
+                    };
+                }} style="display:none;">
+                    <button type="submit" bind:this={hiddenFindEmptyBtn}></button>
+                </form>
+
             {:else if wizardState === 'scan'}
                 {#if barcodeError}
                     <div class="warning-box error-box">
@@ -565,31 +572,70 @@
                         Erneut scannen
                     </button>
                 {:else}
+                    <form method="POST" action="?/lightUpEmptySlots" use:enhance={() => { 
+                        return async () => { setTimeout(() => scanInputRef?.focus(), 100); }; 
+                    }} class="retrigger-form">
+                        <button type="submit" class="btn-retrigger-led">💡 Erneut blau leuchten</button>
+                    </form>
+
                     <div class="step-indicator">Schritt 1 von 3</div>
-                    <div class="emoji-hero">📠</div>
-                    <h2 class="step-title text-blue">1. Barcode scannen</h2>
-                    <p class="step-desc">Scanne den Barcode des Regalfachs, das du zuweisen möchtest.</p>
+                    <div class="emoji-hero">🟦</div>
+                    <h2 class="step-title text-blue">1. Leeres Fach wählen</h2>
+                    <p class="step-desc">Freie Fächer leuchten jetzt <strong>blau</strong> auf. Nimm ein blaues Fach aus dem Regal und scanne den Barcode auf der Box.</p>
+
+                    <!-- 🔥 NEU: Scan-Fehler explizit anzeigen -->
+                    {#if scanError}
+                        <div class="warning-box error-box" style="margin-bottom: 1.5rem; padding: 1rem;">
+                            <span class="warning-icon">❌</span>
+                            <div>
+                                <h4 style="margin: 0 0 0.3rem 0;">Fehler</h4>
+                                <p style="margin: 0;">{scanError}</p>
+                            </div>
+                        </div>
+                    {/if}
 
                     <form method="POST" action="?/checkBarcode" use:enhance={() => {
-                        return async ({ result, update }) => {
-                            if (result.data && !result.data.success) {
-                                if (result.data.error === 'not_in_shelves') { barcodeError = true; return; }
-                                if (result.data.error === 'already_assigned') {
-                                    conflictingArticle = result.data.conflictingArticle;
+                        isScanning = true;
+                        scanError = '';
+
+                        return async ({ result }) => {
+                            isScanning = false;
+                            
+                            if (result.type === 'success' && result.data) {
+                                if (result.data.success) {
                                     activeBarcode = result.data.barcode;
-                                    showConflictModal = true; showModal = false; return;
+                                    wizardState = 'weigh_box';
+                                } else {
+                                    if (result.data.error === 'not_in_shelves') { 
+                                        barcodeError = true; 
+                                    } else if (result.data.error === 'already_assigned') {
+                                        conflictingArticle = result.data.conflictingArticle;
+                                        activeBarcode = result.data.barcode;
+                                        showConflictModal = true; showModal = false; 
+                                    } else {
+                                        scanError = result.data.error || 'Fehler beim Überprüfen.';
+                                    }
                                 }
+                            } else {
+                                scanError = 'Server nicht erreichbar.';
                             }
-                            activeBarcode = result.data.barcode;
-                            wizardState = 'weigh_box';
+                            // Fokus auf jeden Fall zurückholen
+                            setTimeout(() => scanInputRef?.focus(), 100);
                         };
                     }}>
+                        <!-- 🔥 NEU: isScanning Feedback -->
                         <div class="scan-animation-wrapper" on:click={() => scanInputRef?.focus()}>
                             <div class="scan-line"></div>
-                            <span>Warte auf Scanner-Eingabe...</span>
+                            <span style="color: {isScanning ? '#22c55e' : 'var(--color-blue-light)'};">
+                                {isScanning ? '⏳ Prüfe Barcode...' : 'Warte auf Scanner-Eingabe...'}
+                            </span>
                         </div>
+                        
+                        <!-- 🔥 NEU: Zugänglichkeits-sicherer Input (clip statt display:none oder opacity) -->
                         <input bind:this={scanInputRef} bind:value={scanInput} type="text" name="barcode" class="hidden-scan-input" required use:focusOnInit>
-                        <button type="submit" style="display: none;"></button>
+                        
+                        <!-- 🔥 NEU: Sicherer Submit Button (verhindert Browser-Blockaden) -->
+                        <button type="submit" tabindex="-1" style="position: absolute; left: -9999px; width: 1px; height: 1px;">Scan</button>
                     </form>
                 {/if}
 
@@ -597,7 +643,7 @@
                 <div class="step-indicator">Schritt 2 von 3</div>
                 <div class="emoji-hero">📦</div>
                 <h2 class="step-title text-yellow">2. Leeres Fach wiegen (Tara)</h2>
-                <p class="step-desc">Nimm das <strong>leere Fach</strong> aus dem Regal und stelle es auf die Waage.</p>
+                <p class="step-desc">Stelle das <strong>leere Fach</strong> nun auf die Waage.</p>
 
                 <form method="POST" action="?/requestScale" use:enhance={() => {
                     wizardState = 'weigh_box_polling';
@@ -621,10 +667,10 @@
                 <div class="step-indicator">Schritt 3 von 3</div>
                 <div class="emoji-hero">⚖️</div>
                 <h2 class="step-title text-green">Stückgewicht bekannt</h2>
-                <p class="step-desc">In der Datenbank ist für diesen Artikel bereits ein Gewicht von <strong class="highlight-text">{parseFloat(article.attributes.itemWeight).toFixed(2)} g</strong> pro Stück hinterlegt.</p>
+                <p class="step-desc">In der Datenbank ist für diesen Artikel bereits ein Gewicht von <strong class="highlight-text">{parseFloat(article?.attributes?.itemWeight || 0).toFixed(2)} g</strong> pro Stück hinterlegt.</p>
 
                 <div class="button-stack mt-3">
-                    <button type="button" class="btn-primary huge-btn btn-green" on:click={() => { itemWeight = parseFloat(article.attributes.itemWeight); wizardState = 'summary'; }}>
+                    <button type="button" class="btn-primary huge-btn btn-green" on:click={() => { itemWeight = parseFloat(article?.attributes?.itemWeight || 0); wizardState = 'summary'; }}>
                         <span class="icon">✅</span> Bekanntes Gewicht nutzen
                     </button>
                     <button type="button" class="btn-cancel full-width" on:click={() => wizardState = 'weigh_item'}>
@@ -683,7 +729,7 @@
                         }
                     };
                 }}>
-                    <input type="hidden" name="articleId" value={article._id}>
+                    <input type="hidden" name="articleId" value={article?._id || ''}>
                     <input type="hidden" name="barcode" value={activeBarcode}>
                     <input type="hidden" name="boxWeight" value={boxWeight.toFixed(3)}>
                     <input type="hidden" name="itemWeight" value={itemWeight.toFixed(3)}>
@@ -697,7 +743,7 @@
                 <div class="emoji-hero">🎉</div>
                 <h2 class="step-title text-green">Fach erfolgreich verknüpft!</h2>
                 <div class="info-card mb-3">
-                    <p>Möchtest du das Fach jetzt direkt mit <strong>{article.title}</strong> füllen und den Bestand ermitteln?</p>
+                    <p>Möchtest du das Fach jetzt direkt mit <strong>{article?.title}</strong> füllen und den Bestand ermitteln?</p>
                 </div>
 
                 <div class="button-stack">
@@ -718,7 +764,7 @@
             {:else if wizardState === 'weigh_total_stock'}
                 <div class="emoji-hero">⚖️</div>
                 <h2 class="step-title text-yellow">Bestand erfassen</h2>
-                <p class="step-desc">Fülle nun alle <strong>{article.title}</strong> in das Fach und stelle es auf die Waage.</p>
+                <p class="step-desc">Fülle nun alle <strong>{article?.title}</strong> in das Fach und stelle es auf die Waage.</p>
 
                 <form method="POST" action="?/requestScale" use:enhance={() => {
                     wizardState = 'weigh_total_stock_polling';
@@ -762,7 +808,7 @@
                         if (result.data?.success) { wizardState = 'success'; setTimeout(() => closeWizard(), 4000); }
                     };
                 }}>
-                    <input type="hidden" name="articleId" value={article._id}>
+                    <input type="hidden" name="articleId" value={article?._id || ''}>
                     <input type="hidden" name="barcode" value={activeBarcode}>
                     <input type="hidden" name="newStock" value={calculatedStock}>
                     
@@ -772,12 +818,6 @@
                 </form>
 
             {:else if wizardState === 'success'}
-                <!-- 🔥 NEU: Der Button sitzt jetzt frei im modal-body! -->
-                <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
-                    <input type="hidden" name="barcode" value={activeBarcode}>
-                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
-                </form>
-
                 <div class="success-animation">
                     <div class="emoji-hero bounce">✅</div>
                     <h2 class="step-title text-green">Alles erledigt!</h2>
@@ -885,7 +925,7 @@
                     barcodeToUnlink = null; 
                 }; 
             }}>
-                <input type="hidden" name="articleId" value={article._id} >
+                <input type="hidden" name="articleId" value={article?._id || ''} >
                 <input type="hidden" name="barcode" value={barcodeToUnlink} >
                 <div class="button-row justify-center mt-3">
                     <button type="button" class="btn-cancel" on:click={() => showSingleUnlinkConfirmation = false}>Abbrechen</button>
@@ -912,7 +952,7 @@
             <p class="text-gray mb-3">Alle zugewiesenen Fächer werden von diesem Artikel gelöst. Die Hardware-LEDs werden für diesen Artikel nicht mehr leuchten.</p>
             
             <form method="POST" action="?/unlinkBarcode" use:enhance={() => { return async ({ update }) => { await update(); await invalidateAll(); showUnlinkConfirmation = false; }; }}>
-                <input type="hidden" name="articleId" value={article._id} >
+                <input type="hidden" name="articleId" value={article?._id || ''} >
                 <div class="button-row justify-center mt-3">
                     <button type="button" class="btn-cancel" on:click={() => showUnlinkConfirmation = false}>Abbrechen</button>
                     <button type="submit" class="btn-primary btn-red">Ja, endgültig entfernen</button>
@@ -931,7 +971,6 @@
 </form>
 
 <style>
-    /* --- Globale Variablen & Basis --- */
     :root {
         --bg-dark: #0f172a; --bg-card: #1e293b; --bg-card-hover: #334155;
         --border-color: #334155; --border-highlight: #475569;
@@ -946,9 +985,7 @@
         --shadow-glow-blue: 0 0 15px rgba(59, 130, 246, 0.3);
         --radius-md: 12px; --radius-lg: 16px; --radius-xl: 24px;
     }
-
     .terminal-page { max-width: 1400px; margin: 0 auto; padding: 2rem; color: var(--text-main); }
-    
     .mt-1 { margin-top: 0.5rem; } .mt-2 { margin-top: 1rem; } .mt-3 { margin-top: 1.5rem; }
     .mb-1 { margin-bottom: 0.5rem; } .mb-2 { margin-bottom: 1rem; } .mb-3 { margin-bottom: 1.5rem; }
     .p-4 { padding: 2rem; } .text-center { text-align: center; }
@@ -956,75 +993,27 @@
     .text-blue { color: var(--color-blue-light); } .text-green { color: var(--color-green); }
     .text-yellow { color: var(--color-yellow); } .text-red-light { color: var(--color-red-light); }
     .full-width { width: 100%; } .flex-end { justify-content: flex-end; } .justify-center { justify-content: center; }
-
-    /* --- Button Stylings --- */
-    .btn-update-weight {
-        background: transparent; 
-        border: 1px dashed var(--color-blue-light); 
-        color: var(--color-blue-light);
-        padding: 0.3rem 0.6rem; 
-        border-radius: 6px; 
-        font-size: 0.75rem; 
-        font-weight: bold; 
-        cursor: pointer;
-        transition: all 0.2s; 
-        display: inline-flex; 
-        align-items: center; 
-        gap: 0.3rem;
-        margin-top: 0.5rem; 
-        align-self: flex-start;
-    }
-    .btn-update-weight:hover { 
-        background: rgba(59, 130, 246, 0.1); 
-        border-style: solid; 
-    }
-
-    /* 🔥 NEU: Komplett überarbeitetes Styling für den LED Button (Frei & Größer) */
-    .retrigger-form {
-        position: absolute;
-        top: 2.5rem; /* Exakt bündig mit dem inneren Padding des Modals */
-        right: 2rem;
-        margin: 0;
-        z-index: 10; /* Garantiert, dass der Button immer ganz oben anklickbar bleibt */
-    }
-    .btn-retrigger-led {
-        background: rgba(59, 130, 246, 0.1);
-        border: 1px dashed rgba(59, 130, 246, 0.4);
-        color: var(--color-blue-light);
-        padding: 0.5rem 0.8rem; /* Größerer Klickbereich */
-        border-radius: 8px; /* Etwas runder */
-        font-size: 0.95rem; /* Größere Schrift */
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.2s;
-        display: flex;
-        align-items: center;
-        gap: 0.4rem;
-    }
-    .btn-retrigger-led:hover {
-        background: rgba(59, 130, 246, 0.2);
-        border-style: solid;
-        color: white;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
-    }
-
+    
+    .btn-update-weight { background: transparent; border: 1px dashed var(--color-blue-light); color: var(--color-blue-light); padding: 0.3rem 0.6rem; border-radius: 6px; font-size: 0.75rem; font-weight: bold; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.3rem; margin-top: 0.5rem; align-self: flex-start; }
+    .btn-update-weight:hover { background: rgba(59, 130, 246, 0.1); border-style: solid; }
+    
+    .retrigger-form { position: absolute; top: 2.5rem; right: 2rem; margin: 0; z-index: 10; }
+    .btn-retrigger-led { background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); color: var(--color-blue-light); padding: 0.5rem 0.8rem; border-radius: 8px; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.4rem; }
+    .btn-retrigger-led:hover { background: rgba(59, 130, 246, 0.2); border-style: solid; color: white; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }
+    
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; }
     .title-area { display: flex; flex-direction: column; gap: 0.5rem; }
     .page-title { color: var(--color-green); margin: 0; font-size: 2.5rem; letter-spacing: -0.02em; }
     .sku-badge { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border-highlight); color: var(--text-muted); padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.9rem; font-family: monospace; font-weight: bold; }
     .btn-back { display: flex; align-items: center; gap: 0.5rem; background: var(--bg-card); color: white; padding: 0.8rem 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--border-highlight); text-decoration: none; font-weight: 600; transition: all 0.2s; }
     .btn-back:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
-
     .article-layout { display: grid; grid-template-columns: 450px 1fr; gap: 3rem; align-items: start; }
     .left-column { display: flex; flex-direction: column; gap: 1.5rem; position: sticky; top: 2rem; }
     .info-section { display: flex; flex-direction: column; gap: 2rem; }
-
     .image-section { background: white; border-radius: var(--radius-lg); height: 350px; display: flex; align-items: center; justify-content: center; padding: 1rem; box-shadow: var(--shadow-sm); overflow: hidden; }
     .main-image { max-width: 100%; max-height: 100%; object-fit: contain; mix-blend-mode: multiply; }
     .no-image-placeholder { display: flex; flex-direction: column; align-items: center; gap: 1rem; color: #cbd5e1; }
     .no-image-placeholder .icon { font-size: 3rem; filter: grayscale(1); opacity: 0.5; }
-
     .hardware-trigger-btn { background: linear-gradient(135deg, var(--color-blue), #2563eb); color: white; border: none; padding: 2rem 1.5rem; border-radius: var(--radius-lg); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 1.5rem; box-shadow: var(--shadow-glow-blue); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); text-align: left; }
     .hardware-trigger-btn:hover:not(.disabled) { transform: translateY(-4px); box-shadow: 0 12px 25px rgba(59, 130, 246, 0.4); }
     .hardware-trigger-btn:active:not(.disabled) { transform: translateY(0); }
@@ -1034,16 +1023,13 @@
     .hardware-trigger-btn .btn-text { display: flex; flex-direction: column; gap: 0.3rem; }
     .hardware-trigger-btn .btn-text strong { font-size: 1.4rem; font-weight: 800; letter-spacing: 0.02em; }
     .hardware-trigger-btn .btn-text span { font-size: 0.95rem; opacity: 0.9; font-weight: 500; }
-
     .btn-unlink-secondary { display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: transparent; color: var(--color-red); border: 1px dashed var(--color-red); padding: 1rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; font-size: 1rem; transition: all 0.2s; }
     .btn-unlink-secondary:hover { background: rgba(239, 68, 68, 0.1); border-style: solid; }
-
     .drawer-highlight { background: var(--bg-card); border: 1px solid var(--border-color); padding: 2rem; border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); }
     .highlight-header { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; }
     .highlight-header .icon { font-size: 1.5rem; }
     .highlight-header .label { color: white; font-weight: 700; font-size: 1.2rem; flex: 1; }
     .highlight-header .badge { background: rgba(59, 130, 246, 0.2); color: var(--color-blue-light); padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.85rem; font-weight: bold; border: 1px solid rgba(59, 130, 246, 0.3); }
-
     .slot-list { display: flex; flex-direction: column; gap: 0.8rem; }
     .slot-item { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.5rem; border-radius: var(--radius-md); border: 1px solid transparent; transition: all 0.2s; }
     .slot-item.occupied { background: rgba(34, 197, 94, 0.05); border-color: rgba(34, 197, 94, 0.2); }
@@ -1051,10 +1037,8 @@
     .slot-number { color: var(--text-muted); font-weight: 600; font-size: 0.95rem; }
     .barcode-display { display: flex; align-items: center; gap: 0.5rem; color: var(--color-green); font-family: monospace; font-size: 1.1rem; }
     .empty-text { color: #64748b; font-style: italic; font-size: 0.95rem; }
-
     .btn-icon-danger { background: rgba(239, 68, 68, 0.1); color: var(--color-red); border: 1px solid transparent; border-radius: 50%; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; font-size: 0.8rem; margin-left: 0.5rem; }
     .btn-icon-danger:hover { background: var(--color-red); color: white; box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); border-color: var(--color-red); }
-
     .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
     .meta-item { display: flex; align-items: center; gap: 1rem; background: var(--bg-card); padding: 1.5rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color); box-shadow: var(--shadow-sm); }
     .meta-item.total-stock-item { background: linear-gradient(145deg, var(--bg-card), #152033); border-color: var(--border-highlight); }
@@ -1065,81 +1049,63 @@
     .highlight-blue { color: var(--color-blue-light); }
     .highlight-green { color: var(--color-green); font-size: 1.6rem; }
     .meta-value small { font-size: 0.6em; color: var(--text-muted); font-weight: 600; }
-
     .modal-overlay, .modal-backdrop { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(4px); z-index: 1000; display: flex; justify-content: center; align-items: center; }
-    
-    /* 🔥 NEU: .modal-body bekommt position relative, damit der Button sich darin orientieren kann */
     .modal-window, .modal-content { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--bg-card); border: 1px solid var(--border-highlight); border-radius: var(--radius-xl); z-index: 1001; box-shadow: var(--shadow-lg); overflow: hidden; }
     .modal-body { padding: 2.5rem 2rem; position: relative; }
-    
     .scan-modal { width: 95%; max-width: 550px; }
-    
     .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 2rem; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.2); }
     .modal-header h3 { margin: 0; color: white; font-size: 1.2rem; display: flex; align-items: center; gap: 0.5rem; }
     .header-error { background: rgba(239, 68, 68, 0.1); border-bottom-color: rgba(239, 68, 68, 0.3); }
     .header-error h3 { color: var(--color-red); }
     .btn-close-modal { background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; transition: color 0.2s; padding: 0.5rem; margin: -0.5rem; border-radius: 50%; }
     .btn-close-modal:hover { color: white; background: rgba(255,255,255,0.1); }
-    
     .text-center .modal-body { text-align: center; }
-
     .step-indicator { display: inline-block; background: var(--bg-dark); color: var(--color-blue-light); padding: 0.4rem 1rem; border-radius: 20px; font-weight: 700; font-size: 0.85rem; margin-bottom: 1.5rem; border: 1px solid rgba(59, 130, 246, 0.2); text-transform: uppercase; letter-spacing: 0.05em; }
     .emoji-hero { font-size: 4.5rem; margin-bottom: 1rem; line-height: 1; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.2)); }
     .step-title { margin: 0 0 0.5rem 0; font-size: 1.8rem; letter-spacing: -0.02em; }
     .step-desc { color: var(--text-muted); font-size: 1.1rem; margin-bottom: 2rem; line-height: 1.5; }
     .highlight-text { color: white; font-weight: bold; background: rgba(255,255,255,0.1); padding: 0.2rem 0.5rem; border-radius: 6px; }
-
     .scan-animation-wrapper { background: var(--bg-dark); border: 2px dashed var(--color-blue); border-radius: var(--radius-md); padding: 2rem; display: flex; flex-direction: column; align-items: center; gap: 1rem; cursor: pointer; position: relative; overflow: hidden; transition: all 0.2s; }
     .scan-animation-wrapper:hover { background: rgba(59, 130, 246, 0.05); border-style: solid; }
     .scan-animation-wrapper span { color: var(--color-blue-light); font-weight: 600; font-family: monospace; letter-spacing: 0.05em; }
     .scan-line { width: 80%; height: 2px; background: var(--color-blue); box-shadow: 0 0 10px var(--color-blue); animation: scan 2s linear infinite; position: absolute; top: 0; }
-    .hidden-scan-input { opacity: 0; position: absolute; height: 1px; width: 1px; z-index: -1; }
-
+    
+    /* 🔥 NEU: Sicherer versteckter Input (kein z-index: -1, kein display: none) */
+    .hidden-scan-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+    
     .button-stack { display: flex; flex-direction: column; gap: 1rem; }
     .button-row { display: flex; gap: 1rem; }
-    
     .btn-primary { display: flex; align-items: center; justify-content: center; gap: 0.5rem; color: white; border: none; padding: 1rem 1.5rem; border-radius: var(--radius-md); font-weight: 700; cursor: pointer; font-size: 1.05rem; transition: all 0.2s; }
     .btn-primary:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); filter: brightness(1.1); }
     .btn-primary:active { transform: translateY(0); }
-    
     .huge-btn { padding: 1.2rem 2rem; font-size: 1.1rem; border-radius: var(--radius-lg); width: 100%; }
-    
     .btn-blue { background: var(--color-blue); box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4); }
     .btn-green { background: var(--color-green); box-shadow: 0 4px 14px rgba(34, 197, 94, 0.4); }
     .btn-yellow { background: var(--color-yellow); color: #451a03; box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4); }
     .btn-red { background: var(--color-red); box-shadow: 0 4px 14px rgba(239, 68, 68, 0.4); }
-    
     .btn-cancel { background: transparent; border: 1px solid var(--border-highlight); color: var(--text-muted); padding: 1rem 1.5rem; border-radius: var(--radius-md); font-weight: 600; cursor: pointer; font-size: 1rem; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
     .btn-cancel:hover { background: rgba(255,255,255,0.05); color: white; }
-
     .warning-box { border-radius: var(--radius-md); padding: 1.5rem; display: flex; align-items: flex-start; gap: 1rem; text-align: left; }
     .error-box { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); }
     .warning-icon { font-size: 2rem; line-height: 1; }
     .warning-box h4 { margin: 0 0 0.4rem 0; color: var(--color-red); font-size: 1.1rem; }
     .warning-box p { margin: 0; color: var(--text-main); font-size: 1rem; line-height: 1.4; }
-
-    /* 🔥 Das padding-right für die Box wurde entfernt, da der Button aus der Box geholt wurde */
     .info-card { background: var(--bg-dark); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: var(--radius-md); text-align: left; }
     .info-card p { margin: 0; line-height: 1.5; color: var(--text-muted); }
     .info-card strong { color: white; }
-
     .scale-animation { padding: 3rem 2rem; background: var(--bg-dark); border-radius: var(--radius-lg); border: 1px solid var(--border-highlight); margin-top: 1.5rem; position: relative; overflow: hidden; }
     .box-shadow-glow { box-shadow: inset 0 0 20px rgba(0,0,0,0.5); }
     .spinner { width: 50px; height: 50px; border: 4px solid var(--border-highlight); border-top-color: var(--color-blue); border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem auto; }
-    
     .bounce { animation: bounce 2s infinite; }
-
     .modern-stats { display: flex; gap: 1rem; justify-content: center; background: var(--bg-dark); padding: 1rem; border-radius: var(--radius-lg); border: 1px solid var(--border-color); }
     .modern-stats .stat-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem; position: relative; }
     .modern-stats .stat-box:not(:last-child)::after { content: ''; position: absolute; right: -0.5rem; top: 10%; height: 80%; width: 1px; background: var(--border-highlight); }
     .modern-stats .label { color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
     .modern-stats .value { font-size: 1.4rem; font-weight: 800; }
-
     .result-card { background: linear-gradient(145deg, var(--bg-dark), #0a101d); padding: 2rem; border-radius: var(--radius-lg); border: 1px solid var(--border-highlight); margin: 1.5rem 0; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; box-shadow: inset 0 2px 10px rgba(0,0,0,0.2); }
     .result-card .label { color: var(--color-blue-light); font-size: 0.9rem; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
     .result-value { font-size: 3.5rem; margin: 0; color: var(--color-green); line-height: 1; }
     .result-value small { font-size: 1.2rem; color: var(--text-muted); font-weight: 600; margin-left: 0.2rem; }
-
     .conflict-modal-modern { width: 95%; max-width: 600px; }
     .conflict-article-card { display: flex; gap: 1.5rem; background: var(--bg-dark); padding: 1.5rem; border-radius: var(--radius-md); border: 1px solid var(--border-color); margin-top: 1rem; align-items: center; }
     .conflict-image { width: 100px; height: 100px; background: white; border-radius: 8px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 0.5rem; }
@@ -1149,7 +1115,6 @@
     .conflict-details h4 { margin: 0; color: white; font-size: 1.2rem; }
     .conflict-details .sku { font-family: monospace; color: var(--text-muted); font-size: 0.9rem; }
     .block-link { display: inline-flex; width: auto; align-self: flex-start; padding: 0.6rem 1rem; font-size: 0.95rem; text-decoration: none; border-radius: 8px; margin-top: 0.5rem; }
-
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes scan { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
     @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
