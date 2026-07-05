@@ -25,15 +25,45 @@
     let rangeWarnings = {};
     let rangeWarningTimeouts = {};
     
-    // --- 1. State für Suche & Kategorien ---
+    // --- 1. STATE FÜR ALLE FILTER (INKL. SESSION-SPEICHER) ---
     let searchQuery = "";
     let selectedMainCategoryId = "";
     let selectedSubcategoryId = "";
-
-    // --- NEU: State für die Sortierung ---
     let currentSort = "name_asc";
+    let selectedAttributeFilters = {}; 
+    let activeRangeFilters = {};
 
-   // 1. HAUPTKATEGORIEN FILTERN
+    // 🔥 NEU: Lädt die gespeicherten Filter aus dem Zwischenspeicher beim Aufruf der Seite
+    if (browser) {
+        const savedFilters = sessionStorage.getItem('Sortify_ArticleFilters');
+        if (savedFilters) {
+            try {
+                const parsed = JSON.parse(savedFilters);
+                searchQuery = parsed.searchQuery || "";
+                selectedMainCategoryId = parsed.selectedMainCategoryId || "";
+                selectedSubcategoryId = parsed.selectedSubcategoryId || "";
+                currentSort = parsed.currentSort || "name_asc";
+                selectedAttributeFilters = parsed.selectedAttributeFilters || {};
+                activeRangeFilters = parsed.activeRangeFilters || {};
+            } catch (e) {
+                console.error("Fehler beim Laden der Filter:", e);
+            }
+        }
+    }
+
+    // 🔥 NEU: Speichert jede Filter-Änderung sofort live ab
+    $: if (browser) {
+        sessionStorage.setItem('Sortify_ArticleFilters', JSON.stringify({
+            searchQuery,
+            selectedMainCategoryId,
+            selectedSubcategoryId,
+            currentSort,
+            selectedAttributeFilters,
+            activeRangeFilters
+        }));
+    }
+
+    // 1. HAUPTKATEGORIEN FILTERN
     $: mainCategoryOptions = categories
         .filter(cat => {
             if (!cat.subcategories || cat.subcategories.length === 0) return false;
@@ -53,7 +83,8 @@
         )
         .map(sub => ({ value: sub.id, label: sub.name }));
 
-    let previousMain = "";
+    // 🔥 KORREKTUR: Verhindert, dass eine aus dem Cache geladene Unterkategorie sofort wieder gelöscht wird
+    let previousMain = selectedMainCategoryId;
     $: if (selectedMainCategoryId !== previousMain) {
         selectedSubcategoryId = "";
         previousMain = selectedMainCategoryId;
@@ -152,9 +183,7 @@
         (filter.label || "").toLowerCase().includes((sidebarAttributeSearch || "").toLowerCase())
     );
 
-    // --- 4. DETAIL-FILTER STATES ---
-    let selectedAttributeFilters = {}; 
-    let activeRangeFilters = {};       
+    // --- 4. DETAIL-FILTER WEITERE STATES ---
     let isMobileFilterOpen = false;
 
     // --- MODAL STATE & LOGIK ---

@@ -17,6 +17,17 @@
     let currentBoxWeight = 0; 
     let activeBarcode = '';
 
+    // 🔥 NEU: Zählt die zugewiesenen Fächer, um zu wissen, ob es mehrere gibt
+    $: displaySlots = (() => {
+        let slots = [];
+        if (Array.isArray(article?.assigned_barcodes) && article?.assigned_barcodes.length > 0) {
+            slots = article.assigned_barcodes.map(b => typeof b === 'object' ? b.barcode : b);
+        } else if (article?.assigned_barcode) {
+            slots = [article.assigned_barcode];
+        }
+        return slots;
+    })();
+
     $: if (form?.success && form?.step === 'instruction') {
         article = form.article;
         currentBoxWeight = form.boxWeight || 0; 
@@ -24,9 +35,8 @@
     }
 
     $: if (form?.success && form?.step === 'done') {
-        currentStep = 'success';
-        // 🔥 GEÄNDERT: Von 5 Sekunden auf 15 Sekunden hochgesetzt, 
-        // damit der User genug Zeit hat, den Button zu drücken!
+        // 🔥 NEU: Erkennt, ob wir das Fach gelöscht haben und zeigt den passenden Screen
+        currentStep = form?.unlinked ? 'success_unlinked' : 'success';
         setTimeout(() => resetWorkflow(), 15000);
     }
 
@@ -221,15 +231,46 @@
                     <h4 style="font-size: 1.5rem; margin: 0; color: #38bdf8;">Alt: {article?.istBestand || 0} ➔ Neu: {newTotalStock} Stk.</h4>
                 </div>
 
-                <form method="POST" action="?/bookReturn" use:enhance style="margin-top: 2rem;">
-                    <input type="hidden" name="articleId" value={article?._id}><input type="hidden" name="barcode" value={activeBarcode}><input type="hidden" name="newStock" value={newDrawerStock}>
-                    <button type="submit" class="huge-btn">Veränderung buchen & Fach leuchten lassen</button>
-                </form>
+                <!-- 🔥 NEU: Intelligente Anzeige des Freigabe-Buttons -->
+                {#if newDrawerStock === 0 && displaySlots.length > 1}
+                    <div style="background: rgba(239, 68, 68, 0.05); border: 1px dashed #ef4444; border-radius: 12px; padding: 1.5rem; margin-top: 2rem; text-align: left;">
+                        <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
+                            <span style="font-size: 2rem;">🗑️</span>
+                            <div>
+                                <h4 style="color: #ef4444; margin: 0 0 0.2rem 0; font-size: 1.1rem;">Fach ist komplett leer!</h4>
+                                <p style="color: #cbd5e1; margin: 0; font-size: 0.95rem;">Der Artikel liegt auch noch in anderen Fächern. Möchtest du dieses Fach freigeben?</p>
+                            </div>
+                        </div>
+                        
+                        <div style="display: flex; gap: 1rem;">
+                            <form method="POST" action="?/bookReturn" use:enhance style="flex: 1;">
+                                <input type="hidden" name="articleId" value={article?._id}>
+                                <input type="hidden" name="barcode" value={activeBarcode}>
+                                <input type="hidden" name="newStock" value={0}>
+                                <button type="submit" class="huge-btn" style="background: #334155; border: 1px solid #475569; color: #f8fafc; font-size: 1rem; padding: 1.2rem;">
+                                    Nur buchen (Behalten)
+                                </button>
+                            </form>
+
+                            <form method="POST" action="?/bookAndUnlink" use:enhance style="flex: 1.5;">
+                                <input type="hidden" name="articleId" value={article?._id}>
+                                <input type="hidden" name="barcode" value={activeBarcode}>
+                                <button type="submit" class="huge-btn" style="background: #ef4444; font-size: 1rem; padding: 1.2rem;">
+                                    Bestand buchen & Fach freigeben
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                {:else}
+                    <form method="POST" action="?/bookReturn" use:enhance style="margin-top: 2rem;">
+                        <input type="hidden" name="articleId" value={article?._id}><input type="hidden" name="barcode" value={activeBarcode}><input type="hidden" name="newStock" value={newDrawerStock}>
+                        <button type="submit" class="huge-btn">Veränderung buchen & Fach leuchten lassen</button>
+                    </form>
+                {/if}
             </div>
 
         {:else if currentStep === 'success'}
             <div class="card success-card">
-                <!-- 🔥 NEU: Der unsichtbare Re-Trigger Button sitzt sicher oben rechts in der Karte -->
                 <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
                     <input type="hidden" name="barcode" value={activeBarcode}>
                     <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
@@ -238,6 +279,19 @@
                 <div class="icon-pulse" style="color: #22c55e;">✅</div>
                 <h2 style="color: #22c55e;">Erfolgreich eingespielt!</h2>
                 <p>Das entsprechende Fach im Regal leuchtet nun auf.<br>Bitte räume die Box ein.</p>
+            </div>
+
+        <!-- 🔥 NEU: Eigener Screen für das Löschen -->
+        {:else if currentStep === 'success_unlinked'}
+            <div class="card success-card" style="border-color: #ef4444;">
+                <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
+                    <input type="hidden" name="barcode" value={activeBarcode}>
+                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
+                </form>
+
+                <div class="icon-pulse" style="color: #ef4444;">🗑️</div>
+                <h2 style="color: #ef4444;">Fach freigegeben!</h2>
+                <p>Der Bestand wurde auf 0 gesetzt und das Fach <strong>{activeBarcode}</strong> vom Artikel gelöst.<br>Das Fach leuchtet im Regal, damit du die leere Box <strong>wieder zurückstellen</strong> kannst.</p>
             </div>
         {/if}
     </div>
@@ -249,14 +303,12 @@
     h1 { color: #22c55e; margin: 0; }
     .btn-back { background: transparent; border: 1px solid #475569; color: #94a3b8; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
     
-    /* 🔥 KORREKTUR: position: relative hinzugefügt, damit der Button oben rechts in der Karte verankert ist */
     .card { 
         background: #1e293b; border: 2px solid #334155; border-radius: 16px; padding: 3rem; 
         box-shadow: 0 10px 30px rgba(0,0,0,0.5); 
         position: relative; 
     }
     
-    /* 🔥 NEU: Styling für den Re-Trigger LED Button */
     .retrigger-form {
         position: absolute;
         top: 1.5rem;
