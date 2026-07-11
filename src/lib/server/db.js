@@ -1213,23 +1213,13 @@ export async function getUsersBySystem(systemId) {
     const db = await getDb();
     const systemObjId = new ObjectId(systemId);
     
-    // Wir suchen alle User, die diese systemId in ihrem systems-Array haben
-    const users = await db.collection('users').find(
+    // Wir suchen alle User, die diese systemId in ihrem systems-Array haben.
+    // Das .map() lassen wir komplett weg, da deine +page.server.js das 
+    // bereits perfekt und sicher übernimmt!
+    return await db.collection('users').find(
         { "systems.systemId": systemObjId },
-        { projection: { password: 0, verificationCode: 0, verificationToken: 0 } } // Passwort verstecken!
+        { projection: { password: 0, verificationCode: 0, verificationToken: 0 } } 
     ).toArray();
-
-    // Wir extrahieren direkt die Rolle für dieses spezifische Lager, um es dem Frontend leichter zu machen
-    return users.map(user => {
-        const systemContext = user.systems.find(s => s.systemId.toString() === systemId.toString());
-        return {
-            id: user._id.toString(),
-            firstName: user.firstName,
-            lastName: user.lastName,
-            email: user.email,
-            role: systemContext ? systemContext.role : 'unknown'
-        };
-    });
 }
 
 // 2. Eine neue Einladung erstellen
