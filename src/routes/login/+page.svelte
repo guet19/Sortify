@@ -124,8 +124,8 @@
 
         <form method="POST" action="?/login" use:enhance class="login-form">
             <div class="input-group">
-                <label for="email">E-Mail Adresse</label>
-                <input type="email" id="email" name="email" required placeholder="name@beispiel.ch" />
+                <label for="identifier">E-Mail oder Benutzername</label>
+                <input type="text" id="identifier" name="identifier" required placeholder="name@beispiel.ch oder p.muster" />
             </div>
 
             <div class="input-group">

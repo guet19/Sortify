@@ -1,23 +1,27 @@
 import { fail, error } from '@sveltejs/kit';
 import db from '$lib/server/db.js'; 
 
-export async function load({ cookies }) {
-    // 1. Nutzer identifizieren
-    const userId = cookies.get('session');
-    if (!userId) {
-        throw error(401, 'Nicht autorisiert');
+export async function load({ locals }) { // NEU: locals statt cookies
+    // 1. Aktives Lager identifizieren
+    const systemId = locals.systemId;
+    if (!systemId) {
+        throw error(401, 'Kein aktives Lager ausgewählt');
     }
 
-    // 2. Nur die Attribute dieses Nutzers laden
-    const attributeLibrary = await db.getFilterAttributes(userId);
-    return { attributeLibrary };
+    // 2. Nur die Attribute dieses Lagers laden
+    const attributeLibrary = await db.getFilterAttributes(systemId);
+    
+    // POJO-Fix für die sichere Übertragung an SvelteKit
+    return { 
+        attributeLibrary: JSON.parse(JSON.stringify(attributeLibrary)) 
+    };
 }
 
 export const actions = {
     // 1. Neues Attribut erstellen
-    create: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorCreate: "Nicht autorisiert." });
+    create: async ({ request, locals }) => { // NEU: locals statt cookies
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorCreate: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const label = data.get('label');
@@ -35,7 +39,7 @@ export const actions = {
         }
 
         try {
-            await db.createFilterAttribute(userId, {
+            await db.createFilterAttribute(systemId, {
                 label,
                 ui_type,
                 unit: unit || null,
@@ -50,9 +54,9 @@ export const actions = {
     },
 
     // 2. Bestehendes Attribut komplett aktualisieren
-    update: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorUpdate: "Nicht autorisiert." });
+    update: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorUpdate: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const id = data.get('id'); 
@@ -71,7 +75,7 @@ export const actions = {
         }
 
         try {
-            await db.updateFilterAttribute(userId, id, {
+            await db.updateFilterAttribute(systemId, id, {
                 label,
                 ui_type,
                 unit: unit || null,
@@ -86,9 +90,9 @@ export const actions = {
     },
 
     // 3. Einen einzelnen Wert (Option) schnell hinzufügen
-    addOptionQuick: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorQuick: "Nicht autorisiert." });
+    addOptionQuick: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorQuick: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const id = data.get('id');
@@ -99,7 +103,7 @@ export const actions = {
         }
 
         try {
-            await db.addOptionToFilterAttribute(userId, id, newOption.trim());
+            await db.addOptionToFilterAttribute(systemId, id, newOption.trim());
             return { successQuickAdd: true };
         } catch (err) {
             console.error("Fehler beim Hinzufügen der Option:", err);
@@ -108,9 +112,9 @@ export const actions = {
     },
 
     // 4. Einen einzelnen Wert (Option) schnell löschen
-    removeOptionQuick: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorQuick: "Nicht autorisiert." });
+    removeOptionQuick: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorQuick: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const id = data.get('id');
@@ -121,7 +125,7 @@ export const actions = {
         }
 
         try {
-            await db.removeOptionFromFilterAttribute(userId, id, option);
+            await db.removeOptionFromFilterAttribute(systemId, id, option);
             return { successQuickRemove: true };
         } catch (err) {
             console.error("Fehler beim Löschen der Option:", err);
@@ -130,9 +134,9 @@ export const actions = {
     },
 
     // 5. Ein komplettes Attribut löschen
-    delete: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorDelete: "Nicht autorisiert." });
+    delete: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorDelete: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const id = data.get('id');
@@ -142,7 +146,7 @@ export const actions = {
         }
 
         try {
-            await db.deleteFilterAttribute(userId, id);
+            await db.deleteFilterAttribute(systemId, id);
             return { success: true };
         } catch (err) {
             console.error("Fehler beim Löschen des Attributs:", err);

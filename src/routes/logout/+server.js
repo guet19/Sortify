@@ -20,8 +20,9 @@ export async function GET({ cookies }) {
         }
     }
 
-    // Cookie sicher löschen
+    // WICHTIG: Beide Cookies sicher und vollständig löschen!
     cookies.delete('session', { path: '/' });
+    cookies.delete('systemId', { path: '/' }); // <--- NEU: Verhindert verwaiste Lager-Sitzungen
 
     // Zurück zum Login leiten inkl. Erfolgsmeldung
     throw redirect(303, '/login?loggedOut=true');

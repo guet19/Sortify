@@ -1,47 +1,48 @@
 import { fail, error } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 
-export async function load({ cookies }) {
-    // 1. Nutzer identifizieren
-    const userId = cookies.get('session');
-    if (!userId) {
-        throw error(401, 'Nicht autorisiert');
+export async function load({ locals }) { // NEU: locals statt cookies
+    // 1. Aktives Lager (System) identifizieren
+    const systemId = locals.systemId;
+    if (!systemId) {
+        throw error(401, 'Kein aktives Lager ausgewählt');
     }
 
-    // 2. Alle Datenabfragen streng auf den Nutzer filtern
+    // 2. Alle Datenabfragen streng auf das aktuelle Lager filtern
     const [categories, filterAttributes, articles] = await Promise.all([
-        db.getCategories(userId),
-        db.getFilterAttributes(userId),
-        db.getArticles(userId)
+        db.getCategories(systemId),
+        db.getFilterAttributes(systemId),
+        db.getArticles(systemId)
     ]);
     
+    // POJO-Fix für die sichere Übertragung an SvelteKit
     return {
-        categories,
-        filterAttributes,
-        articles
+        categories: JSON.parse(JSON.stringify(categories)),
+        filterAttributes: JSON.parse(JSON.stringify(filterAttributes)),
+        articles: JSON.parse(JSON.stringify(articles))
     };
 }
 
 export const actions = {
-    createMain: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorMain: "Nicht autorisiert." });
+    createMain: async ({ request, locals }) => { // NEU: locals statt cookies
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorMain: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const name = data.get('name');
         if (!name) return fail(400, { errorMain: "Bitte einen Namen eingeben." });
 
         try {
-            const newId = await db.createMainCategory(userId, name.trim());
+            const newId = await db.createMainCategory(systemId, name.trim());
             return { successMain: true, newId: newId ? newId.toString() : null };
         } catch (err) {
             return fail(500, { errorMain: "Datenbankfehler beim Speichern." });
         }
     },
 
-    createSub: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorSub: "Nicht autorisiert." });
+    createSub: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorSub: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const mainId = data.get('mainId');
@@ -49,16 +50,16 @@ export const actions = {
         if (!mainId || !subName) return fail(400, { errorSub: "Daten unvollständig." });
 
         try {
-            await db.createSubcategory(userId, mainId, subName.trim());
+            await db.createSubcategory(systemId, mainId, subName.trim());
             return { successSub: true };
         } catch (err) {
             return fail(500, { errorSub: "Datenbankfehler beim Speichern." });
         }
     },
 
-    deleteSub: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorDelete: "Nicht autorisiert." });
+    deleteSub: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorDelete: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const mainId = data.get('mainId');
@@ -66,32 +67,32 @@ export const actions = {
         if (!mainId || !subId) return fail(400, { errorDelete: "IDs fehlen." });
 
         try {
-            await db.deleteSubcategory(userId, mainId, subId);
+            await db.deleteSubcategory(systemId, mainId, subId);
             return { successDelete: true };
         } catch (err) {
             return fail(500, { errorDelete: "Datenbankfehler beim Löschen." });
         }
     },
 
-    deleteMain: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorDeleteMain: "Nicht autorisiert." });
+    deleteMain: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorDeleteMain: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const mainId = data.get('mainId');
         if (!mainId) return fail(400, { errorDeleteMain: "ID fehlt." });
 
         try {
-            await db.deleteMainCategory(userId, mainId);
+            await db.deleteMainCategory(systemId, mainId);
             return { successDeleteMain: true };
         } catch (err) {
             return fail(500, { errorDeleteMain: "Datenbankfehler beim Löschen." });
         }
     },
 
-    bulkDeleteSubs: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorBulkDelete: "Nicht autorisiert." });
+    bulkDeleteSubs: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorBulkDelete: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const mainId = data.get('mainId');
@@ -103,7 +104,7 @@ export const actions = {
 
         try {
             for (const subId of subIds) {
-                await db.deleteSubcategory(userId, mainId, subId);
+                await db.deleteSubcategory(systemId, mainId, subId);
             }
             return { successBulkDelete: true };
         } catch (err) {
@@ -111,9 +112,9 @@ export const actions = {
         }
     },
 
-    updateAttributes: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorAttr: "Nicht autorisiert." });
+    updateAttributes: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorAttr: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const mainId = data.get('mainId');
@@ -123,16 +124,16 @@ export const actions = {
         if (!mainId || !subId) return fail(400, { errorAttr: "IDs fehlen." });
 
         try {
-            await db.updateSubcategoryAttributes(userId, mainId, subId, attributeIds);
+            await db.updateSubcategoryAttributes(systemId, mainId, subId, attributeIds);
             return { successAttr: true };
         } catch (err) {
             return fail(500, { errorAttr: "Fehler beim Zuweisen." });
         }
     },
 
-    renameMain: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorRename: "Nicht autorisiert." });
+    renameMain: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorRename: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const id = data.get('id');
@@ -140,16 +141,16 @@ export const actions = {
         if (!id || !newName) return fail(400, { errorRename: "Daten fehlen." });
 
         try {
-            await db.renameMainCategory(userId, id, newName.trim());
+            await db.renameMainCategory(systemId, id, newName.trim());
             return { successRename: true };
         } catch (err) {
             return fail(500, { errorRename: "Fehler beim Umbenennen." });
         }
     },
 
-    renameSub: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { errorRenameSub: "Nicht autorisiert." });
+    renameSub: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorRenameSub: "Kein aktives Lager ausgewählt." });
 
         const data = await request.formData();
         const mainId = data.get('mainId');
@@ -159,7 +160,7 @@ export const actions = {
         if (!mainId || !subId || !newName) return fail(400, { errorRenameSub: "Daten fehlen." });
 
         try {
-            await db.renameSubcategory(userId, mainId, subId, newName.trim());
+            await db.renameSubcategory(systemId, mainId, subId, newName.trim());
             return { successRenameSub: true };
         } catch (err) {
             return fail(500, { errorRenameSub: "Fehler beim Umbenennen der Unterkategorie." });

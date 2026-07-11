@@ -4,15 +4,15 @@ import db from '$lib/server/db.js';
 // 🔥 Globaler Speicher für den LED-Timeout, damit wir ihn abbrechen können
 let globalLedTimeout = null;
 
-export async function load({ cookies, params }) {
-    const session = cookies.get('session');
-    if (!session) throw redirect(303, '/login');
+export async function load({ locals, params }) { // NEU: locals
+    const systemId = locals.systemId;
+    if (!systemId) throw redirect(303, '/login');
 
     const articleId = params.id;
-    const categories = await db.getCategories(session).catch(() => []);
-    const attributes = await db.getFilterAttributes(session).catch(() => []); 
+    const categories = await db.getCategories(systemId).catch(() => []);
+    const attributes = await db.getFilterAttributes(systemId).catch(() => []); 
     
-    let article = await db.getArticleById(session, articleId).catch(() => null);
+    let article = await db.getArticleById(systemId, articleId).catch(() => null);
     if (!article) throw redirect(303, '/terminal/settings/assign');
 
     return {
@@ -24,9 +24,9 @@ export async function load({ cookies, params }) {
 
 export const actions = {
     // Lässt alle freien Fächer blau leuchten
-    lightUpEmptySlots: async ({ cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    lightUpEmptySlots: async ({ locals }) => { // NEU: locals
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         try {
             if (globalLedTimeout) {
@@ -35,11 +35,11 @@ export const actions = {
             }
 
             if (typeof db.triggerEmptyLedsBlue === 'function') {
-                await db.triggerEmptyLedsBlue(userId);
+                await db.triggerEmptyLedsBlue(systemId);
             }
 
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
                 globalLedTimeout = null;
             }, 15000);
 
@@ -50,9 +50,9 @@ export const actions = {
         }
     },
 
-    checkBarcode: async ({ request, cookies, params }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false, error: 'Unauthorized' };
+    checkBarcode: async ({ request, locals, params }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const currentArticleId = params.id;
         const data = await request.formData();
@@ -65,14 +65,14 @@ export const actions = {
         barcode = String(barcode).trim();
 
         try {
-            const duplicateArticle = await db.getArticleByBarcode(userId, barcode);
+            const duplicateArticle = await db.getArticleByBarcode(systemId, barcode);
             
             if (duplicateArticle && String(duplicateArticle._id) !== String(currentArticleId)) {
                 const safeArticle = JSON.parse(JSON.stringify(duplicateArticle));
                 return { success: false, error: 'already_assigned', conflictingArticle: safeArticle, barcode };
             }
 
-            const barcodeExists = await db.checkIfBarcodeExists(userId, barcode);
+            const barcodeExists = await db.checkIfBarcodeExists(systemId, barcode);
 
             if (!barcodeExists) {
                 return { success: false, error: 'not_in_shelves' };
@@ -85,12 +85,12 @@ export const actions = {
             }
             
             if (typeof db.triggerSingleLedBlue === 'function') {
-                await db.triggerSingleLedBlue(userId, barcode);
+                await db.triggerSingleLedBlue(systemId, barcode);
             }
 
             // Verlängerter Timer (30s), da das Wiegen der Box etwas dauern kann
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
                 globalLedTimeout = null;
             }, 30000);
 
@@ -100,20 +100,20 @@ export const actions = {
         }
     },
 
-    requestScale: async ({ cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    requestScale: async ({ locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         try {
-            const requestId = await db.createScaleRequest(userId, "setup");
+            const requestId = await db.createScaleRequest(systemId, "setup");
             return { success: true, requestId };
         } catch (err) {
             return { success: false, error: 'Waage nicht erreichbar' };
         }
     },
 
-    saveAll: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    saveAll: async ({ request, locals }) => {
+        const systemId = locals.systemId;
         const data = await request.formData();
         
         const articleId = data.get('articleId');
@@ -123,30 +123,30 @@ export const actions = {
         const itemWeight = parseFloat(data.get('itemWeight'));
 
         try {
-            await db.assignBarcodeAndWeights(userId, articleId, barcode, boxWeight, itemWeight);
+            await db.assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, itemWeight);
             return { success: true };
         } catch (err) {
             return { success: false, error: 'Fehler beim Speichern' };
         }
     },
 
-    unlinkBarcode: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    unlinkBarcode: async ({ request, locals }) => {
+        const systemId = locals.systemId;
         const data = await request.formData();
         
         const articleId = data.get('articleId');
         const barcode = data.get('barcode'); 
         
         try {
-            await db.removeBarcodes(userId, articleId, barcode);
+            await db.removeBarcodes(systemId, articleId, barcode);
             return { success: true };
         } catch (err) {
             return { success: false };
         }
     },
 
-    triggerLedOnly: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    triggerLedOnly: async ({ request, locals }) => {
+        const systemId = locals.systemId;
         const data = await request.formData();
         const barcode = data.get('barcode');
         
@@ -156,10 +156,10 @@ export const actions = {
                 globalLedTimeout = null;
             }
 
-            await db.triggerLedByBarcode(userId, barcode, true);
+            await db.triggerLedByBarcode(systemId, barcode, true);
             
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
                 globalLedTimeout = null;
             }, 10000);
 
@@ -169,8 +169,8 @@ export const actions = {
         }
     },
 
-    updateStockAndLightUp: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    updateStockAndLightUp: async ({ request, locals }) => {
+        const systemId = locals.systemId;
         const data = await request.formData();
         
         const articleId = data.get('articleId');
@@ -178,17 +178,17 @@ export const actions = {
         const newStock = parseInt(data.get('newStock'));
 
         try {
-            await db.updateArticleStockFromWeights(userId, articleId, barcode, newStock);
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock);
             
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
 
-            await db.triggerLedByBarcode(userId, barcode, true);
+            await db.triggerLedByBarcode(systemId, barcode, true);
             
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
                 globalLedTimeout = null;
             }, 10000);
 
@@ -198,8 +198,8 @@ export const actions = {
         }
     },
 
-    saveWeightAndAllStocks: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    saveWeightAndAllStocks: async ({ request, locals }) => {
+        const systemId = locals.systemId;
         const data = await request.formData();
         
         const articleId = data.get('articleId');
@@ -207,12 +207,12 @@ export const actions = {
         const slotsDataStr = data.get('slotsData');
 
         try {
-            await db.updateArticleItemWeight(userId, articleId, itemWeight);
+            await db.updateArticleItemWeight(systemId, articleId, itemWeight);
             
             if (slotsDataStr) {
                 const slotsData = JSON.parse(slotsDataStr);
                 for (const slot of slotsData) {
-                    await db.updateArticleStockFromWeights(userId, articleId, slot.barcode, slot.newStock);
+                    await db.updateArticleStockFromWeights(systemId, articleId, slot.barcode, slot.newStock);
                 }
             }
 
@@ -220,7 +220,7 @@ export const actions = {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+            try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
 
             return { success: true };
         } catch (err) {

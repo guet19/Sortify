@@ -4,8 +4,6 @@ import db from '$lib/server/db.js';
 import { sendVerificationEmail } from '$lib/server/email.js';
 
 export async function load({ cookies, url }) {
-    // Wenn jemand schon eingeloggt ist, leiten wir ihn direkt weiter.
-    // Falls er vom KI-Lesezeichen kommt, schicken wir ihn ans Ziel, sonst aufs Dashboard.
     if (cookies.get('session')) {
         const redirectTo = url.searchParams.get('redirectTo') || '/';
         throw redirect(303, redirectTo);
@@ -14,19 +12,17 @@ export async function load({ cookies, url }) {
 
 export const actions = {
     // -------------------------------------------------------------------------
-    // AKTION 1: DER NORMALE LOGIN
+    // AKTION 1: DER NORMALE LOGIN (Jetzt mit Email ODER Username & 2FA Check)
     // -------------------------------------------------------------------------
     login: async ({ request, cookies, getClientAddress, url }) => {
         const ip = getClientAddress();
         const now = new Date();
         
-        // 1. Bisherige Login-Versuche für diese IP laden (Rate-Limiting)
         let attemptData = await db.getLoginAttempt(ip);
         if (!attemptData) {
             attemptData = { ip: ip, count: 0, lockUntil: new Date(0) };
         }
 
-        // 2. Prüfen, ob die IP aktuell wegen zu vieler Fehlversuche gesperrt ist
         if (attemptData.lockUntil > now) {
             const remainingMinutes = Math.ceil((attemptData.lockUntil.getTime() - now.getTime()) / 60000);
             return fail(429, { 
@@ -35,14 +31,13 @@ export const actions = {
         }
 
         const data = await request.formData();
-        const email = data.get('email');
-        const password = data.get('password');
+        const identifier = data.get('identifier')?.toString().trim();
+        const password = data.get('password')?.toString();
 
-        if (!email || !password) {
+        if (!identifier || !password) {
             return fail(400, { error: 'Bitte fülle alle Felder aus.' });
         }
 
-        // Hilfsfunktion: Speichert einen Fehlversuch ab und checkt Sperrzeiten
         const registerFailedAttempt = async () => {
             attemptData.count += 1;
             let lockTime = attemptData.lockUntil;
@@ -58,52 +53,90 @@ export const actions = {
             }
             
             const attemptsLeft = 5 - attemptData.count;
-            return fail(401, { error: `E-Mail oder Passwort falsch. Noch ${attemptsLeft} Versuch(e).` });
+            return fail(401, { error: `Benutzername/E-Mail oder Passwort falsch. Noch ${attemptsLeft} Versuch(e).` });
         };
 
-        // 3. Nutzer suchen & Timing-Attack-Schutz
-        const user = await db.getUserByEmail(email);
+        const user = await db.getUserByIdentifier(identifier);
         let isPasswordValid = false;
 
         if (user) {
             isPasswordValid = await bcrypt.compare(password, user.password);
         } else {
-            // Dummy-Hash prüfen (Security Best Practice)
+            // Dummy-Hash prüfen, um Timing-Angriffe zu verhindern
             await bcrypt.compare(password, "$2a$10$dummyHashThatTakesRoughlyTheSameTimeHere1234567890123");
         }
 
         if (!user || !isPasswordValid) return registerFailedAttempt();
 
-        // 4. Verifizierungs-Check
-        if (user.isVerified === false) {
-            // WICHTIG: Wir geben die E-Mail ans Frontend zurück, damit der "Erneut senden"-Button funktioniert
+        // 4. Verifizierungs-Check (Überspringen für lokale Konten ohne E-Mail)
+        if (user.email && user.isVerified === false) {
             return fail(403, { 
                 error: 'Dein Konto wurde noch nicht bestätigt.',
-                unverifiedEmail: email
+                unverifiedEmail: user.email 
             });
         }
 
-        // 5. LOGIN ERFOLGREICH!
+        // 🔥 NEU: 2FA-Weiche
+        if (user.isTwoFactorEnabled) {
+            // Nur ein temporäres 5-Minuten-Ticket setzen, noch keine echte Session!
+            cookies.set('pending2fa', user._id.toString(), {
+                path: '/',
+                httpOnly: true,
+                sameSite: 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 60 * 5 // 5 Minuten Gültigkeit
+            });
+
+            // Ziel-URL merken und zur Eingabe des Codes umleiten
+            const redirectTo = url.searchParams.get('redirectTo') || '/';
+            throw redirect(303, `/login/2fa?redirectTo=${encodeURIComponent(redirectTo)}`);
+        }
+
+        // 5. LOGIN ERFOLGREICH (Für Nutzer ohne 2FA)
         await db.deleteLoginAttempt(ip);
 
-        // Die echte MongoDB User-ID als Session-ID nutzen
         const sessionId = user._id.toString(); 
 
-        // Session Log anlegen
-        await db.createSessionLog(sessionId, user._id, user.email);
+        // Session Log (Fallback auf Username, falls keine Mail existiert)
+        await db.createSessionLog(sessionId, user._id, user.email || user.username);
 
-        // Cookie setzen (sameSite: 'lax' ist wichtig für das KI-Lesezeichen)
         cookies.set('session', sessionId, {
             path: '/', 
             httpOnly: true, 
             sameSite: 'lax', 
             secure: process.env.NODE_ENV === 'production', 
-            maxAge: 60 * 60 * 24 * 7 // 7 Tage gültig
+            maxAge: 60 * 60 * 24 * 7 
         });
 
-        // Schauen, ob sich das Lesezeichen ein Ziel gemerkt hat
+        // 6. MULTI-SYSTEM-LOGIK (Cookies setzen VOR dem Redirect!)
+        const systems = user.systems || [];
+
+        if (systems.length === 1) {
+            cookies.set('systemId', systems[0].systemId.toString(), {
+                path: '/',
+                httpOnly: true,
+                sameSite: 'lax',
+                secure: process.env.NODE_ENV === 'production',
+                maxAge: 60 * 60 * 24 * 7
+            });
+        }
+
+        // 7. FINALE REDIRECT-WEICHE
         const redirectTo = url.searchParams.get('redirectTo') || '/';
-        throw redirect(303, redirectTo); 
+
+        if (user.mustChangePassword) {
+            // Zwingt den Nutzer in unser wasserdichtes Profil-Modal
+            throw redirect(303, '/profil');
+        } else if (systems.length > 1) {
+            // Mehrere Lager -> Systemauswahl
+            throw redirect(303, `/select-system?redirectTo=${encodeURIComponent(redirectTo)}`);
+        } else if (systems.length === 1) {
+            // Nur ein Lager -> Normaler Login
+            throw redirect(303, redirectTo);
+        } else {
+            // Gar kein Lager zugewiesen
+            return fail(403, { error: 'Dir ist noch kein Lager zugewiesen. Bitte kontaktiere einen Administrator.' });
+        }
     },
 
     // -------------------------------------------------------------------------
@@ -125,7 +158,6 @@ export const actions = {
             }
         }
 
-        // Wir geben aus Sicherheitsgründen immer 'success' zurück
         return { resendSuccess: true };
     }
 };

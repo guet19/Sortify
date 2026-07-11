@@ -10,7 +10,6 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
 </svelte:head>
 
-<!-- Die Navbar wird auf allen Seiten im Ordner /terminal ausgeblendet -->
 {#if !$page.url.pathname.startsWith('/terminal')}
 <nav class="navbar navbar-expand-lg bg-body-tertiary">
     <div class="container">
@@ -19,7 +18,7 @@
             style="color:#22c55e;"
             href="/"
         >
-            <im
+            <img
                 src={favicon}
                 alt="Logo"
                 width="50"
@@ -66,11 +65,11 @@
                         class="text-decoration-none d-flex align-items-center gap-2 user-link space-grotesk"
                     >
                         <div class="user-avatar">
-                            {$page.data.user.firstName.charAt(0).toUpperCase()}
+                            {($page.data.user.firstName || $page.data.user.username || $page.data.user.email || '?').charAt(0).toUpperCase()}
                         </div>
-                        <span class="user-name"
-                            >{$page.data.user.firstName}</span
-                        >
+                        <span class="user-name">
+                            {$page.data.user.firstName || $page.data.user.username || 'Benutzer'}
+                        </span>
                     </a>
 
                     <a
@@ -85,5 +84,4 @@
 </nav>
 {/if}
 
-<!-- Hier rendert SvelteKit die Unterseiten (entweder inkl. Navbar für Web oder im Vollbild für das Terminal) -->
 {@render children()}

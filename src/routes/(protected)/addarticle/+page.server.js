@@ -1,5 +1,5 @@
 import { error, fail } from '@sveltejs/kit';
-import db from '$lib/server/db'; // WICHTIG: Als Default-Import ohne geschweifte Klammern!
+import db from '$lib/server/db.js'; // WICHTIG: Als Default-Import ohne geschweifte Klammern!
 import { ObjectId } from 'mongodb';
 import { v2 as cloudinary } from 'cloudinary';
 import { 
@@ -15,20 +15,23 @@ cloudinary.config({
     api_secret: CLOUDINARY_API_SECRET
 });
 
-export async function load({ cookies }) {
-    const userId = cookies.get('session');
-    if (!userId) {
-        throw error(401, 'Nicht autorisiert');
+export async function load({ locals }) { // NEU: locals statt cookies
+    // 1. System-ID aus dem Rucksack (locals) holen
+    const systemId = locals.systemId;
+    
+    if (!systemId) {
+        throw error(401, 'Kein aktives Lager ausgewählt');
     }
 
     try {
-        // NEU: Nutze die gekapselten, serverless-sicheren Funktionen deiner neuen db.js
-        const categories = await db.getCategories(userId);
-        const attributes = await db.getFilterAttributes(userId);
+        // 2. Kategorien und Attribute für genau dieses Lager laden
+        const categories = await db.getCategories(systemId);
+        const attributes = await db.getFilterAttributes(systemId);
 
+        // JSON.parse(JSON.stringify) ist der ultimative Schutz gegen POJO-Fehler
         return {
-            categories,
-            attributes
+            categories: JSON.parse(JSON.stringify(categories)),
+            attributes: JSON.parse(JSON.stringify(attributes))
         };
     } catch (e) {
         console.error("--- LOAD FEHLER DIAGNOSE ---");
@@ -38,10 +41,12 @@ export async function load({ cookies }) {
 }
 
 export const actions = {
-    default: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) {
-            return fail(401, { error: 'Nicht autorisiert. Bitte neu anmelden.' });
+    default: async ({ request, locals }) => { // NEU: locals statt cookies
+        // 1. System-ID aus locals holen
+        const systemId = locals.systemId;
+        
+        if (!systemId) {
+            return fail(401, { error: 'Nicht autorisiert oder kein Lager ausgewählt. Bitte neu anmelden.' });
         }
 
         const data = await request.formData();
@@ -110,8 +115,8 @@ export const actions = {
                 updatedAt: new Date()
             };
 
-            // NEU: Nutze auch hier die createArticle-Funktion aus der db.js
-            await db.createArticle(userId, newArticle);
+            // 3. Artikel mit der neuen systemId in der Datenbank anlegen
+            await db.createArticle(systemId, newArticle);
 
             return { success: true, message: "Artikel erfolgreich gespeichert!" };
             

@@ -15,38 +15,40 @@ cloudinary.config({
     api_secret: CLOUDINARY_API_SECRET
 });
 
-export async function load({ params, cookies }) {
-    const userId = cookies.get('session');
-    if (!userId) {
-        throw error(401, 'Nicht autorisiert');
+export async function load({ params, locals }) { // NEU: locals statt cookies
+    const systemId = locals.systemId;
+    if (!systemId) {
+        throw error(401, 'Kein aktives Lager ausgewählt');
     }
 
     const articleId = params.id;
-    const article = await db.getArticleById(userId, articleId);
+    // WICHTIG: db-Abfrage mit systemId
+    const article = await db.getArticleById(systemId, articleId);
 
     if (!article) {
-        throw error(404, { message: 'Dieser Artikel wurde nicht gefunden oder du hast keinen Zugriff darauf.' });
+        throw error(404, { message: 'Dieser Artikel wurde nicht gefunden oder gehört nicht zu diesem Lager.' });
     }
 
-    const categories = await db.getCategories(userId);
-    const attributes = await db.getFilterAttributes(userId);
+    const categories = await db.getCategories(systemId);
+    const attributes = await db.getFilterAttributes(systemId);
 
+    // POJO Fix zur Sicherheit beibehalten, besonders wegen der "attributes" Map und Datumswerten
     return {
-        article, // (SvelteKit-Tipp: Wenn db.js saubere Strings liefert, brauchst du hier kein JSON.parse mehr)
-        categories,
-        attributes
+        article: JSON.parse(JSON.stringify(article)), 
+        categories: JSON.parse(JSON.stringify(categories)),
+        attributes: JSON.parse(JSON.stringify(attributes))
     };
 }
 
 export const actions = {
-    update: async ({ request, params, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { error: "Nicht autorisiert" });
+    update: async ({ request, params, locals }) => { // NEU: locals statt cookies
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: "Kein aktives Lager ausgewählt" });
 
         const formData = await request.formData();
         const articleId = params.id;
         
-        const oldArticle = await db.getArticleById(userId, articleId);
+        const oldArticle = await db.getArticleById(systemId, articleId);
         if (!oldArticle) {
             return fail(403, { error: "Artikel nicht gefunden oder Zugriff verweigert." });
         }
@@ -120,7 +122,7 @@ export const actions = {
 
         // --- UPDATE IN DATENBANK ---
         try {
-            await db.updateArticle(userId, articleId, updateData);
+            await db.updateArticle(systemId, articleId, updateData);
             return { success: true };
         } catch (err) {
             console.error("Datenbank Update-Fehler:", err);
@@ -128,23 +130,19 @@ export const actions = {
         }
     },
 
-    delete: async ({ params, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return fail(401, { error: "Nicht autorisiert" });
+    delete: async ({ params, locals }) => { // NEU: locals statt cookies
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: "Kein aktives Lager ausgewählt" });
 
         const articleId = params.id;
         
-        const oldArticle = await db.getArticleById(userId, articleId);
+        const oldArticle = await db.getArticleById(systemId, articleId);
         if (!oldArticle) {
             return fail(403, { error: "Artikel nicht gefunden oder Zugriff verweigert." });
         }
 
-        // HINWEIS: Wir löschen das Bild hier nicht mehr physisch per fs.unlinkSync.
-        // Das Bild bleibt vorerst als "Waisenkind" auf Cloudinary liegen. 
-        // Für eine kostenlose App reicht das völlig aus, da Cloudinary großzügige Limits hat.
-
         try {
-            await db.deleteArticle(userId, articleId); 
+            await db.deleteArticle(systemId, articleId); 
         } catch (err) {
             console.error("Fehler beim Löschen des Artikels:", err);
             return fail(500, { error: "Fehler beim Löschen." });

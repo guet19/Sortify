@@ -1,33 +1,42 @@
 import db from '$lib/server/db.js';
 import { error } from '@sveltejs/kit';
+import { ObjectId } from 'mongodb'; // 🔥 NEU: Import hinzugefügt
 
-export async function load({ params, cookies }) {
-    // 1. Die ID des aktuell eingeloggten Nutzers aus dem Cookie auslesen
-    const userId = cookies.get('session');
+export async function load({ params, locals }) { 
+    // 1. Die System-ID aus dem Rucksack (locals) holen
+    const systemId = locals.systemId;
     
-    // (Optionaler Sicherheits-Check, falls jemand den Layout-Schutz umgeht)
-    if (!userId) {
-        throw error(401, 'Nicht autorisiert');
+    if (!systemId) {
+        throw error(401, 'Kein aktives Lager ausgewählt');
     }
 
     // 2. Die Artikel-ID aus der URL auslesen
     const articleId = params.id;
 
-    // 3. WICHTIG: Den spezifischen Artikel MIT der userId aus der Datenbank holen
-    const article = await db.getArticleById(userId, articleId);
-
-    // 4. Fehlerbehandlung: Wenn es die ID nicht gibt oder sie NICHT diesem User gehört
-    if (!article) {
+    // 🔥 NEUER CHECK: Ist die ID in der URL überhaupt eine gültige 24-stellige MongoDB-ID?
+    // Falls das Wort z.B. "einstellungen" lautet, wird hier sofort abgebrochen (404),
+    // BEVOR die Datenbank mit einem BSON-Error abstürzt.
+    if (!ObjectId.isValid(articleId)) {
         throw error(404, {
-            message: 'Dieser Artikel wurde nicht gefunden oder du hast keinen Zugriff darauf.'
+            message: 'Dieser Artikel existiert nicht (Ungültige ID).'
         });
     }
 
-    // 5. Metadaten laden (ebenfalls streng an den User gebunden!)
-    const categories = await db.getCategories(userId);
-    const attributes = await db.getFilterAttributes(userId);
+    // 3. Den spezifischen Artikel MIT der systemId aus der Datenbank holen
+    const article = await db.getArticleById(systemId, articleId);
 
-    // 6. Alles "entschärft" an das Frontend (+page.svelte) übergeben
+    // 4. Fehlerbehandlung: Wenn der Artikel nicht existiert oder nicht zum Lager gehört
+    if (!article) {
+        throw error(404, {
+            message: 'Dieser Artikel wurde nicht gefunden oder gehört nicht zu diesem Lager.'
+        });
+    }
+
+    // 5. Metadaten für das aktuelle Lager laden
+    const categories = await db.getCategories(systemId);
+    const attributes = await db.getFilterAttributes(systemId);
+
+    // 6. JSON-Parsen für das POJO-Problem von SvelteKit
     return {
         article: JSON.parse(JSON.stringify(article)),
         categories: JSON.parse(JSON.stringify(categories)),
@@ -37,11 +46,11 @@ export async function load({ params, cookies }) {
 
 // --- Action für das Speichern des Bestandes ---
 export const actions = {
-    updateStock: async ({ request, cookies }) => {
-        // 1. Auch hier benötigen wir zwingend die ID des Nutzers!
-        const userId = cookies.get('session');
-        if (!userId) {
-            return { success: false, error: 'Nicht autorisiert' };
+    updateStock: async ({ request, locals }) => { 
+        // 1. System-ID zwingend aus locals laden
+        const systemId = locals.systemId;
+        if (!systemId) {
+            return { success: false, error: 'Kein aktives Lager ausgewählt' };
         }
 
         // 2. Daten aus dem Frontend-Formular abfangen
@@ -53,12 +62,15 @@ export const actions = {
         if (isNaN(newStock) || newStock < 0) {
             return { success: false, error: 'Ungültiger Bestand' };
         }
+        
+        // 🔥 ZUSATZ-CHECK: Auch beim Speichern absichern
+        if (!ObjectId.isValid(articleId)) {
+            return { success: false, error: 'Ungültige Artikel-ID' };
+        }
 
         try {
-            // 3. WICHTIG: Die Update-Funktion fordert nun als Erstes die userId.
-            // Dadurch ist es unmöglich, dass ein Nutzer per Manipulation 
-            // den Bestand des Artikels eines fremden Nutzers ändert.
-            await db.updateArticle(userId, articleId, { istBestand: newStock });
+            // 3. Update-Funktion mit der neuen systemId aufrufen
+            await db.updateArticle(systemId, articleId, { istBestand: newStock });
 
             return { success: true };
         } catch (err) {

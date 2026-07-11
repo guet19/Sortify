@@ -1,13 +1,14 @@
 import db from '$lib/server/db.js';
 import { redirect } from '@sveltejs/kit';
 
-export async function load({ cookies }) {
-    const userId = cookies.get('session');
-    if (!userId) throw redirect(303, '/login');
+export async function load({ locals }) { // NEU: locals statt cookies
+    const systemId = locals.systemId;
+    if (!systemId) throw redirect(303, '/login');
 
     let shelves = [];
     try {
-        shelves = await db.getShelves(userId) || [];
+        // Abfrage für das spezifische System
+        shelves = await db.getShelves(systemId) || [];
     } catch (e) {
         console.error("Fehler beim Laden der Regale:", e);
     }
@@ -25,30 +26,30 @@ export async function load({ cookies }) {
 }
 
 export const actions = {
-    triggerCalibrationLED: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    triggerCalibrationLED: async ({ request, locals }) => { // NEU: locals
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         const data = await request.formData();
         const ledIndex = parseInt(data.get('ledIndex'));
         
-        await db.createHardwareCommand(userId, ledIndex + 1);
+        await db.createHardwareCommand(systemId, ledIndex + 1);
         return { success: true };
     },
 
-    // NEU: Bricht den Vorgang ab und schaltet das Licht aus
-    cancelCalibration: async ({ cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    // Bricht den Vorgang ab und schaltet das Licht aus
+    cancelCalibration: async ({ locals }) => { // NEU: locals
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         // Die 0 sagt dem Python-Skript: "Alles ausschalten & abbrechen"
-        await db.createHardwareCommand(userId, 0); 
+        await db.createHardwareCommand(systemId, 0); 
         return { success: true };
     },
 
-    saveNewShelf: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    saveNewShelf: async ({ request, locals }) => { // NEU: locals
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         const data = await request.formData();
         const shelfName = data.get('shelfName');
@@ -57,10 +58,10 @@ export const actions = {
         const barcodes = JSON.parse(data.get('barcodes')); 
 
         try {
-            await db.createNewShelf(userId, shelfName, startIndex, drawerCount, barcodes);
+            await db.createNewShelf(systemId, shelfName, startIndex, drawerCount, barcodes);
             
             // Auch nach erfolgreichem Speichern das Licht ausmachen
-            await db.createHardwareCommand(userId, 0); 
+            await db.createHardwareCommand(systemId, 0); 
             
             return { success: true };
         } catch (err) {
@@ -68,9 +69,9 @@ export const actions = {
             return { success: false };
         }
     },
-    updateBarcode: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    updateBarcode: async ({ request, locals }) => { // NEU: locals
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         const data = await request.formData();
         const shelfId = data.get('shelfId');
@@ -79,10 +80,10 @@ export const actions = {
 
         try {
             // 1. Datenbank aktualisieren
-            await db.updateDrawerBarcode(userId, shelfId, ledIndex, newBarcode);
+            await db.updateDrawerBarcode(systemId, shelfId, ledIndex, newBarcode);
             
             // 2. Hardware ausschalten
-            await db.createHardwareCommand(userId, 0); 
+            await db.createHardwareCommand(systemId, 0); 
             
             return { success: true };
         } catch (err) {
@@ -90,18 +91,18 @@ export const actions = {
             return { success: false };
         }
     },
-    deleteShelf: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    deleteShelf: async ({ request, locals }) => { // NEU: locals
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         const data = await request.formData();
         const shelfId = data.get('shelfId');
 
         try {
-            await db.deleteShelf(userId, shelfId);
+            await db.deleteShelf(systemId, shelfId);
             
             // Zur Sicherheit Hardware ausschalten
-            await db.createHardwareCommand(userId, 0); 
+            await db.createHardwareCommand(systemId, 0); 
             
             return { success: true };
         } catch (err) {

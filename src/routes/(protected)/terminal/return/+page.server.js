@@ -4,11 +4,13 @@ import db from '$lib/server/db.js';
 // 🔥 NEU: Globaler Timer für die LED, damit wir ihn sicher abbrechen können!
 let globalLedTimeout = null;
 
-export async function load({ cookies }) {
-    const session = cookies.get('session');
-    if (!session) throw redirect(303, '/login');
+export async function load({ locals }) { // NEU: locals statt cookies
+    const systemId = locals.systemId;
+    
+    // Wenn kein Lager ausgewählt ist, zurück zum Login/Systemauswahl
+    if (!systemId) throw redirect(303, '/login');
 
-    const articles = await db.getArticles(session).catch(() => []);
+    const articles = await db.getArticles(systemId).catch(() => []);
     
     return {
         articles: JSON.parse(JSON.stringify(articles))
@@ -16,9 +18,9 @@ export async function load({ cookies }) {
 }
 
 export const actions = {
-    scanForReturn: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false, error: 'Unauthorized' };
+    scanForReturn: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
         const barcode = data.get('barcode');
@@ -28,8 +30,9 @@ export const actions = {
         }
 
         try {
-            const article = await db.getArticleByBarcode(userId, barcode);
-            const drawer = await db.getDrawerByBarcode(userId, barcode);
+            // Abfrage mit der neuen systemId
+            const article = await db.getArticleByBarcode(systemId, barcode);
+            const drawer = await db.getDrawerByBarcode(systemId, barcode);
 
             if (!article || !drawer) {
                 return { success: false, error: 'unknown_barcode' };
@@ -52,18 +55,23 @@ export const actions = {
         }
     },
 
-    requestScale: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    requestScale: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false, error: 'Unauthorized' };
+
         const data = await request.formData();
         const barcode = data.get('barcode');
 
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const requestId = await db.createScaleRequest(userId, barcode);
+        // Waagen-Anfrage für genau dieses System erstellen
+        const requestId = await db.createScaleRequest(systemId, barcode);
         return { success: true, requestId };
     },
 
-    bookReturn: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    bookReturn: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false, error: 'Unauthorized' };
+
         const data = await request.formData();
         
         const articleId = data.get('articleId');
@@ -75,18 +83,18 @@ export const actions = {
         }
 
         try {
-            // Bestand buchen (setzt intern lastWeighedAt und lastReturnedAt)
-            await db.updateArticleStockFromWeights(userId, articleId, barcode, newDrawerStock);
+            // Bestand buchen
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock);
             
-            // 🔥 Sicherer LED-Trigger mit Aufräum-Funktion
+            // LED-Trigger mit Aufräum-Funktion
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            await db.triggerLedByBarcode(userId, barcode, true);
+            await db.triggerLedByBarcode(systemId, barcode, true);
             
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch (e) {}
+                try { await db.createHardwareCommand(systemId, [0]); } catch (e) {}
                 globalLedTimeout = null;
             }, 10000);
 
@@ -97,10 +105,9 @@ export const actions = {
         }
     },
 
-    // Direktes Einlagern ohne Waage (Wiegen überspringen)
-    returnWithoutWeighing: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
-        if (!userId) return { success: false };
+    returnWithoutWeighing: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false };
 
         const data = await request.formData();
         const articleId = data.get('articleId');
@@ -111,18 +118,16 @@ export const actions = {
         }
 
         try {
-            // Nur den Zeitstempel für die Retoure aktualisieren, da nicht gewogen wurde!
-            await db.logArticleAction(userId, articleId, 'return');
+            await db.logArticleAction(systemId, articleId, 'return');
             
-            // 🔥 Sicherer LED-Trigger mit Aufräum-Funktion
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            await db.triggerLedByBarcode(userId, barcode, true);
+            await db.triggerLedByBarcode(systemId, barcode, true);
             
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch (e) {}
+                try { await db.createHardwareCommand(systemId, [0]); } catch (e) {}
                 globalLedTimeout = null;
             }, 10000);
 
@@ -133,34 +138,29 @@ export const actions = {
         }
     },
 
-    // Löscht ein komplett leeres Fach bei der Retoure 
-    bookAndUnlink: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    bookAndUnlink: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false, error: 'Unauthorized' };
+
         const data = await request.formData();
-        
         const articleId = data.get('articleId');
         const barcode = data.get('barcode');
 
         try {
-            // 1. Bestand sicherheitshalber auf 0 buchen, damit die DB sauber ist
-            await db.updateArticleStockFromWeights(userId, articleId, barcode, 0);
-            
-            // 2. Barcode komplett vom Artikel lösen (Fach freigeben)
-            await db.removeBarcodes(userId, articleId, barcode);
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, 0);
+            await db.removeBarcodes(systemId, articleId, barcode);
 
-            // 3. LED leuchten lassen, damit der User die entleerte Box entnehmen kann
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            await db.triggerLedByBarcode(userId, barcode, true);
+            await db.triggerLedByBarcode(systemId, barcode, true);
             
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
                 globalLedTimeout = null;
             }, 10000);
 
-            // "unlinked: true" sagt dem Frontend, dass wir den roten Erfolgs-Screen anzeigen sollen
             return { success: true, step: 'done', unlinked: true };
         } catch (err) {
             console.error("Fehler beim Freigeben des leeren Fachs:", err);
@@ -168,9 +168,10 @@ export const actions = {
         }
     },
 
-    // 🔥 NEU: Die Action für den "💡 Erneut leuchten" Button!
-    triggerLedOnly: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    triggerLedOnly: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return { success: false, error: 'Unauthorized' };
+
         const data = await request.formData();
         const barcode = data.get('barcode');
         
@@ -180,10 +181,10 @@ export const actions = {
                 globalLedTimeout = null;
             }
 
-            await db.triggerLedByBarcode(userId, barcode, true);
+            await db.triggerLedByBarcode(systemId, barcode, true);
             
             globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(userId, [0]); } catch(e){}
+                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
                 globalLedTimeout = null;
             }, 10000);
 

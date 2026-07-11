@@ -25,7 +25,10 @@
 		"cheerio": "^1.2.0",
 		"cloudinary": "^2.10.0",
 		"cropperjs": "^1.6.2",
+		"jspdf": "^4.2.1",
 		"mongodb": "^7.1.1",
-		"nodemailer": "^8.0.9"
+		"nodemailer": "^9.0.3",
+		"qrcode": "^1.5.4",
+		"speakeasy": "^2.0.0"
 	}
 }
