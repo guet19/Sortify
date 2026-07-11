@@ -1516,17 +1516,7 @@ async function inviteUserToSystem(systemId, email, role) {
         return { success: true, status: 'new_invited', token: inviteToken };
     }
 }
-// Alle Benutzer abfragen, die einem bestimmten System zugewiesen sind
-async function getUsersBySystem(systemId) {
-    const db = await getDb();
-    
-    // Sucht alle User, bei denen im Array "systems" die passende systemId steht
-    const users = await db.collection('users').find({ 
-        "systems.systemId": new ObjectId(systemId) 
-    }).toArray();
-    
-    return users;
-}
+
 async function changePasswordDirectly(userId, hashedPassword) {
     const db = await getDb();
     
@@ -1558,17 +1548,7 @@ async function updateUserSystemRole(systemId, userId, newRole) {
     return { success: true };
 }
 
-// Benutzer aus einem System entfernen
-async function removeUserFromSystem(systemId, userId) {
-    const db = await getDb();
-    
-    await db.collection('users').updateOne(
-        { _id: new ObjectId(userId) },
-        { $pull: { systems: { systemId: new ObjectId(systemId) } } }
-    );
-    
-    return { success: true };
-}
+
 // Speichert einen temporären 2FA-Notfallcode (gültig für 15 Minuten)
 async function set2FABackupCode(userId, code) {
     const db = await getDb();
@@ -1657,7 +1637,6 @@ export default {
     getSystemById,
     createSystemInvitation,
     getInvitationsBySystem,
-    removeUserFromSystem,
     enableTwoFactor,
     disableTwoFactor,
     requestEmailChange,
