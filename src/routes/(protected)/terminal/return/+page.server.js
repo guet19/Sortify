@@ -1,10 +1,10 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 
-// 🔥 NEU: Globaler Timer für die LED, damit wir ihn sicher abbrechen können!
+// Globaler Timer für die LED, damit wir ihn sicher abbrechen können!
 let globalLedTimeout = null;
 
-export async function load({ locals }) { // NEU: locals statt cookies
+export async function load({ locals }) { 
     const systemId = locals.systemId;
     
     // Wenn kein Lager ausgewählt ist, zurück zum Login/Systemauswahl
@@ -13,7 +13,9 @@ export async function load({ locals }) { // NEU: locals statt cookies
     const articles = await db.getArticles(systemId).catch(() => []);
     
     return {
-        articles: JSON.parse(JSON.stringify(articles))
+        articles: JSON.parse(JSON.stringify(articles)),
+        // 🔥 NEU: Farbe auslesen und an das Frontend übergeben
+        userColor: locals.color || '#3b82f6' 
     };
 }
 
@@ -30,7 +32,6 @@ export const actions = {
         }
 
         try {
-            // Abfrage mit der neuen systemId
             const article = await db.getArticleByBarcode(systemId, barcode);
             const drawer = await db.getDrawerByBarcode(systemId, barcode);
 
@@ -63,13 +64,14 @@ export const actions = {
         const barcode = data.get('barcode');
 
         await new Promise(resolve => setTimeout(resolve, 1000));
-        // Waagen-Anfrage für genau dieses System erstellen
         const requestId = await db.createScaleRequest(systemId, barcode);
         return { success: true, requestId };
     },
 
     bookReturn: async ({ request, locals }) => {
         const systemId = locals.systemId;
+        // 🔥 NEU: Farbe aus dem Hook laden
+        const userColor = locals.color || '#3b82f6';
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
@@ -86,12 +88,12 @@ export const actions = {
             // Bestand buchen
             await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock);
             
-            // LED-Trigger mit Aufräum-Funktion
             if (globalLedTimeout) {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            await db.triggerLedByBarcode(systemId, barcode, true);
+            // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
+            await db.triggerLedByBarcode(systemId, barcode, userColor);
             
             globalLedTimeout = setTimeout(async () => {
                 try { await db.createHardwareCommand(systemId, [0]); } catch (e) {}
@@ -107,6 +109,8 @@ export const actions = {
 
     returnWithoutWeighing: async ({ request, locals }) => {
         const systemId = locals.systemId;
+        // 🔥 NEU: Farbe aus dem Hook laden
+        const userColor = locals.color || '#3b82f6';
         if (!systemId) return { success: false };
 
         const data = await request.formData();
@@ -124,7 +128,8 @@ export const actions = {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            await db.triggerLedByBarcode(systemId, barcode, true);
+            // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
+            await db.triggerLedByBarcode(systemId, barcode, userColor);
             
             globalLedTimeout = setTimeout(async () => {
                 try { await db.createHardwareCommand(systemId, [0]); } catch (e) {}
@@ -140,6 +145,8 @@ export const actions = {
 
     bookAndUnlink: async ({ request, locals }) => {
         const systemId = locals.systemId;
+        // 🔥 NEU: Farbe aus dem Hook laden
+        const userColor = locals.color || '#3b82f6';
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
@@ -154,7 +161,8 @@ export const actions = {
                 clearTimeout(globalLedTimeout);
                 globalLedTimeout = null;
             }
-            await db.triggerLedByBarcode(systemId, barcode, true);
+            // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
+            await db.triggerLedByBarcode(systemId, barcode, userColor);
             
             globalLedTimeout = setTimeout(async () => {
                 try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
@@ -170,6 +178,8 @@ export const actions = {
 
     triggerLedOnly: async ({ request, locals }) => {
         const systemId = locals.systemId;
+        // 🔥 NEU: Farbe aus dem Hook laden
+        const userColor = locals.color || '#3b82f6';
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
@@ -181,7 +191,8 @@ export const actions = {
                 globalLedTimeout = null;
             }
 
-            await db.triggerLedByBarcode(systemId, barcode, true);
+            // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
+            await db.triggerLedByBarcode(systemId, barcode, userColor);
             
             globalLedTimeout = setTimeout(async () => {
                 try { await db.createHardwareCommand(systemId, [0]); } catch(e){}

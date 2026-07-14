@@ -440,7 +440,19 @@ async function getUserById(id) {
         const db = await getDb();
         const collection = db.collection("users");
         const user = await collection.findOne({ _id: new ObjectId(id) });
-        if (user && user._id) user._id = user._id.toString();
+        
+        if (user) {
+            // 1. Haupt-ID in String umwandeln
+            if (user._id) user._id = user._id.toString();
+            
+            // 2. 🔥 POJO-Fix: Alle systemIds im systems-Array in Strings umwandeln
+            if (user.systems && Array.isArray(user.systems)) {
+                user.systems = user.systems.map(sys => ({
+                    ...sys,
+                    systemId: sys.systemId ? sys.systemId.toString() : null
+                }));
+            }
+        }
         return user;
     } catch (error) {
         console.error("Fehler beim Suchen des Benutzers nach ID:", error);
@@ -635,19 +647,26 @@ async function renewVerificationData(email) {
 // 6. HARDWARE & REGAL-VERWALTUNG
 // ==========================================
 
-async function createHardwareCommand(systemId, command) {
+async function createHardwareCommand(systemId, command, color = null) {
     try {
         const db = await getDb();
         const commandsCollection = db.collection('hardware_commands');
 
         let commandArray = Array.isArray(command) ? command : [parseInt(command)];
 
-        await commandsCollection.insertOne({
+        const commandDoc = {
             systemId: new ObjectId(systemId),
             drawer_ids: commandArray, 
             status: "pending",
             createdAt: new Date()
-        });
+        };
+
+        // 🔥 NEU: Die Farbe wird an das Dokument angehängt, falls eine übergeben wurde
+        if (color) {
+            commandDoc.color = color;
+        }
+
+        await commandsCollection.insertOne(commandDoc);
 
         return true;
     } catch (error) {
@@ -780,8 +799,19 @@ async function checkIfBarcodeExists(systemId, barcode) {
     }
 }
 
-async function triggerLedByBarcode(systemId, barcode, singleOnly = false) {
+async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
     try {
+        // 🔥 Clevere Weiche: Prüft, ob eine Farbe (String) oder singleOnly (Boolean) übergeben wurde
+        let color = '#3b82f6'; // Fallback: Svelte-Blau
+        let singleOnly = false;
+
+        if (typeof arg3 === 'string') {
+            color = arg3;
+            singleOnly = true; // Unsere neuen Terminal-Actions benötigen gezielt diesen Barcode
+        } else if (typeof arg3 === 'boolean') {
+            singleOnly = arg3;
+        }
+
         const db = await getDb();
         
         // 1. Artikel finden
@@ -826,7 +856,8 @@ async function triggerLedByBarcode(systemId, barcode, singleOnly = false) {
         if (drawerIdsToLightUp.length > 0) {
             await db.collection('hardware_commands').insertOne({
                 systemId: new ObjectId(systemId),
-                drawer_ids: drawerIdsToLightUp, 
+                drawer_ids: drawerIdsToLightUp,
+                color: color, // 🔥 HIER WIRD DIE FARBE NUN ERFOLGREICH ÜBERGEBEN!
                 status: "pending",
                 createdAt: new Date()
             });
@@ -1421,7 +1452,8 @@ export async function confirmPasswordChange(token) {
 // =========================================================================
 
 // 1. Lokalen Benutzer (ohne E-Mail) erstellen und direkt dem System zuweisen
-async function createLocalSystemUser(systemId, username, hashedPw, role) {
+// 🔥 NEU: Parameter "color" hinzugefügt
+async function createLocalSystemUser(systemId, username, hashedPw, role, color) {
     const db = await getDb();
     
     // Prüfen ob der Benutzername systemweit schon existiert
@@ -1434,8 +1466,9 @@ async function createLocalSystemUser(systemId, username, hashedPw, role) {
         username: username,
         email: null, // Lokale User haben keine Mail
         password: hashedPw,
-        systems: [{ systemId: new ObjectId(systemId), role: role }],
-        mustChangePassword: true, // 🔥 Zwingt zum Wechsel beim 1. Login
+        // 🔥 NEU: color wird im systems-Array mit abgespeichert
+        systems: [{ systemId: new ObjectId(systemId), role: role, color: color }], 
+        mustChangePassword: true, // Zwingt zum Wechsel beim 1. Login
         isTwoFactorEnabled: false,
         createdAt: new Date(),
         isVerified: true // Lokale User gelten durch Admin-Erstellung als verifiziert
@@ -1446,7 +1479,8 @@ async function createLocalSystemUser(systemId, username, hashedPw, role) {
 }
 
 // 2. Bestehenden E-Mail-User zum System hinzufügen
-async function addUserToSystem(systemId, email, role) {
+// 🔥 NEU: Parameter "color" hinzugefügt
+async function addUserToSystem(systemId, email, role, color) {
     const db = await getDb();
     const user = await db.collection('users').findOne({ email: email.toLowerCase() });
     
@@ -1463,7 +1497,8 @@ async function addUserToSystem(systemId, email, role) {
     // Zum Array hinzufügen
     await db.collection('users').updateOne(
         { _id: user._id },
-        { $push: { systems: { systemId: new ObjectId(systemId), role: role } } }
+        // 🔥 NEU: color wird mit in das $push-Objekt aufgenommen
+        { $push: { systems: { systemId: new ObjectId(systemId), role: role, color: color } } }
     );
 
     return { success: true, user: user };
@@ -1566,6 +1601,72 @@ async function verify2FABackupCode(userId, code) {
     }
     return false;
 }
+// ==========================================
+// 7. ROLLEN- UND BERECHTIGUNGSVERWALTUNG
+// ==========================================
+
+export async function getSystemRoles(systemId) {
+    const db = await getDb();
+    const system = await db.collection("systems").findOne({ _id: new ObjectId(systemId) });
+    
+    // Fallback: Wenn das System noch keine Rollen hat, generieren wir die Standard-Rollen on-the-fly
+    if (!system || !system.roles) {
+        return [
+            { roleId: 'admin', name: 'Administrator', allowedRoutes: ['*'], isSystemRole: true },
+            { roleId: 'user', name: 'Benutzer', allowedRoutes: ['/artikel'], isSystemRole: true }
+        ];
+    }
+    return system.roles;
+}
+
+export async function createSystemRole(systemId, roleName, allowedRoutes, startPage) {
+    const db = await getDb();
+    const roleId = 'role_' + crypto.randomBytes(4).toString('hex');
+    
+    await db.collection("systems").updateOne(
+        { _id: new ObjectId(systemId) },
+        { $push: { 
+            roles: { 
+                roleId: roleId, 
+                name: roleName, 
+                allowedRoutes: allowedRoutes, 
+                startPage: startPage, // 🔥 NEU: Die Startseite wird jetzt in der DB gespeichert
+                isSystemRole: false // Nur benutzerdefinierte Rollen dürfen später gelöscht werden
+            } 
+        }}
+    );
+    return { success: true, roleId };
+}
+
+export async function deleteSystemRole(systemId, roleId) {
+    const db = await getDb();
+    
+    // Verhindern, dass die System-Rollen (admin, user) gelöscht werden
+    if (roleId === 'admin' || roleId === 'user') {
+        return { success: false, message: "System-Rollen können nicht gelöscht werden." };
+    }
+
+    await db.collection("systems").updateOne(
+        { _id: new ObjectId(systemId) },
+        { $pull: { roles: { roleId: roleId } } }
+    );
+    return { success: true };
+}
+// Aktualisiert die LED-Farbe eines Benutzers für ein spezifisches System
+async function updateUserSystemColor(systemId, userId, newColor) {
+    const db = await getDb();
+    await db.collection('users').updateOne(
+        { 
+            _id: new ObjectId(userId), 
+            "systems.systemId": new ObjectId(systemId) 
+        },
+        { 
+            $set: { "systems.$.color": newColor } 
+        }
+    );
+}
+
+// Vergiss nicht, die Funktion unten bei deinen Exporten (module.exports / export default) hinzuzufügen!
 
 
 export default { 
@@ -1641,7 +1742,9 @@ export default {
     updateUserSystemRole,
     removeUserFromSystem,
     set2FABackupCode,
-    verify2FABackupCode
-
-    
+    verify2FABackupCode,
+    getSystemRoles,
+    createSystemRole,
+    deleteSystemRole,
+    updateUserSystemColor
 };

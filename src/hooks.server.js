@@ -1,32 +1,43 @@
 import db from '$lib/server/db.js';
-import { redirect } from '@sveltejs/kit'; // Import für den kontrollierten Rausschmiss
+import { redirect, error } from '@sveltejs/kit';
 
 export async function handle({ event, resolve }) {
-    // 1. Cookies auslesen (Dein User-Cookie heißt bei dir aktuell 'session')
     const userId = event.cookies.get('session'); 
-    const systemId = event.cookies.get('systemId');
+    const path = event.url.pathname;
+    
+    // Fallback: Falls das systemId Cookie fehlt, nutzen wir wieder die Test-ID
+    const systemId = event.cookies.get('systemId') || "6a4ea775e94b7120d470bea7";
 
+    let user = null;
+
+    // 1. ZOMBIE-COOKIE FILTER (Prüft, ob der Cookie-User überhaupt noch existiert)
     if (userId) {
-        // 2. User über deine bestehende db.js Funktion laden
-        const user = await db.getUserById(userId);
+        user = await db.getUserById(userId);
+        if (!user) {
+            event.cookies.delete('session', { path: '/' });
+            event.cookies.delete('systemId', { path: '/' });
+        }
+    }
 
+    // 2. DER PASSWORT-ZWANG FIX
+    if (user && user.mustChangePassword) {
+        if (!path.startsWith('/profil') && !path.startsWith('/logout')) {
+            throw redirect(303, '/profil'); 
+        }
+    }
+
+    // 3. ÖFFENTLICHE ROUTEN (Ohne Login für jeden zugänglich)
+    const publicRoutes = [
+        '/login', 
+        '/register', 
+        '/forgot-password', 
+        '/reset-password', 
+        '/verify', 
+        '/verify-email', 
+        '/verify-password'
+    ]; 
+    if (publicRoutes.some(route => path.startsWith(route))) {
         if (user) {
-            // ZWANGS-PRÜFUNG FÜR DIE PASSWORTÄNDERUNG
-            // Wenn das Flag aktiv ist, darf der User NUR auf die /profil-Route zugreifen.
-            // Versucht er, die URL zu manipulieren oder eine andere Seite aufzurufen,
-            // werden alle Cookies gelöscht (Abmeldung) und er fliegt zurück zum Login.
-            if (user.mustChangePassword && !event.url.pathname.startsWith('/profil')) {
-                event.cookies.delete('session', { path: '/' });
-                event.cookies.delete('systemId', { path: '/' });
-                if (event.cookies.get('pending2fa')) {
-                    event.cookies.delete('pending2fa', { path: '/' });
-                }
-                
-                throw redirect(303, '/login?error=password_change_required');
-            }
-
-            // 3. User-Daten in 'locals' (den Rucksack) packen
-            // 🔥 FIX: 'username' hinzugefügt und Fallbacks gesetzt, um leere Felder abzufangen
             event.locals.user = {
                 id: user._id.toString(),
                 username: user.username || null,
@@ -35,28 +46,113 @@ export async function handle({ event, resolve }) {
                 email: user.email || null,
                 mustChangePassword: user.mustChangePassword
             };
-
-            // 4. LIVE-RECHTEPRÜFUNG: Wenn ein System/Lager ausgewählt wurde
-            if (systemId && user.systems) {
-                // Wir suchen im systems-Array des Users nach der passenden Lager-ID
-                const systemContext = user.systems.find(s => s.systemId.toString() === systemId);
-                
-                if (systemContext) {
-                    event.locals.systemId = systemId;
-                    event.locals.role = systemContext.role; // z.B. 'admin' oder 'worker'
-                } else {
-                    // Sicherheitsmaßnahme: User hat das System im Cookie, 
-                    // aber in der Datenbank keine Rechte (mehr) dafür.
-                    event.cookies.delete('systemId', { path: '/' });
+            if (systemId) event.locals.systemId = systemId;
+            if (user.systems && systemId) {
+                const sysCtx = user.systems.find(s => s.systemId.toString() === systemId);
+                if (sysCtx) {
+                    event.locals.role = sysCtx.role;
+                    // 🔥 NEU: Farbe aus dem Kontext laden
+                    event.locals.color = sysCtx.color || '#3b82f6';
                 }
             }
-        } else {
-            // Fallback: Cookie ist noch im Browser, aber User wurde in der DB gelöscht
-            event.cookies.delete('session', { path: '/' });
-            event.cookies.delete('systemId', { path: '/' });
+        }
+        return await resolve(event);
+    }
+
+    // 4. NICHT EINGELOGGT? -> AB ZUM LOGIN
+    if (!user) {
+        throw redirect(303, '/login');
+    }
+
+    // 5. USER-DATEN FÜR DIE SVELTE-SEITEN BEREITSTELLEN
+    event.locals.user = {
+        id: user._id.toString(),
+        username: user.username || null,
+        firstName: user.firstName || null,
+        lastName: user.lastName || null,
+        email: user.email || null,
+        mustChangePassword: user.mustChangePassword
+    };
+
+    // 6. SYSTEM-UNABHÄNGIGE ROUTEN (Login nötig, aber keine Rolle/Berechtigung)
+    const systemIndependentRoutes = [
+        '/select-system', 
+        '/logout', 
+        '/tools', 
+        '/profil'
+    ];
+    if (systemIndependentRoutes.some(route => path.startsWith(route))) {
+        if (systemId) event.locals.systemId = systemId;
+        return await resolve(event);
+    }
+
+    // 7. RBAC BERECHTIGUNGEN PRÜFEN
+    if (!user.systems) {
+        throw redirect(303, '/select-system');
+    }
+
+    const systemContext = user.systems.find(s => s.systemId.toString() === systemId);
+    
+    if (!systemContext) {
+        event.cookies.delete('systemId', { path: '/' });
+        throw redirect(303, '/select-system');
+    }
+
+    event.locals.systemId = systemId;
+    event.locals.role = systemContext.role; 
+    // 🔥 NEU: Farbe in die locals laden (inkl. Fallback-Blau für alte Accounts ohne Farbe)
+    event.locals.color = systemContext.color || '#3b82f6';
+
+    // Administratoren dürfen alles
+    if (systemContext.role === 'admin') {
+        return await resolve(event);
+    }
+
+    const systemRoles = await db.getSystemRoles(systemId);
+    const roleDefinition = systemRoles.find(r => r.roleId === systemContext.role);
+
+    if (!roleDefinition || !roleDefinition.allowedRoutes) {
+        throw error(403, 'Keine Berechtigungen für dieses System hinterlegt.');
+    }
+
+    // Individuelle Startseite prüfen und priorisieren
+    if (path === '/') {
+        if (roleDefinition.startPage && roleDefinition.startPage !== '/') {
+            throw redirect(303, roleDefinition.startPage);
         }
     }
 
-    // 5. Die Anfrage an die eigentliche Svelte-Seite weitergeben
+    const allowed = roleDefinition.allowedRoutes;
+    
+    // Vollzugriff ('*') direkt erlauben
+    if (allowed.includes('*')) {
+        return await resolve(event);
+    }
+
+    const hasAccess = allowed.some(route => {
+        if (route === '/') return path === '/'; 
+        return path.startsWith(route);          
+    });
+
+    if (!hasAccess) {
+        // Intelligente Weiterleitung, falls der User direkt auf '/' landet (und keine startPage definiert war)
+        if (path === '/') {
+            // 1. Prio: Hat er Zugriff auf IRGENDEINEN Terminal-Bereich? Dann auf die Hauptseite /terminal
+            const hasTerminalAccess = allowed.some(r => r.startsWith('/terminal'));
+            if (hasTerminalAccess) {
+                throw redirect(303, '/terminal');
+            }
+            
+            // 2. Prio: Eine andere Seite. Wir sortieren nach Länge, um den "höchsten" Ordner zu finden
+            if (allowed.length > 0) {
+                const sortedRoutes = [...allowed].sort((a, b) => a.length - b.length);
+                throw redirect(303, sortedRoutes[0]);
+            }
+        }
+
+        // Für alle anderen Seiten greift weiterhin der strikte 403-Schutz
+        throw error(403, 'Zugriff verweigert: Deine Rolle hat für diesen Bereich keine Berechtigung.');
+    }
+
     return await resolve(event);
 }

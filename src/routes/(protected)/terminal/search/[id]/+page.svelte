@@ -4,7 +4,10 @@
     import { onDestroy } from 'svelte';
 
     export let data;
-    const { article, categories, attributes } = data;
+    const { article, categories, attributes, userColor } = data; // 🔥 NEU: userColor aus data importieren
+
+    // Fallback-Farbe (klassisches Svelte-Blau), falls mal etwas schiefgeht
+    const activeColor = userColor || '#3b82f6';
 
     // --- 1. Kategorienamen auflösen ---
     const mainCategory = categories.find(c => c._id === article.mainCategoryId);
@@ -113,13 +116,14 @@
                     await update({ reset: false });
                 };
             }}>
-                <!-- 🔥 NEU: Wir senden ein JSON-Array mit allen Barcodes an das Backend -->
                 <input type="hidden" name="barcodes" value={JSON.stringify(displaySlots)} />
                 
+                <!-- 🔥 NEU: Der Button nutzt inline-styles für Hintergrund und Leucht-Schatten, wenn er aktiv ist -->
                 <button 
                     type="submit" 
                     class="hardware-trigger-btn {commandSent ? 'active' : ''}" 
                     disabled={commandSent || displaySlots.length === 0}
+                    style={commandSent ? `background-color: ${activeColor}; box-shadow: 0 4px 20px ${activeColor}90;` : ''}
                 >
                     <span class="icon">{commandSent ? '✓' : '💡'}</span>
                     {#if displaySlots.length === 0}
@@ -154,7 +158,6 @@
             <div class="drawer-highlight">
                 <span class="label">Zugewiesene Lagerplätze</span>
                 
-                <!-- 🔥 NEU: Dynamische Darstellung der Lagerplätze -->
                 {#if displaySlots.length === 0}
                     <span class="value" style="color: #94a3b8; font-size: 1.5rem;">Unbekannt / Nicht zugewiesen</span>
                 {:else}
@@ -245,8 +248,10 @@
     }
     .hardware-trigger-btn:hover:not(:disabled) { background: #2563eb; transform: translateY(-3px); }
     .hardware-trigger-btn:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
-    .hardware-trigger-btn.active { background: #22c55e; transform: scale(0.98); box-shadow: 0 4px 15px rgba(34, 197, 94, 0.4); color: white; }
-    .hardware-trigger-btn .icon { font-size: 2.5rem; }
+    
+    /* Die Klasse .active verkleinert den Button beim Klick, die Farbe kommt dynamisch über inline-styles */
+    .hardware-trigger-btn.active { transform: scale(0.98); color: white; }
+    .hardware-trigger-btn .icon { font-size: 2.5rem; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
 
     .info-section { flex: 1; display: flex; flex-direction: column; gap: 2rem; }
     .price-stock-box { display: flex; align-items: center; gap: 2rem; flex-wrap: wrap; }
@@ -263,7 +268,6 @@
     .drawer-highlight { background: rgba(59, 130, 246, 0.1); border: 2px solid #3b82f6; padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 1rem; }
     .drawer-highlight .label { color: #93c5fd; font-size: 1.2rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; }
     
-    /* 🔥 Neue Styles für die Barcode Badges */
     .slot-badge-container { display: flex; flex-wrap: wrap; gap: 0.8rem; }
     .slot-badge { display: flex; align-items: center; gap: 0.5rem; background: #0f172a; padding: 0.6rem 1.2rem; border-radius: 8px; border: 1px solid #4ade80; color: #4ade80; font-family: monospace; font-size: 1.2rem; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
     .badge-icon { font-size: 1.1rem; }

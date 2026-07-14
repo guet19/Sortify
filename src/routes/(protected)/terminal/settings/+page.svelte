@@ -1,3 +1,21 @@
+<script>
+    import { page } from "$app/stores";
+
+    // Zentrale Funktion: Prüft, ob der Menüpunkt gerendert werden darf
+    function canSee(path) {
+        if (!$page.data.role) return false;
+        if ($page.data.role === 'admin') return true;
+
+        const allowed = $page.data.allowedRoutes || [];
+        if (allowed.includes('*')) return true;
+
+        return allowed.some(r => {
+            if (r === '/') return path === '/';
+            return path.startsWith(r);
+        });
+    }
+</script>
+
 <div class="settings-container">
     <div class="header-area">
         <h2>Einstellungen & Setup</h2>
@@ -9,33 +27,41 @@
     </div>
     
     <div class="action-grid">
-        <!-- Karte 1: Artikel zuweisen -->
-        <a href="/terminal/settings/assign" class="action-card">
-            <div class="icon">🔗</div>
-            <div class="card-content">
-                <h3>Artikel zuweisen</h3>
-                <p>Einen bestehenden Artikel mit einem physischen Fach verknüpfen.</p>
-            </div>
-        </a>
+        
+        {#if canSee('/terminal/settings/assign')}
+            <!-- Karte 1: Artikel zuweisen -->
+            <a href="/terminal/settings/assign" class="action-card">
+                <div class="icon">🔗</div>
+                <div class="card-content">
+                    <h3>Artikel zuweisen</h3>
+                    <p>Einen bestehenden Artikel mit einem physischen Fach verknüpfen.</p>
+                </div>
+            </a>
+        {/if}
 
-        <!-- Karte 2: Hardware Anlernen -->
-        <a href="/terminal/settings/shelf" class="action-card">
-            <div class="icon">💡</div>
-            <div class="card-content">
-                <h3>Fächer anlernen</h3>
-                <p>Hardware-Setup, LED-Test und Kartierung der Werkstatt-Fächer.</p>
-            </div>
-        </a>
+        {#if canSee('/terminal/settings/shelf')}
+            <!-- Karte 2: Hardware Anlernen -->
+            <a href="/terminal/settings/shelf" class="action-card">
+                <div class="icon">💡</div>
+                <div class="card-content">
+                    <h3>Fächer anlernen</h3>
+                    <p>Hardware-Setup, LED-Test und Kartierung der Werkstatt-Fächer.</p>
+                </div>
+            </a>
+        {/if}
 
-        <a href="/terminal/settings/maintenance" class="action-card">
-            <div class="icon">💡</div>
-            <div class="card-content">
-                <h3>Inventarpflege</h3>
-                <p>Aktualisierung der Bestände</p>
-            </div>
-        </a>
+        {#if canSee('/terminal/settings/maintenance')}
+            <!-- Karte 3: Inventarpflege -->
+            <a href="/terminal/settings/maintenance" class="action-card">
+                <div class="icon">💡</div>
+                <div class="card-content">
+                    <h3>Inventarpflege</h3>
+                    <p>Aktualisierung der Bestände</p>
+                </div>
+            </a>
+        {/if}
 
-        <!-- Karte 3: Abmelden -->
+        <!-- Karte 4: Abmelden (Immer sichtbar) -->
         <!-- Nutzt deine bestehende /logout Route mit reload, um die Session sauber zu beenden -->
         <a href="/logout" data-sveltekit-reload class="action-card danger">
             <div class="icon">🔒</div>
@@ -45,7 +71,6 @@
             </div>
         </a>
 
-        
     </div>
 </div>
 

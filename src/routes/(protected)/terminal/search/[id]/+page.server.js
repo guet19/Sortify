@@ -4,7 +4,7 @@ import db from '$lib/server/db.js';
 // Globaler Timer für die LED, damit wir ihn sicher handhaben können
 let globalLedTimeout = null;
 
-export async function load({ locals, params }) { // NEU: locals statt cookies
+export async function load({ locals, params }) { 
     const systemId = locals.systemId;
     if (!systemId) throw redirect(303, '/login');
 
@@ -35,8 +35,11 @@ export async function load({ locals, params }) { // NEU: locals statt cookies
 
 export const actions = {
     // Action zum Auslösen der Pick-by-Light Hardware
-    triggerLED: async ({ request, locals }) => { // NEU: locals statt cookies
+    triggerLED: async ({ request, locals }) => { 
         const systemId = locals.systemId;
+        // 🔥 NEU: Die individuelle Farbe des Users abrufen (Fallback: Blau)
+        const userColor = locals.color || '#3b82f6';
+
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
@@ -50,10 +53,11 @@ export const actions = {
             // String wieder in ein echtes JavaScript-Array umwandeln
             const barcodes = JSON.parse(barcodesStr);
 
-            // Alle Barcodes durchlaufen und anpingen (jetzt mit der systemId)
+            // Alle Barcodes durchlaufen und anpingen
             for (const barcode of barcodes) {
-                const triggeredIndex = await db.triggerLedByBarcode(systemId, barcode);
-                console.log(`💡 LED-Trigger gesendet! Barcode: ${barcode} -> LED Index: #${triggeredIndex}`);
+                // 🔥 NEU: userColor als 3. Parameter an db.triggerLedByBarcode übergeben
+                const triggeredIndex = await db.triggerLedByBarcode(systemId, barcode, userColor);
+                console.log(`💡 LED-Trigger gesendet! Barcode: ${barcode} -> LED Index: #${triggeredIndex} | Farbe: ${userColor}`);
             }
 
             // Falls noch ein alter Ausschalt-Timer läuft, löschen wir ihn
@@ -82,7 +86,7 @@ export const actions = {
     },
 
     // Action zum sofortigen Ausschalten (wird genutzt, wenn der User die Seite verlässt)
-    turnOffLED: async ({ locals }) => { // NEU: locals statt cookies
+    turnOffLED: async ({ locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 

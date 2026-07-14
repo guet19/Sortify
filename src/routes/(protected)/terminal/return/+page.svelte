@@ -3,6 +3,10 @@
     import { onDestroy } from 'svelte';
 
     export let form; 
+    export let data; // 🔥 NEU: data importiert, um an userColor zu kommen
+    
+    // 🔥 NEU: Die individuelle Nutzerfarbe abgreifen (Fallback: Blau)
+    $: activeColor = data?.userColor || '#3b82f6';
     
     let scanInput = '';
     let scanInputRef;
@@ -162,7 +166,7 @@
                 }}>
                     <div class="scan-animation-wrapper">
                         <div class="scan-line"></div>
-                        <span style="color: {isScanning ? '#22c55e' : '#60a5fa'};">
+                        <span style="color: {isScanning ? activeColor : '#60a5fa'};">
                             {#if isScanning && lastScannedCode}
                                 ⏳ Prüfe: {lastScannedCode}...
                             {:else}
@@ -258,7 +262,8 @@
                 </div>
 
                 <div class="scale-animation">
-                    <div class="spinner"></div>
+                    <!-- 🔥 NEU: Spinner nutzt die Nutzerfarbe -->
+                    <div class="spinner" style="border-top-color: {activeColor};"></div>
                     <h2>Messe Gewicht...</h2>
                     <p>Bitte die Box nicht berühren.</p>
                 </div>
@@ -301,7 +306,7 @@
                                 <input type="hidden" name="articleId" value={article?._id}>
                                 <input type="hidden" name="barcode" value={activeBarcode}>
                                 <input type="hidden" name="newStock" value={0}>
-                                <button type="submit" class="huge-btn" style="background: #334155; border: 1px solid #475569; color: #f8fafc; font-size: 1rem; padding: 1.2rem;">
+                                <button type="submit" class="huge-btn" style="background: #334155; border: 1px solid {activeColor}60; color: #f8fafc; font-size: 1rem; padding: 1.2rem;">
                                     Nur buchen (Behalten)
                                 </button>
                             </form>
@@ -318,7 +323,10 @@
                 {:else}
                     <form method="POST" action="?/bookReturn" use:enhance style="margin-top: 2rem;">
                         <input type="hidden" name="articleId" value={article?._id}><input type="hidden" name="barcode" value={activeBarcode}><input type="hidden" name="newStock" value={newDrawerStock}>
-                        <button type="submit" class="huge-btn">Veränderung buchen & Fach leuchten lassen</button>
+                        <!-- 🔥 NEU: Der Haupt-Button übernimmt die Nutzerfarbe! -->
+                        <button type="submit" class="huge-btn" style="background-color: {activeColor}; box-shadow: 0 4px 20px {activeColor}60;">
+                            Veränderung buchen & Fach leuchten lassen
+                        </button>
                     </form>
                 {/if}
             </div>
@@ -327,11 +335,15 @@
             <div class="card success-card">
                 <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
                     <input type="hidden" name="barcode" value={activeBarcode}>
-                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
+                    <!-- 🔥 NEU: Retrigger Button in Nutzerfarbe -->
+                    <button type="submit" class="btn-retrigger-led" style="color: {activeColor}; border-color: {activeColor}80; background-color: {activeColor}15;">
+                        💡 Erneut leuchten
+                    </button>
                 </form>
 
-                <div class="emoji-hero" style="animation: bounce 2s infinite;">✅</div>
-                <h2 style="color: #22c55e;">Erfolgreich eingespielt!</h2>
+                <!-- 🔥 NEU: Drop-Shadow des Emojis leuchtet in Nutzerfarbe -->
+                <div class="emoji-hero" style="animation: bounce 2s infinite; filter: drop-shadow(0 0 25px {activeColor}90);">✅</div>
+                <h2 style="color: {activeColor};">Erfolgreich eingespielt!</h2>
                 <p>Das entsprechende Fach im Regal leuchtet nun auf.<br>Bitte räume die Box ein.</p>
             </div>
 
@@ -339,7 +351,10 @@
             <div class="card success-card" style="border-color: #ef4444;">
                 <form method="POST" action="?/triggerLedOnly" use:enhance={() => { return async () => {}; }} class="retrigger-form">
                     <input type="hidden" name="barcode" value={activeBarcode}>
-                    <button type="submit" class="btn-retrigger-led">💡 Erneut leuchten</button>
+                    <!-- 🔥 NEU: Retrigger Button in Nutzerfarbe -->
+                    <button type="submit" class="btn-retrigger-led" style="color: {activeColor}; border-color: {activeColor}80; background-color: {activeColor}15;">
+                        💡 Erneut leuchten
+                    </button>
                 </form>
 
                 <div class="emoji-hero" style="animation: bounce 2s infinite;">🗑️</div>
@@ -354,7 +369,8 @@
     .terminal-page { max-width: 800px; margin: 0 auto; padding: 2rem; color: #f8fafc; text-align: center; }
     .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem; }
     h1 { color: #22c55e; margin: 0; }
-    .btn-back { background: transparent; border: 1px solid #475569; color: #94a3b8; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; }
+    .btn-back { background: transparent; border: 1px solid #475569; color: #94a3b8; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .btn-back:hover { background: #334155; color: #f8fafc; }
     
     .card { 
         background: #1e293b; border: 2px solid #334155; border-radius: 16px; padding: 3rem; 
@@ -362,7 +378,6 @@
         position: relative; 
     }
     
-    /* 🔥 NEUE STYLES FÜR DEN SETUP-WIZARD LOOK AUF DER RETURN SEITE */
     .emoji-hero { font-size: 4.5rem; margin-bottom: 1rem; line-height: 1; filter: drop-shadow(0 10px 10px rgba(0,0,0,0.2)); }
     .step-title { margin: 0 0 0.5rem 0; font-size: 2rem; color: #38bdf8; letter-spacing: -0.02em; }
     .step-desc { color: #94a3b8; font-size: 1.1rem; margin-bottom: 2rem; line-height: 1.5; }
@@ -495,21 +510,25 @@
     }
 
     .retrigger-form { position: absolute; top: 1.5rem; right: 1.5rem; margin: 0; z-index: 10; }
-    .btn-retrigger-led { background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); color: #38bdf8; padding: 0.5rem 0.8rem; border-radius: 8px; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.4rem; }
-    .btn-retrigger-led:hover { background: rgba(59, 130, 246, 0.2); border-style: solid; color: white; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }
-    .scan-card { cursor: pointer; }
+    .btn-retrigger-led { border: 1px dashed; padding: 0.5rem 0.8rem; border-radius: 8px; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.4rem; }
+    .btn-retrigger-led:hover { border-style: solid; filter: brightness(1.2); transform: translateY(-1px); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }
     
+    .scan-card { cursor: pointer; }
     .hidden-scan-input { position: absolute; left: -9999px; top: -9999px; opacity: 0; height: 1px; width: 1px; }
     
     .error-box { background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #ef4444; padding: 1rem; border-radius: 8px; margin-top: 1.5rem; font-weight: bold; }
-    .scale-animation { margin-top: 2rem; padding: 2rem; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border: 1px dashed #3b82f6; }
-    .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-top-color: #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem auto; }
+    .scale-animation { margin-top: 2rem; padding: 2rem; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border: 1px dashed #334155; }
+    
+    .spinner { width: 50px; height: 50px; border: 5px solid #334155; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1.5rem auto; }
+    
     .stats-grid { display: flex; justify-content: center; gap: 2rem; margin-bottom: 2rem; }
     .stat-box { display: flex; flex-direction: column; background: #0f172a; padding: 1rem; border-radius: 8px; border: 1px solid #334155; min-width: 150px; }
     .stat-box .label { color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; }
     .stat-box .value { font-size: 1.5rem; font-weight: bold; color: #38bdf8; }
-    .huge-btn { width: 100%; background: #3b82f6; color: white; border: none; padding: 1.5rem; border-radius: 12px; font-size: 1.2rem; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+    
+    .huge-btn { width: 100%; color: white; border: none; padding: 1.5rem; border-radius: 12px; font-size: 1.2rem; font-weight: bold; cursor: pointer; transition: all 0.2s; }
     .huge-btn:hover { filter: brightness(1.1); transform: translateY(-2px); }
+    
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
 </style>

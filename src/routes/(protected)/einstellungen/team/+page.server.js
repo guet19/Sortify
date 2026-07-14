@@ -2,30 +2,25 @@ import db from '$lib/server/db.js';
 import { fail, error } from '@sveltejs/kit';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { ObjectId } from 'mongodb'; // 🔥 Hinzugefügt, damit das Löschen fehlerfrei klappt
+import { ObjectId } from 'mongodb'; 
 
-const currentSystemId = "6a4ea775e94b7120d470bea7";
+export async function load({ locals }) {
+    // 1. Sichere Daten aus dem Hook (locals) abrufen
+    const systemId = locals.systemId;
+    const userId = locals.user?.id;
+    const userRole = locals.role;
 
-export async function load({ cookies }) {
-    const userId = cookies.get('session');
-    if (!userId) {
-        throw error(401, 'Nicht autorisiert');
+    if (!systemId) {
+        throw error(400, 'Kein aktives System ausgewählt.');
     }
 
-    const user = await db.getUserById(userId);
-    if (!user) {
-        throw error(404, 'Benutzer nicht gefunden');
-    }
+    // 2. Mitarbeiter und Rollen aus der Datenbank laden
+    const members = await db.getUsersBySystem(systemId);
+    const roles = await db.getSystemRoles(systemId); 
 
-    const systemContext = user.systems?.find(s => s.systemId?.toString() === currentSystemId);
-    if (!systemContext) {
-        throw error(403, 'Kein Zugriff auf dieses System');
-    }
-
-    const members = await db.getUsersBySystem(currentSystemId);
-
+    // 3. Mitarbeiter serialisieren
     const serializedMembers = members.map(m => {
-        const sys = m.systems?.find(s => s.systemId?.toString() === currentSystemId);
+        const sys = m.systems?.find(s => s.systemId?.toString() === systemId);
         return {
             id: m._id?.toString() || 'unknown',
             username: m.username || null,
@@ -33,6 +28,8 @@ export async function load({ cookies }) {
             firstName: m.firstName || '',
             lastName: m.lastName || '',
             role: sys ? sys.role : 'user',
+            // 🔥 NEU: Die Farbe an das Frontend (Tabelle) weitergeben
+            color: sys?.color || '#3b82f6', 
             mustChangePassword: m.mustChangePassword || false,
             isVerified: m.isVerified !== false
         };
@@ -40,26 +37,30 @@ export async function load({ cookies }) {
 
     return {
         members: serializedMembers,
+        roles: roles, 
         currentUserId: userId,
-        currentUserRole: systemContext.role
+        currentUserRole: userRole
     };
 }
 
 export const actions = {
-    createLocalUser: async ({ request, cookies }) => {
-        const adminId = cookies.get('session');
-        if (!adminId) return fail(401, { error: 'Nicht autorisiert.' });
+    createLocalUser: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: 'Nicht autorisiert.' });
 
         const data = await request.formData();
         const username = data.get('username')?.toString().trim();
         const role = data.get('role')?.toString();
+        // 🔥 NEU: Farbe aus dem Formular auslesen
+        const color = data.get('color')?.toString() || '#3b82f6';
 
         if (!username || !role) return fail(400, { localError: 'Bitte fülle alle Felder aus.' });
 
         const plainPassword = crypto.randomBytes(4).toString('hex'); 
         const hashedPassword = await bcrypt.hash(plainPassword, 10);
 
-        const result = await db.createLocalSystemUser(currentSystemId, username, hashedPassword, role);
+        // 🔥 NEU: color als 5. Parameter übergeben
+        const result = await db.createLocalSystemUser(systemId, username, hashedPassword, role, color);
 
         if (!result.success) return fail(400, { localError: result.message });
 
@@ -71,17 +72,20 @@ export const actions = {
         };
     },
 
-    inviteEmailUser: async ({ request, cookies, url }) => {
-        const adminId = cookies.get('session');
-        if (!adminId) return fail(401, { error: 'Nicht autorisiert.' });
+    inviteEmailUser: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: 'Nicht autorisiert.' });
 
         const data = await request.formData();
         const email = data.get('email')?.toString().trim();
         const role = data.get('role')?.toString();
+        // 🔥 NEU: Farbe aus dem Formular auslesen
+        const color = data.get('color')?.toString() || '#3b82f6';
 
         if (!email || !role) return fail(400, { emailError: 'Bitte gib eine E-Mail-Adresse ein.' });
 
-        const result = await db.inviteUserToSystem(currentSystemId, email, role);
+        // 🔥 NEU: color als 4. Parameter übergeben
+        const result = await db.inviteUserToSystem(systemId, email, role, color);
         
         if (!result.success) return fail(400, { emailError: result.message });
 
@@ -92,9 +96,11 @@ export const actions = {
         }
     },
 
-    updateRole: async ({ request, cookies }) => {
-        const adminId = cookies.get('session');
-        if (!adminId) return fail(401, { error: 'Nicht autorisiert.' });
+    updateRole: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        const adminId = locals.user?.id;
+        
+        if (!systemId || !adminId) return fail(401, { error: 'Nicht autorisiert.' });
 
         const data = await request.formData();
         const targetUserId = data.get('targetUserId')?.toString();
@@ -103,13 +109,34 @@ export const actions = {
         if (!targetUserId || !newRole) return fail(400, { tableError: 'Ungültige Daten.' });
         if (targetUserId === adminId) return fail(400, { tableError: 'Eigene Rolle nicht änderbar.' });
 
-        await db.updateUserSystemRole(currentSystemId, targetUserId, newRole);
+        await db.updateUserSystemRole(systemId, targetUserId, newRole);
         return { success: true };
     },
 
-    removeUser: async ({ request, cookies }) => {
-        const adminId = cookies.get('session');
-        if (!adminId) return fail(401, { tableError: 'Nicht autorisiert.' });
+    // 🔥 NEU: Hier ist die fehlende Action für das Speichern der Farbe!
+    updateColor: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        const adminId = locals.user?.id;
+        
+        if (!systemId || !adminId) return fail(401, { error: 'Nicht autorisiert.' });
+
+        const data = await request.formData();
+        const targetUserId = data.get('targetUserId')?.toString();
+        const newColor = data.get('newColor')?.toString();
+
+        if (!targetUserId || !newColor) return fail(400, { tableError: 'Ungültige Daten.' });
+
+        // Farbe in der Datenbank aktualisieren (Diese Funktion muss in der db.js existieren!)
+        await db.updateUserSystemColor(systemId, targetUserId, newColor);
+        
+        return { success: true };
+    },
+
+    removeUser: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        const adminId = locals.user?.id;
+        
+        if (!systemId || !adminId) return fail(401, { tableError: 'Nicht autorisiert.' });
 
         const data = await request.formData();
         const targetUserId = data.get('targetUserId')?.toString();
@@ -121,11 +148,10 @@ export const actions = {
         if (!user) return fail(404, { tableError: 'Mitarbeiter nicht gefunden.' });
 
         if (!user.email) {
-            // 🔥 Jetzt funktioniert auch das Löschen dank importierter ObjectId fehlerfrei!
             const database = await db.getDb();
             await database.collection('users').deleteOne({ _id: new ObjectId(targetUserId) });
         } else {
-            await db.removeUserFromSystem(currentSystemId, targetUserId);
+            await db.removeUserFromSystem(systemId, targetUserId);
         }
 
         return { success: true };
