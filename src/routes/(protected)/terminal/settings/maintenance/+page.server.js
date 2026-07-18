@@ -1,7 +1,10 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 
-export async function load({ locals }) { // NEU: locals statt cookies
+// 🔥 Speichert Timeouts pro User, damit diese sich nicht gegenseitig stören
+const activeUserTimeouts = new Map();
+
+export async function load({ locals }) { 
     const systemId = locals.systemId;
     if (!systemId) throw redirect(303, '/login');
 
@@ -14,8 +17,11 @@ export async function load({ locals }) { // NEU: locals statt cookies
 
 export const actions = {
     // 1. Manueller Trigger (nur schauen, wo das Fach ist)
-    triggerLED: async ({ request, locals }) => { // NEU: locals
+    triggerLED: async ({ request, locals }) => { 
         const systemId = locals.systemId;
+        const userColor = locals.color || '#3b82f6';
+        const userKey = locals.userId || userColor; 
+        
         if (!systemId) return { success: false };
 
         const data = await request.formData();
@@ -24,13 +30,22 @@ export const actions = {
         if (barcodesStr) {
             try {
                 const barcodes = JSON.parse(barcodesStr);
-                for (const barcode of barcodes) {
-                    await db.triggerLedByBarcode(systemId, barcode, true);
+                
+                // 🔥 NEU: Alles synchron aufleuchten lassen in User-Farbe
+                await db.triggerLedsByBarcodeArray(systemId, barcodes, userColor);
+                
+                // Alten Timer des Users löschen
+                if (activeUserTimeouts.has(userKey)) {
+                    clearTimeout(activeUserTimeouts.get(userKey));
                 }
                 
-                setTimeout(async () => {
-                    try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
+                // Neuen Timer setzen: Nur DIESE Barcodes wieder auf Schwarz setzen
+                const timeoutId = setTimeout(async () => {
+                    try { await db.triggerLedsByBarcodeArray(systemId, barcodes, '#000000'); } catch(e){}
+                    activeUserTimeouts.delete(userKey);
                 }, 10000);
+                
+                activeUserTimeouts.set(userKey, timeoutId);
                 
                 return { success: true };
             } catch(e) {
@@ -42,8 +57,11 @@ export const actions = {
     },
 
     // 2. INVENTUR-SCHRITT 1: Fach für die Entnahme blinken lassen & Tara-Gewicht laden
-    initMaintenance: async ({ request, locals }) => { // NEU: locals
+    initMaintenance: async ({ request, locals }) => { 
         const systemId = locals.systemId;
+        const userColor = locals.color || '#3b82f6';
+        const userKey = locals.userId || userColor; 
+        
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
@@ -56,13 +74,20 @@ export const actions = {
                 return { success: false, error: 'Kein Leergewicht (Tara) für dieses Fach hinterlegt.' };
             }
 
-            // Fach aufleuchten lassen für die Entnahme!
-            await db.triggerLedByBarcode(systemId, barcode, true);
+            // 🔥 NEU: Fach aufleuchten lassen für die Entnahme (Barcode als Array verpackt)
+            await db.triggerLedsByBarcodeArray(systemId, [barcode], userColor);
             
-            // Nach 10 Sek automatisch ausschalten
-            setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
+            if (activeUserTimeouts.has(userKey)) {
+                clearTimeout(activeUserTimeouts.get(userKey));
+            }
+            
+            // Nach 10 Sek gezielt ausschalten
+            const timeoutId = setTimeout(async () => {
+                try { await db.triggerLedsByBarcodeArray(systemId, [barcode], '#000000'); } catch(e){}
+                activeUserTimeouts.delete(userKey);
             }, 10000);
+            
+            activeUserTimeouts.set(userKey, timeoutId);
 
             return { success: true, boxWeight: drawer.boxWeight, barcode };
         } catch(e) {
@@ -70,8 +95,8 @@ export const actions = {
         }
     },
 
-    // 3. INVENTUR-SCHRITT 2: Waage starten
-    requestScale: async ({ request, locals }) => { // NEU: locals
+    // 3. INVENTUR-SCHRITT 2: Waage starten (bleibt unverändert)
+    requestScale: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
@@ -84,8 +109,11 @@ export const actions = {
     },
 
     // 4. INVENTUR-SCHRITT 3: Buchen und Fach für die Rückgabe blinken lassen
-    bookInventory: async ({ request, locals }) => { // NEU: locals
+    bookInventory: async ({ request, locals }) => { 
         const systemId = locals.systemId;
+        const userColor = locals.color || '#3b82f6';
+        const userKey = locals.userId || userColor; 
+        
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
@@ -98,16 +126,50 @@ export const actions = {
             // Bestand buchen (Dies setzt intern auch lastWeighedAt und lastReturnedAt)
             await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock);
             
-            // Fach ERNEUT aufleuchten lassen für das Einlagern!
-            await db.triggerLedByBarcode(systemId, barcode, true);
+            // 🔥 NEU: Fach ERNEUT aufleuchten lassen für das Einlagern!
+            await db.triggerLedsByBarcodeArray(systemId, [barcode], userColor);
             
-            setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
+            if (activeUserTimeouts.has(userKey)) {
+                clearTimeout(activeUserTimeouts.get(userKey));
+            }
+            
+            // Gezielt ausschalten
+            const timeoutId = setTimeout(async () => {
+                try { await db.triggerLedsByBarcodeArray(systemId, [barcode], '#000000'); } catch(e){}
+                activeUserTimeouts.delete(userKey);
             }, 10000);
+            
+            activeUserTimeouts.set(userKey, timeoutId);
 
             return { success: true };
         } catch (err) {
             return { success: false, error: 'Buchungsfehler' };
+        }
+    },
+    
+    // 🔥 Optionales Extra: Falls du in der Frontend-Maintenance-Ansicht 
+    // auch `stopHardware()` beim Navigieren nutzen möchtest
+    turnOffLED: async ({ request, locals }) => { 
+        const systemId = locals.systemId;
+        const userKey = locals.userId || locals.color || '#3b82f6';
+        if (!systemId) return { success: false };
+
+        const data = await request.formData();
+        const barcodesStr = data.get('barcodes');
+
+        try {
+            if (activeUserTimeouts.has(userKey)) {
+                clearTimeout(activeUserTimeouts.get(userKey));
+                activeUserTimeouts.delete(userKey);
+            }
+            
+            if (barcodesStr && barcodesStr !== '[]' && barcodesStr !== 'null') {
+                const barcodes = JSON.parse(barcodesStr);
+                await db.triggerLedsByBarcodeArray(systemId, barcodes, '#000000');
+            }
+            return { success: true };
+        } catch (err) {
+            return { success: false };
         }
     }
 };

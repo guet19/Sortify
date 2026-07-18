@@ -870,6 +870,41 @@ async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
     }
 }
 
+export async function triggerLedsByBarcodeArray(systemId, barcodesArray, color = '#3b82f6') {
+    try {
+        const db = await getDb();
+        let drawerIdsToLightUp = [];
+
+        // Suche in allen Regalen nach den passenden LED-Indizes für ALLE übergebenen Barcodes
+        const shelves = await db.collection('shelves').find({ systemId: new ObjectId(systemId) }).toArray();
+        shelves.forEach(shelf => {
+            if (!shelf.drawers) return;
+            shelf.drawers.forEach(drawer => {
+                if (barcodesArray.includes(drawer.barcode)) {
+                    // +1 weil die Hardware 1-basiert arbeitet (in Python)
+                    drawerIdsToLightUp.push(parseInt(drawer.ledIndex) + 1);
+                }
+            });
+        });
+
+        // Ein EINZIGER Hardware-Befehl für alle gefundenen Fächer!
+        if (drawerIdsToLightUp.length > 0) {
+            await db.collection('hardware_commands').insertOne({
+                systemId: new ObjectId(systemId),
+                drawer_ids: drawerIdsToLightUp, // Hier liegt jetzt das Array [4, 12] drin!
+                color: color,
+                status: "pending",
+                createdAt: new Date()
+            });
+        }
+        
+        return drawerIdsToLightUp.length;
+    } catch (error) {
+        console.error("Fehler in triggerLedsByBarcodeArray:", error);
+        throw error;
+    }
+}
+
 async function getArticleByBarcode(systemId, barcode) {
     try {
         const db = await getDb();
@@ -1666,8 +1701,77 @@ async function updateUserSystemColor(systemId, userId, newColor) {
     );
 }
 
-// Vergiss nicht, die Funktion unten bei deinen Exporten (module.exports / export default) hinzuzufügen!
+// Oben in der Datei, falls noch nicht vorhanden:
+// import { ObjectId } from 'mongodb';
 
+export async function requestScaleWeight(systemId) {
+    // Greife auf deine bestehende Datenbank-Verbindung zu
+    const db = await getDb(); // Nutze hier den Namen deiner internen DB-Funktion
+    const collection = db.collection('scale_requests');
+
+    // 1. Alten Müll aufräumen, damit sich nichts verhakt
+    await collection.deleteMany({ 
+        systemId: new ObjectId(systemId), 
+        status: { $in: ["pending", "processing"] } 
+    });
+
+    // 2. Neuen Auftrag für den Raspberry Pi erstellen
+    const result = await collection.insertOne({
+        systemId: new ObjectId(systemId),
+        status: "pending",
+        createdAt: new Date()
+    });
+
+    const requestId = result.insertedId;
+
+    // 3. Warten auf die Antwort vom Pi (Maximal 6 Sekunden)
+    // Wir prüfen alle 250 Millisekunden, ob der Pi fertig ist
+    for (let i = 0; i < 24; i++) {
+        await new Promise(resolve => setTimeout(resolve, 250));
+        
+        const doc = await collection.findOne({ _id: requestId });
+        
+        if (doc && doc.status === "done") {
+            // Wenn fertig: Dokument wieder löschen (um die DB sauber zu halten) und Wert zurückgeben
+            await collection.deleteOne({ _id: requestId });
+            return doc.weight;
+        }
+    }
+    
+    // Wenn nach 6 Sekunden nichts kam: Abbruch
+    await collection.deleteOne({ _id: requestId });
+    throw new Error("Timeout: Das Terminal antwortet nicht.");
+}
+
+// Sendet den Kalibrierungs-Befehl und wartet, bis der Pi "done" meldet
+export async function sendCalibrationCommand(systemId, commandType, weight = 0) {
+    const db = await getDb(); // Name deiner internen getDb Funktion
+    const collection = db.collection('hardware_commands');
+    
+    // Befehl in MongoDB schreiben
+    const result = await collection.insertOne({
+        systemId: new ObjectId(systemId),
+        command: commandType,
+        weight: Number(weight),
+        status: "pending",
+        createdAt: new Date()
+    });
+    
+    // Warten auf Antwort (Polling)
+    for (let i = 0; i < 40; i++) { // max. 10 Sekunden warten
+        await new Promise(resolve => setTimeout(resolve, 250));
+        const doc = await collection.findOne({ _id: result.insertedId });
+        
+        if (doc && doc.status === "done") {
+            await collection.deleteOne({ _id: result.insertedId }); // Aufräumen
+            return true;
+        }
+    }
+    
+    // Timeout
+    await collection.deleteOne({ _id: result.insertedId });
+    throw new Error("Timeout: Das Terminal antwortet nicht.");
+}
 
 export default { 
     getDb,
@@ -1746,5 +1850,8 @@ export default {
     getSystemRoles,
     createSystemRole,
     deleteSystemRole,
-    updateUserSystemColor
+    updateUserSystemColor,
+    requestScaleWeight,
+    sendCalibrationCommand,
+    triggerLedsByBarcodeArray
 };

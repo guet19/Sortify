@@ -53,25 +53,42 @@
 
     // --- 3. Terminal Hardware Logik (Form State & Sicherheit) ---
     let commandSent = false;
+    let timerId; // 🔥 NEU: Um den Timer beim Verlassen stoppen zu können
 
     // Sicherheitsfunktion: Schaltet die LED sofort aus
-    async function stopHardware() {
+    function stopHardware() {
+        // Wenn gar nicht geblinkt wird, müssen wir auch nichts senden
+        if (!commandSent) return; 
+
         try {
             const formData = new FormData();
-            await fetch('?/turnOffLED', { method: 'POST', body: formData });
+            
+            // 🔥 FIX: Wir müssen dem Server sagen, WELCHE Barcodes er ausschalten soll!
+            formData.append('barcodes', JSON.stringify(displaySlots));
+            
+            // 🔥 FIX: keepalive: true zwingt den Browser, den Request abzusetzen,
+            // selbst wenn die Seite im selben Moment geschlossen oder gewechselt wird!
+            fetch('?/turnOffLED', { 
+                method: 'POST', 
+                body: formData,
+                keepalive: true 
+            });
+            
+            commandSent = false;
+            if (timerId) clearTimeout(timerId);
         } catch (error) {
             console.error("Fehler beim Stoppen der LED:", error);
         }
     }
 
-    // Wenn der Nutzer auf "Zurück" klickt oder die Seite wechselt
+    // Wenn der Nutzer auf "Zurück" klickt oder die Seite (intern) wechselt
     beforeNavigate(() => {
-        if (commandSent) stopHardware();
+        stopHardware();
     });
 
-    // Wenn die Komponente hart beendet wird
+    // Wenn die Komponente hart beendet wird (z.B. externer Link oder Page Reload)
     onDestroy(() => {
-        if (typeof window !== 'undefined' && commandSent) {
+        if (typeof window !== 'undefined') {
             stopHardware();
         }
     });
@@ -109,16 +126,18 @@
                 {/if}
             </div>
 
+            <!-- 🔥 UPDATE: enhance Action mit Timer-Verwaltung -->
             <form method="POST" action="?/triggerLED" use:enhance={() => {
                 commandSent = true;
+                if (timerId) clearTimeout(timerId); // Falls man doppelt klickt
+                
                 return async ({ update }) => {
-                    setTimeout(() => { commandSent = false; }, 10000);
+                    timerId = setTimeout(() => { commandSent = false; }, 10000);
                     await update({ reset: false });
                 };
             }}>
                 <input type="hidden" name="barcodes" value={JSON.stringify(displaySlots)} />
                 
-                <!-- 🔥 NEU: Der Button nutzt inline-styles für Hintergrund und Leucht-Schatten, wenn er aktiv ist -->
                 <button 
                     type="submit" 
                     class="hardware-trigger-btn {commandSent ? 'active' : ''}" 
@@ -249,7 +268,6 @@
     .hardware-trigger-btn:hover:not(:disabled) { background: #2563eb; transform: translateY(-3px); }
     .hardware-trigger-btn:disabled { background: #334155; color: #94a3b8; cursor: not-allowed; box-shadow: none; }
     
-    /* Die Klasse .active verkleinert den Button beim Klick, die Farbe kommt dynamisch über inline-styles */
     .hardware-trigger-btn.active { transform: scale(0.98); color: white; }
     .hardware-trigger-btn .icon { font-size: 2.5rem; text-shadow: 0 2px 4px rgba(0,0,0,0.3); }
 

@@ -39,6 +39,28 @@
             </a>
         {/if}
 
+        {#if canSee('/terminal/settings/scale')}
+            <!-- Karte 1: Artikel zuweisen -->
+            <a href="/terminal/settings/scale" class="action-card">
+                <div class="icon">🔗</div>
+                <div class="card-content">
+                    <h3>Waage testen</h3>
+                    <p>Die Waage mit Messungen überprüfen.</p>
+                </div>
+            </a>
+        {/if}
+
+        {#if canSee('/terminal/settings/calibration')}
+            <!-- Karte 1: Artikel zuweisen -->
+            <a href="/terminal/settings/calibration" class="action-card">
+                <div class="icon">🔗</div>
+                <div class="card-content">
+                    <h3>Waage kalibrieren</h3>
+            
+                </div>
+            </a>
+        {/if}
+
         {#if canSee('/terminal/settings/shelf')}
             <!-- Karte 2: Hardware Anlernen -->
             <a href="/terminal/settings/shelf" class="action-card">
@@ -46,6 +68,17 @@
                 <div class="card-content">
                     <h3>Fächer anlernen</h3>
                     <p>Hardware-Setup, LED-Test und Kartierung der Werkstatt-Fächer.</p>
+                </div>
+            </a>
+        {/if}
+
+        {#if canSee('/terminal/settings/pairing')}
+            <!-- Karte 2: Hardware Anlernen -->
+            <a href="/terminal/settings/pairing" class="action-card">
+                <div class="icon">💡</div>
+                <div class="card-content">
+                    <h3>Hardware koppeln</h3>
+                    <p>Terminal-Hardware mit dem System koppeln.</p>
                 </div>
             </a>
         {/if}

@@ -1,16 +1,13 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 
-// Globaler Timer für die LED, damit wir ihn sicher handhaben können
-let globalLedTimeout = null;
+const activeUserTimeouts = new Map();
 
 export async function load({ locals, params }) { 
     const systemId = locals.systemId;
     if (!systemId) throw redirect(303, '/login');
 
     const articleId = params.id;
-
-    // Alle Datenabfragen streng über die neue systemId filtern
     const categories = await db.getCategories(systemId).catch(() => []);
     const attributes = await db.getFilterAttributes(systemId).catch(() => []); 
     
@@ -25,7 +22,6 @@ export async function load({ locals, params }) {
         throw redirect(303, '/terminal/search');
     }
 
-    // POJO-Fix für die fehlerfreie Übergabe an das SvelteKit-Frontend
     return {
         article: JSON.parse(JSON.stringify(article)),
         categories: JSON.parse(JSON.stringify(categories)),
@@ -34,11 +30,10 @@ export async function load({ locals, params }) {
 }
 
 export const actions = {
-    // Action zum Auslösen der Pick-by-Light Hardware
     triggerLED: async ({ request, locals }) => { 
         const systemId = locals.systemId;
-        // 🔥 NEU: Die individuelle Farbe des Users abrufen (Fallback: Blau)
-        const userColor = locals.color || '#3b82f6';
+        const userColor = locals.color || '#3b82f6'; 
+        const userKey = locals.userId || userColor; 
 
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
@@ -50,33 +45,28 @@ export const actions = {
         }
 
         try {
-            // String wieder in ein echtes JavaScript-Array umwandeln
             const barcodes = JSON.parse(barcodesStr);
 
-            // Alle Barcodes durchlaufen und anpingen
-            for (const barcode of barcodes) {
-                // 🔥 NEU: userColor als 3. Parameter an db.triggerLedByBarcode übergeben
-                const triggeredIndex = await db.triggerLedByBarcode(systemId, barcode, userColor);
-                console.log(`💡 LED-Trigger gesendet! Barcode: ${barcode} -> LED Index: #${triggeredIndex} | Farbe: ${userColor}`);
+            // 🔥 FIX: Keine for-Schleife mehr! Ein Befehl für alle Barcodes.
+            await db.triggerLedsByBarcodeArray(systemId, barcodes, userColor);
+            console.log(`💡 SAMMEL-Trigger: ${barcodes.length} Barcodes -> Farbe: ${userColor} | User: ${userKey}`);
+
+            if (activeUserTimeouts.has(userKey)) {
+                clearTimeout(activeUserTimeouts.get(userKey));
             }
 
-            // Falls noch ein alter Ausschalt-Timer läuft, löschen wir ihn
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
-
-            // Der 10-Sekunden Timer zum automatischen Ausschalten im richtigen System Kontext
-            globalLedTimeout = setTimeout(async () => {
+            const timeoutId = setTimeout(async () => {
                 try {
-                    // Befehl 0 schaltet auf dem Controller alle aktiven LEDs des Systems aus
-                    await db.createHardwareCommand(systemId, 0);
-                    console.log(`⏱️ 10 Sekunden um. LEDs für ${barcodes.length} Fächer automatisch ausgeschaltet.`);
+                    // 🔥 FIX: Auch beim Ausschalten feuern wir alles gebündelt ab
+                    await db.triggerLedsByBarcodeArray(systemId, barcodes, '#000000');
+                    console.log(`⏱️ 10s Timeout: LEDs für User ${userKey} gezielt ausgeschaltet.`);
                 } catch (e) {
                     console.error("Fehler beim automatischen Ausschalten der LED:", e);
                 }
-                globalLedTimeout = null;
+                activeUserTimeouts.delete(userKey);
             }, 10000); 
+
+            activeUserTimeouts.set(userKey, timeoutId);
 
             return { success: true };
         } catch (err) {
@@ -85,17 +75,25 @@ export const actions = {
         }
     },
 
-    // Action zum sofortigen Ausschalten (wird genutzt, wenn der User die Seite verlässt)
-    turnOffLED: async ({ locals }) => { 
+    turnOffLED: async ({ request, locals }) => { 
         const systemId = locals.systemId;
+        const userKey = locals.userId || locals.color || '#3b82f6';
         if (!systemId) return { success: false };
 
+        const data = await request.formData();
+        const barcodesStr = data.get('barcodes');
+
         try {
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
+            if (activeUserTimeouts.has(userKey)) {
+                clearTimeout(activeUserTimeouts.get(userKey));
+                activeUserTimeouts.delete(userKey);
             }
-            await db.createHardwareCommand(systemId, 0);
+            
+            if (barcodesStr && barcodesStr !== '[]' && barcodesStr !== 'null') {
+                const barcodes = JSON.parse(barcodesStr);
+                // 🔥 FIX: Bündeln für das manuelle Ausschalten (beim Navigieren)
+                await db.triggerLedsByBarcodeArray(systemId, barcodes, '#000000');
+            }
             return { success: true };
         } catch (err) {
             return { success: false };
