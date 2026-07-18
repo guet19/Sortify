@@ -74,13 +74,25 @@
             
             <div class="title-header">
                 <h1 class="title">{article.title}</h1>
-                <a href="/editarticle/{article._id}" class="btn-edit">
-                    <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-                    </svg>
-                    Bearbeiten
-                </a>
+                
+                <!-- Container für die Action-Buttons -->
+                <div class="action-buttons">
+                    <a href="/addarticle?copy={article._id}" class="btn-copy" title="Artikel kopieren">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        Kopieren
+                    </a>
+                    
+                    <a href="/editarticle/{article._id}" class="btn-edit">
+                        <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                        Bearbeiten
+                    </a>
+                </div>
             </div>
             
             <div class="price-stock-box">
@@ -262,7 +274,7 @@
         gap: 2rem;
     }
 
-    /* Header mit Button */
+    /* Header mit Buttons */
     .title-header {
         display: flex;
         justify-content: space-between;
@@ -275,6 +287,13 @@
         font-size: 2.2rem;
         color: #22c55e; 
         line-height: 1.2;
+    }
+
+    /* Container für Kopieren & Bearbeiten Button */
+    .action-buttons {
+        display: flex;
+        gap: 0.8rem;
+        align-items: center;
     }
 
     .btn-edit {
@@ -298,16 +317,36 @@
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
 
+    .btn-copy {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: transparent;
+        color: #94a3b8;
+        text-decoration: none;
+        padding: 0.6rem 1rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        border: 1px solid #475569;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+    .btn-copy:hover {
+        background: rgba(255, 255, 255, 0.05);
+        color: #cbd5e1;
+        border-color: #64748b;
+    }
+
     /* Preis & Bestand Container */
     .price-stock-box {
         display: flex;
         flex-direction: column;
         gap: 1.5rem;
         padding-bottom: 1.5rem;
-        border-bottom: 1px solid #334155; /* Dunkle Linie für dunklen Hintergrund */
+        border-bottom: 1px solid #334155;
     }
 
-    /* WICHTIG: Preis-Farbe heller gemacht (`#38bdf8` statt `#0284c7`), damit sie leuchtet */
     .price {
         font-size: 1.8rem;
         font-weight: 700;
@@ -404,7 +443,7 @@
     .btn-save-stock:disabled { background: #94a3b8; cursor: not-allowed; }
 
     .stock-success-msg {
-        color: #4ade80; /* Hellgrün für dunklen Grund */
+        color: #4ade80; 
         font-size: 0.9rem;
         font-weight: 600;
         animation: fadeIn 0.2s ease-out;
@@ -415,15 +454,14 @@
         to { opacity: 1; transform: translateX(0); }
     }
 
-    /* WICHTIG: Texte direkt auf dem Hintergrund sind nun Weiß/Hellgrau */
     .description h3, .specs-section h3 {
         font-size: 1.2rem;
-        color: #ffffff; /* Weiß! */
+        color: #ffffff; 
         margin: 0 0 1rem 0;
     }
     .description p {
         line-height: 1.6;
-        color: #cbd5e1; /* Hellgrau! */
+        color: #cbd5e1; 
         margin: 0;
         white-space: pre-wrap;
     }
@@ -441,7 +479,7 @@
     }
     .meta-item { display: flex; flex-direction: column; gap: 0.3rem; }
     .meta-label { font-size: 0.85rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-    .meta-value { font-weight: 600; color: #1e293b; } /* Text IN der Karte bleibt dunkel */
+    .meta-value { font-weight: 600; color: #1e293b; }
 
     /* Externe Bestellung Button (Hell) */
     .btn-order {
@@ -476,13 +514,14 @@
     .specs-table td { padding: 0.8rem 1rem; border-bottom: 1px solid #e2e8f0; }
     .specs-table tr:last-child td { border-bottom: none; }
     .spec-label { width: 40%; color: #64748b; font-weight: 500; }
-    .spec-value { color: #1e293b; font-weight: 600; } /* Text IN der Tabelle bleibt dunkel */
+    .spec-value { color: #1e293b; font-weight: 600; } 
 
     /* Responsive */
     @media (max-width: 900px) {
         .article-layout { flex-direction: column; }
         .image-section { position: static; width: 100%; box-sizing: border-box; min-height: 300px; }
         .title-header { flex-direction: column; }
-        .btn-edit { align-self: flex-start; }
+        .action-buttons { align-self: flex-start; width: 100%; }
+        .btn-edit, .btn-copy { flex: 1; justify-content: center; }
     }
 </style>

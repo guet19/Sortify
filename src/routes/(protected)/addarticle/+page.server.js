@@ -15,7 +15,8 @@ cloudinary.config({
     api_secret: CLOUDINARY_API_SECRET
 });
 
-export async function load({ locals }) { // NEU: locals statt cookies
+// 🔥 WICHTIG: Hier "url" hinzugefügt, um den ?copy= Parameter lesen zu können
+export async function load({ locals, url }) { 
     // 1. System-ID aus dem Rucksack (locals) holen
     const systemId = locals.systemId;
     
@@ -28,10 +29,28 @@ export async function load({ locals }) { // NEU: locals statt cookies
         const categories = await db.getCategories(systemId);
         const attributes = await db.getFilterAttributes(systemId);
 
+        // 🔥 NEU: Kopier-Logik
+        const copyId = url.searchParams.get('copy');
+        let copiedArticle = null;
+        
+        if (copyId) {
+            try {
+                copiedArticle = await db.getArticleById(systemId, copyId);
+                // WICHTIG: Die _id des alten Artikels löschen, damit es beim Speichern kein Update, sondern ein NEUER Artikel wird!
+                if (copiedArticle) {
+                    delete copiedArticle._id;
+                }
+            } catch (copyErr) {
+                console.error("Fehler beim Laden des zu kopierenden Artikels:", copyErr.message);
+            }
+        }
+
         // JSON.parse(JSON.stringify) ist der ultimative Schutz gegen POJO-Fehler
         return {
             categories: JSON.parse(JSON.stringify(categories)),
-            attributes: JSON.parse(JSON.stringify(attributes))
+            attributes: JSON.parse(JSON.stringify(attributes)),
+            // 🔥 Den kopierten Artikel ans Frontend senden
+            copiedArticle: copiedArticle ? JSON.parse(JSON.stringify(copiedArticle)) : null
         };
     } catch (e) {
         console.error("--- LOAD FEHLER DIAGNOSE ---");
@@ -41,7 +60,7 @@ export async function load({ locals }) { // NEU: locals statt cookies
 }
 
 export const actions = {
-    default: async ({ request, locals }) => { // NEU: locals statt cookies
+    default: async ({ request, locals }) => { 
         // 1. System-ID aus locals holen
         const systemId = locals.systemId;
         

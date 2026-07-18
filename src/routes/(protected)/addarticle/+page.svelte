@@ -12,7 +12,8 @@
     export let data;
     export let form;
 
-    const { categories, attributes } = data;
+    // 🔥 NEU: copiedArticle aus den data entpacken
+    const { categories, attributes, copiedArticle } = data;
 
     // --- State Management ---
     let title = "";
@@ -50,7 +51,6 @@
     $: if (selectedMainCategoryId) formErrors.mainCategory = false;
     $: if (selectedSubcategoryId) formErrors.subCategory = false;
     $: if (title && title.trim() !== "") formErrors.title = false;
-    $: if (description && description.trim() !== "") formErrors.description = false;
     $: if (istBestand !== null && istBestand !== undefined && istBestand.toString().trim() !== "") formErrors.istBestand = false;
 
     // --- Bookmarklet & KI Workflow States ---
@@ -68,16 +68,38 @@
     $: availableSubcategories = selectedMainCategory ? selectedMainCategory.subcategories : [];
     $: subCategoryOptions = availableSubcategories.map((sub) => ({ value: sub.id, label: sub.name }));
 
-    // Reset der Unterkategorie & Attribute bei Wechsel der Hauptkategorie
-    $: if (selectedMainCategoryId) {
-        selectedSubcategoryId = "";
-        attributeValues = {};
-    }
-
     $: selectedSubcategory = availableSubcategories.find((sub) => sub.id === selectedSubcategoryId) || null;
     $: activeAttributes = selectedSubcategory
         ? attributes.filter((attr) => selectedSubcategory.allowed_attributes.includes(attr._id)).sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
         : [];
+
+    // 🔥 NEU: onMount für das automatische Ausfüllen der Kopie
+    onMount(async () => {
+        if (copiedArticle) {
+            title = copiedArticle.title ? `${copiedArticle.title} (Kopie)` : "";
+            description = copiedArticle.description || "";
+            supplier = copiedArticle.supplier || "";
+            gtin = copiedArticle.gtin || "";
+            price = copiedArticle.price || "";
+            orderLink = copiedArticle.orderLink || "";
+            istBestand = 0; // Bei einer Kopie startet der Bestand meistens bei 0
+            
+            selectedMainCategoryId = copiedArticle.mainCategoryId || "";
+            
+            // Warten, bis Svelte das Unterkategorien-Dropdown gerendert hat
+            await tick();
+            selectedSubcategoryId = copiedArticle.subcategoryId || "";
+            
+            if (copiedArticle.attributes) {
+                attributeValues = { ...copiedArticle.attributes };
+            }
+
+            // Wenn der Originalartikel ein Bild hatte, laden wir es direkt in den Cropper!
+            if (copiedArticle.imagePath) {
+                await loadExternalImage(copiedArticle.imagePath);
+            }
+        }
+    });
 
     // --- REAKTIVER URL-IMPORT (Bookmarklet Empfang) ---
     $: {
@@ -91,7 +113,7 @@
             isFromBookmarklet = true;
         }
 
-        if (urlTitle && !title) title = urlTitle;
+        if (urlTitle && !title && !copiedArticle) title = urlTitle;
         if (urlSource && !orderLink) {
             orderLink = urlSource;
             importUrl = orderLink;
@@ -102,7 +124,6 @@
         }
     }
 
-    // --- Trigger für die automatisierte KI-Frage ---
     $: if (isFromBookmarklet && !aiChoiceMade) {
         showAIPrompt = !!(selectedMainCategoryId && selectedSubcategoryId);
     }
@@ -118,7 +139,6 @@
         aiChoiceMade = true;
     }
 
-    // --- MANUELLER KI-IMPORT ---
     async function handleEnhancedImport() {
         isExtracting = true;
         try {
@@ -209,7 +229,7 @@
 
     async function loadExternalImage(imageUrl) {
         try {
-            if (imageUrl.startsWith("data:image")) {
+            if (imageUrl.startsWith("data:image") || imageUrl.startsWith("blob:")) {
                 const response = await fetch(imageUrl);
                 const blob = await response.blob();
                 processImageBlob(blob);
@@ -277,13 +297,18 @@
 {/if}
 
 <div class="page-container space-grotesk">
-    <h1>Neuen Artikel anlegen</h1>
+    <h1>{copiedArticle ? 'Artikel kopieren' : 'Neuen Artikel anlegen'}</h1>
 
     {#if showSuccessMessage || form?.success}
         <div class="alert success">{form?.message || "Artikel erfolgreich gespeichert!"}</div>
     {/if}
     {#if form?.error}
         <div class="alert error">{form.error}</div>
+    {/if}
+    {#if copiedArticle}
+        <div class="alert" style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;">
+            ℹ️ Die Daten wurden aus dem kopierten Artikel übernommen. Du kannst sie jetzt bearbeiten und als neuen Artikel speichern.
+        </div>
     {/if}
 
     <form
@@ -333,7 +358,13 @@
                 <div class="form-group tooltip-container">
                     <span class="label-text">Hauptkategorie *</span>
                     <div class="select-wrapper" class:error-highlight={formErrors.mainCategory || (isFromBookmarklet && !aiChoiceMade && !selectedMainCategoryId)}>
-                        <select name="mainCategoryId" class="standard-select" bind:value={selectedMainCategoryId}>
+                        <!-- 🔥 WICHTIG: on:change anstatt reaktives Statement, damit Kopie nicht gelöscht wird -->
+                        <select 
+                            name="mainCategoryId" 
+                            class="standard-select" 
+                            bind:value={selectedMainCategoryId}
+                            on:change={() => { selectedSubcategoryId = ""; attributeValues = {}; }}
+                        >
                             <option value="" disabled selected>Wählen...</option>
                             {#each mainCategoryOptions as opt}
                                 <option value={opt.value}>{opt.label}</option>
@@ -403,11 +434,11 @@
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label for="sollBestand" class="label-text">Soll-Bestand</label>
-                    <input type="number" id="sollBestand" name="sollBestand" min="0" />
+                    <input type="number" id="sollBestand" name="sollBestand" min="0" value={copiedArticle?.sollBestand || ''} />
                 </div>
                 <div class="form-group" style="margin-bottom: 0;">
                     <label for="mindestBestand" class="label-text">Mindestbestand</label>
-                    <input type="number" id="mindestBestand" name="mindestBestand" min="0" />
+                    <input type="number" id="mindestBestand" name="mindestBestand" min="0" value={copiedArticle?.mindestBestand || ''} />
                 </div>
             </div>
 
@@ -530,7 +561,7 @@
 
         <div class="form-actions">
             <button type="submit" class="btn-submit" disabled={isExtracting || mainCategoryOptions.length === 0}>
-                Artikel in Datenbank speichern
+                {copiedArticle ? 'Kopie speichern' : 'Artikel in Datenbank speichern'}
             </button>
         </div>
     </form>
@@ -602,7 +633,7 @@
     .standard-select:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1); }
     .standard-select:disabled { background-color: #f8fafc; cursor: not-allowed; opacity: 0.7; }
 
-    /* Rote Error Rahmen im Light Theme - Jetzt auch für das native Select gültig! */
+    /* Rote Error Rahmen im Light Theme */
     .error-highlight,
     .select-wrapper.error-highlight select,
     .select-wrapper.error-highlight :global(input),
@@ -674,7 +705,6 @@
     
     .image-area { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; }
     
-    /* Cropper.js Fix eingebaut! */
     .crop-editor-box { width: 100%; display: flex; flex-direction: column; gap: 1rem; overflow: hidden; }
     .image-workspace { width: 100%; max-width: 100%; max-height: 400px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; margin-bottom: 1rem; display: flex; justify-content: center; align-items: center; }
     .image-workspace img { display: block; max-width: 100%; height: auto; }
@@ -692,7 +722,7 @@
     .btn-remove:hover { background: #fecaca; }
     
     .btn-submit { 
-        background: #3b82f6; /* Schönes Primary-Blau */
+        background: #3b82f6; 
         color: white; 
         padding: 1rem; 
         border: none; 
@@ -704,7 +734,7 @@
         transition: background 0.2s;
     }
     .btn-submit:hover:not(:disabled) { 
-        background: #2563eb; /* Etwas dunkleres Blau beim Hover */
+        background: #2563eb; 
     }
     .btn-submit:disabled { 
         background: #94a3b8; 
