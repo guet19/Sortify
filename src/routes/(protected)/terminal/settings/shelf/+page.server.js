@@ -1,13 +1,12 @@
 import db from '$lib/server/db.js';
 import { redirect } from '@sveltejs/kit';
 
-export async function load({ locals }) { // NEU: locals statt cookies
+export async function load({ locals }) { 
     const systemId = locals.systemId;
     if (!systemId) throw redirect(303, '/login');
 
     let shelves = [];
     try {
-        // Abfrage für das spezifische System
         shelves = await db.getShelves(systemId) || [];
     } catch (e) {
         console.error("Fehler beim Laden der Regale:", e);
@@ -26,28 +25,35 @@ export async function load({ locals }) { // NEU: locals statt cookies
 }
 
 export const actions = {
-    triggerCalibrationLED: async ({ request, locals }) => { // NEU: locals
+    triggerCalibrationLED: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
         const data = await request.formData();
         const ledIndex = parseInt(data.get('ledIndex'));
         
-        await db.createHardwareCommand(systemId, ledIndex + 1);
+        // 🔥 FIX 1: Zuerst IMMER alle LEDs ausschalten (als Array [0]!)
+        await db.createHardwareCommand(systemId, [0]);
+        
+        // Ein Wimpernschlag Pause, damit der Pi die Befehle sauber nacheinander liest
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // 🔥 FIX 2: Dann die neue LED einschalten (ebenfalls als Array!)
+        await db.createHardwareCommand(systemId, [ledIndex + 1]);
+        
         return { success: true };
     },
 
-    // Bricht den Vorgang ab und schaltet das Licht aus
-    cancelCalibration: async ({ locals }) => { // NEU: locals
+    cancelCalibration: async ({ locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
-        // Die 0 sagt dem Python-Skript: "Alles ausschalten & abbrechen"
-        await db.createHardwareCommand(systemId, 0); 
+        // 🔥 FIX: [0] statt 0
+        await db.createHardwareCommand(systemId, [0]); 
         return { success: true };
     },
 
-    saveNewShelf: async ({ request, locals }) => { // NEU: locals
+    saveNewShelf: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
@@ -60,8 +66,8 @@ export const actions = {
         try {
             await db.createNewShelf(systemId, shelfName, startIndex, drawerCount, barcodes);
             
-            // Auch nach erfolgreichem Speichern das Licht ausmachen
-            await db.createHardwareCommand(systemId, 0); 
+            // 🔥 FIX: [0] statt 0
+            await db.createHardwareCommand(systemId, [0]); 
             
             return { success: true };
         } catch (err) {
@@ -69,7 +75,7 @@ export const actions = {
             return { success: false };
         }
     },
-    updateBarcode: async ({ request, locals }) => { // NEU: locals
+    updateBarcode: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
@@ -79,11 +85,10 @@ export const actions = {
         const newBarcode = data.get('newBarcode');
 
         try {
-            // 1. Datenbank aktualisieren
             await db.updateDrawerBarcode(systemId, shelfId, ledIndex, newBarcode);
             
-            // 2. Hardware ausschalten
-            await db.createHardwareCommand(systemId, 0); 
+            // 🔥 FIX: [0] statt 0
+            await db.createHardwareCommand(systemId, [0]); 
             
             return { success: true };
         } catch (err) {
@@ -91,7 +96,7 @@ export const actions = {
             return { success: false };
         }
     },
-    deleteShelf: async ({ request, locals }) => { // NEU: locals
+    deleteShelf: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
@@ -101,8 +106,8 @@ export const actions = {
         try {
             await db.deleteShelf(systemId, shelfId);
             
-            // Zur Sicherheit Hardware ausschalten
-            await db.createHardwareCommand(systemId, 0); 
+            // 🔥 FIX: [0] statt 0
+            await db.createHardwareCommand(systemId, [0]); 
             
             return { success: true };
         } catch (err) {

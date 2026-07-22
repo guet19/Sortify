@@ -68,8 +68,13 @@
     async function startCalibration() {
         currentView = 'calibration';
         scannedBarcodes = [];
-        scanError = ''; // Fehler beim Start zurücksetzen
+        scanError = ''; 
         currentLedIndex = data?.nextFreeLedIndex || 0;
+        
+        // 🔥 FIX: Sicherstellen, dass alle LEDs aus sind, bevor wir starten
+        await stopHardware();
+        await new Promise(resolve => setTimeout(resolve, 200));
+
         await triggerLed(currentLedIndex);
         setTimeout(() => scanInputRef?.focus(), 100);
     }
@@ -78,6 +83,11 @@
         editingDrawer = { shelfId, ledIndex, currentBarcode };
         editScanInput = '';
         showOverwriteWarning = false; 
+        
+        // 🔥 FIX: Alte LEDs ausschalten, bevor das zu bearbeitende Fach leuchtet
+        await stopHardware();
+        await new Promise(resolve => setTimeout(resolve, 200));
+
         await triggerLed(ledIndex);
         setTimeout(() => editInputRef?.focus(), 100);
     }
@@ -100,17 +110,17 @@
         const barcode = currentScanInput.trim();
         if (!barcode) return;
 
-        scanError = ''; // Alte Fehler ausblenden
+        scanError = ''; 
 
-        // 1. Lokale Prüfung (wurde er in dieser Kalibrierungs-Runde schon gescannt?)
+        // 1. Lokale Prüfung 
         if (scannedBarcodes.some(b => b.barcode === barcode)) {
             scanError = `Der Barcode '${barcode}' wurde in dieser Sitzung bereits erfasst!`;
             currentScanInput = '';
             setTimeout(() => scanInputRef?.focus(), 100);
-            return; // 🛑 Blockiert das Weiterschalten der LED!
+            return; 
         }
 
-        // 2. Globale Prüfung (ist er schon in einem bestehenden Regal?)
+        // 2. Globale Prüfung 
         let duplicateShelfName = null;
         for (const shelf of shelves) {
             if (shelf.drawers && shelf.drawers.some(d => d.barcode === barcode)) {
@@ -123,7 +133,7 @@
             scanError = `Der Barcode '${barcode}' ist bereits im Regal '${duplicateShelfName}' vergeben!`;
             currentScanInput = '';
             setTimeout(() => scanInputRef?.focus(), 100);
-            return; // 🛑 Blockiert das Weiterschalten der LED!
+            return; 
         }
 
         // Wenn kein Fehler gefunden wurde -> Normal fortfahren!
@@ -133,6 +143,12 @@
         }];
         
         currentScanInput = '';
+
+        // 🔥 FIX: Bevor wir zum nächsten Fach springen, schalten wir alle alten LEDs aus!
+        await stopHardware();
+        // Ein winziger Moment Pause, damit der Raspberry Pi den Aus-Befehl zuerst verarbeitet
+        await new Promise(resolve => setTimeout(resolve, 200));
+
         currentLedIndex++;
         await triggerLed(currentLedIndex);
         scanInputRef?.focus();
@@ -150,9 +166,14 @@
             currentLedIndex--;
         }
 
-        // 3. Fehler ausblenden und vorherige LED reaktivieren
+        // 3. Fehler ausblenden
         scanError = ''; 
         currentScanInput = '';
+
+        // 🔥 FIX: Auch beim Zurückgehen zuerst die aktuelle LED ausschalten
+        await stopHardware();
+        await new Promise(resolve => setTimeout(resolve, 200));
+
         await triggerLed(currentLedIndex);
         setTimeout(() => scanInputRef?.focus(), 100);
     }

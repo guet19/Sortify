@@ -320,7 +320,6 @@
             <button class="btn-close-modal" on:click={closeWizard}>✕</button>
         </div>
         
-        <!-- 🔥 NEU: on:click Falle fängt Klicks im Modal ab und gibt sie an den Scanner zurück -->
         <div class="modal-body" on:click={() => { if(wizardState === 'scan') scanInputRef?.focus(); }}>
             
             {#if wizardState === 'uw_start'}
@@ -537,7 +536,7 @@
                 </div>
 
             <!-- ============================================== -->
-            <!-- ORIGINAL: ASSIGN WIZARD FLOW                   -->
+            <!-- ASSIGN WIZARD FLOW                             -->
             <!-- ============================================== -->
 
             {:else if wizardState === 'find_empty'}
@@ -547,7 +546,6 @@
                     <p>Ermittle freie Fächer und steuere LEDs an.</p>
                 </div>
 
-                <!-- 🔥 NEU: update() entfernt, da SvelteKit Formular-Resets sonst State zerstören können -->
                 <form method="POST" action="?/lightUpEmptySlots" use:enhance={() => {
                     return async ({ result }) => {
                         if (result.type === 'success') {
@@ -556,6 +554,8 @@
                         }
                     };
                 }} style="display:none;">
+                    <!-- 🔥 FIX 1: Farbe auf reines Hardware-Blau gesetzt -->
+                    <input type="hidden" name="color" value="#0000FF">
                     <button type="submit" bind:this={hiddenFindEmptyBtn}></button>
                 </form>
 
@@ -575,6 +575,8 @@
                     <form method="POST" action="?/lightUpEmptySlots" use:enhance={() => { 
                         return async () => { setTimeout(() => scanInputRef?.focus(), 100); }; 
                     }} class="retrigger-form">
+                        <!-- 🔥 FIX 2: Farbe auf reines Hardware-Blau gesetzt -->
+                        <input type="hidden" name="color" value="#0000FF">
                         <button type="submit" class="btn-retrigger-led">💡 Erneut blau leuchten</button>
                     </form>
 
@@ -583,7 +585,6 @@
                     <h2 class="step-title text-blue">1. Leeres Fach wählen</h2>
                     <p class="step-desc">Freie Fächer leuchten jetzt <strong>blau</strong> auf. Nimm ein blaues Fach aus dem Regal und scanne den Barcode auf der Box.</p>
 
-                    <!-- 🔥 NEU: Scan-Fehler explizit anzeigen -->
                     {#if scanError}
                         <div class="warning-box error-box" style="margin-bottom: 1.5rem; padding: 1rem;">
                             <span class="warning-icon">❌</span>
@@ -605,6 +606,18 @@
                                 if (result.data.success) {
                                     activeBarcode = result.data.barcode;
                                     wizardState = 'weigh_box';
+                                    
+                                    const formData = new FormData();
+                                    formData.append('barcode', activeBarcode);
+                                    // 🔥 FIX 3: Farbe auf reines Hardware-Blau gesetzt
+                                    formData.append('color', '#0000FF'); 
+                                    
+                                    fetch('?/triggerLedOnly', {
+                                        method: 'POST',
+                                        body: formData,
+                                        keepalive: true
+                                    }).catch(err => console.error("Fehler beim LED Update:", err));
+
                                 } else {
                                     if (result.data.error === 'not_in_shelves') { 
                                         barcodeError = true; 
@@ -623,7 +636,6 @@
                             setTimeout(() => scanInputRef?.focus(), 100);
                         };
                     }}>
-                        <!-- 🔥 NEU: isScanning Feedback -->
                         <div class="scan-animation-wrapper" on:click={() => scanInputRef?.focus()}>
                             <div class="scan-line"></div>
                             <span style="color: {isScanning ? '#22c55e' : 'var(--color-blue-light)'};">
@@ -631,10 +643,8 @@
                             </span>
                         </div>
                         
-                        <!-- 🔥 NEU: Zugänglichkeits-sicherer Input (clip statt display:none oder opacity) -->
                         <input bind:this={scanInputRef} bind:value={scanInput} type="text" name="barcode" class="hidden-scan-input" required use:focusOnInit>
                         
-                        <!-- 🔥 NEU: Sicherer Submit Button (verhindert Browser-Blockaden) -->
                         <button type="submit" tabindex="-1" style="position: absolute; left: -9999px; width: 1px; height: 1px;">Scan</button>
                     </form>
                 {/if}
@@ -831,9 +841,7 @@
     </div>
 {/if}
 
-<!-- ============================================== -->
-<!-- KONFLIKT-MODAL (DIREKTE AUFLÖSUNG IM POPUP)    -->
-<!-- ============================================== -->
+<!-- KONFLIKT-MODAL -->
 {#if showConflictModal && conflictingArticle}
     <div class="modal-overlay">
         <div class="modal-content conflict-modal-modern">
@@ -902,9 +910,7 @@
     </div>
 {/if}
 
-<!-- ============================================== -->
-<!-- MODAL: EINZELNES FACH LÖSCHEN                  -->
-<!-- ============================================== -->
+<!-- MODAL: EINZELNES FACH LÖSCHEN -->
 {#if showSingleUnlinkConfirmation && barcodeToUnlink}
     <div class="modal-backdrop" on:click={() => showSingleUnlinkConfirmation = false}></div>
     <div class="modal-window scan-modal">
@@ -936,9 +942,7 @@
     </div>
 {/if}
 
-<!-- ============================================== -->
-<!-- MODAL: ALLE FÄCHER LÖSCHEN                     -->
-<!-- ============================================== -->
+<!-- MODAL: ALLE FÄCHER LÖSCHEN -->
 {#if showUnlinkConfirmation && !showModal}
     <div class="modal-backdrop" on:click={() => showUnlinkConfirmation = false}></div>
     <div class="modal-window scan-modal">
@@ -962,9 +966,7 @@
     </div>
 {/if}
 
-<!-- ============================================== -->
-<!-- VERSTECKTES FORMULAR FÜR LED-STEUERUNG         -->
-<!-- ============================================== -->
+<!-- VERSTECKTES FORMULAR FÜR LED-STEUERUNG -->
 <form method="POST" action="?/triggerLedOnly" use:enhance style="display:none;">
     <input type="hidden" name="barcode" value={currentUpdateSlot}>
     <button type="submit" bind:this={hiddenLedFormBtn}></button>
@@ -1070,7 +1072,6 @@
     .scan-animation-wrapper span { color: var(--color-blue-light); font-weight: 600; font-family: monospace; letter-spacing: 0.05em; }
     .scan-line { width: 80%; height: 2px; background: var(--color-blue); box-shadow: 0 0 10px var(--color-blue); animation: scan 2s linear infinite; position: absolute; top: 0; }
     
-    /* 🔥 NEU: Sicherer versteckter Input (kein z-index: -1, kein display: none) */
     .hidden-scan-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
     
     .button-stack { display: flex; flex-direction: column; gap: 1rem; }

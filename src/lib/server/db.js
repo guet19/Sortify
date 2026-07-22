@@ -799,39 +799,41 @@ async function checkIfBarcodeExists(systemId, barcode) {
     }
 }
 
-async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
+export async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
     try {
-        // 🔥 Clevere Weiche: Prüft, ob eine Farbe (String) oder singleOnly (Boolean) übergeben wurde
-        let color = '#3b82f6'; // Fallback: Svelte-Blau
+        // 🔥 FIX 1: Echtes Hardware-Blau als Fallback
+        let color = '#0000FF'; 
         let singleOnly = false;
 
         if (typeof arg3 === 'string') {
             color = arg3;
-            singleOnly = true; // Unsere neuen Terminal-Actions benötigen gezielt diesen Barcode
+            singleOnly = true; 
         } else if (typeof arg3 === 'boolean') {
             singleOnly = arg3;
         }
 
         const db = await getDb();
-        
-        // 1. Artikel finden
-        const article = await db.collection('articles').findOne({ 
-            systemId: new ObjectId(systemId), 
-            $or: [
-                { "assigned_barcodes.barcode": barcode },
-                { assigned_barcodes: barcode },
-                { assigned_barcode: barcode }
-            ]
-        });
-        
-        if (!article) return 0;
-
-        // 2. Barcodes extrahieren
         let barcodesToLightUp = [];
         
         if (singleOnly) {
+            // 🔥 FIX 2: Wenn wir gezielt nur ein Fach ansteuern (z.B. ein leeres Fach),
+            // dürfen wir NICHT nach einem Artikel suchen, da das leere Fach noch keinen hat!
             barcodesToLightUp = [barcode];
         } else {
+            // 1. Artikel finden (nur wenn wir alle Fächer des Artikels suchen)
+            const article = await db.collection('articles').findOne({ 
+                systemId: new ObjectId(systemId), 
+                $or: [
+                    { "assigned_barcodes.barcode": barcode },
+                    { assigned_barcodes: barcode },
+                    { assigned_barcode: barcode }
+                ]
+            });
+            
+            // Wenn kein Artikel da ist und wir nicht im singleOnly-Modus sind -> Abbruch
+            if (!article) return 0; 
+            
+            // 2. Barcodes extrahieren
             if (Array.isArray(article.assigned_barcodes)) {
                 barcodesToLightUp = article.assigned_barcodes.map(b => typeof b === 'object' ? b.barcode : b);
             } else if (article.assigned_barcode) {
@@ -857,7 +859,8 @@ async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
             await db.collection('hardware_commands').insertOne({
                 systemId: new ObjectId(systemId),
                 drawer_ids: drawerIdsToLightUp,
-                color: color, // 🔥 HIER WIRD DIE FARBE NUN ERFOLGREICH ÜBERGEBEN!
+                color: color, 
+                mode: "solid", // 🔥 FIX 3: Zwingend hinzufügen, damit es ruhig leuchtet!
                 status: "pending",
                 createdAt: new Date()
             });
@@ -1155,7 +1158,7 @@ async function updateArticleItemWeight(systemId, articleId, newItemWeight) {
     }
 }
 
-async function triggerEmptyLedsBlue(systemId) {
+export async function triggerEmptyLedsBlue(systemId, color = '#0000FF') {
     try {
         const db = await getDb();
 
@@ -1193,7 +1196,7 @@ async function triggerEmptyLedsBlue(systemId) {
             await db.collection('hardware_commands').insertOne({
                 systemId: new ObjectId(systemId),
                 drawer_ids: emptyDrawerIds,
-                color: "blue",     
+                color: color,      // 🔥 HIER: Nimmt jetzt den Hex-Code aus dem Frontend!
                 mode: "solid",     
                 status: "pending",
                 createdAt: new Date()
