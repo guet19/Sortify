@@ -1,7 +1,7 @@
 import { fail, error } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 
-export async function load({ locals }) { // NEU: locals statt cookies
+export async function load({ locals }) { 
     // 1. Aktives Lager (System) identifizieren
     const systemId = locals.systemId;
     if (!systemId) {
@@ -24,7 +24,7 @@ export async function load({ locals }) { // NEU: locals statt cookies
 }
 
 export const actions = {
-    createMain: async ({ request, locals }) => { // NEU: locals statt cookies
+    createMain: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return fail(401, { errorMain: "Kein aktives Lager ausgewählt." });
 
@@ -164,6 +164,78 @@ export const actions = {
             return { successRenameSub: true };
         } catch (err) {
             return fail(500, { errorRenameSub: "Fehler beim Umbenennen der Unterkategorie." });
+        }
+    },
+
+    // ==========================================
+    // 🔥 NEU: KI-STRUKTUR SPEICHERN & ANWENDEN
+    // ==========================================
+    applyAiStructure: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { errorAi: "Kein aktives Lager ausgewählt." });
+
+        const data = await request.formData();
+        const mainMode = data.get('mainMode'); 
+        let mainId = data.get('existingMainId');
+        const newMainName = data.get('newMainName');
+
+        const subMode = data.get('subMode'); 
+        let subId = data.get('existingSubId');
+        const newSubName = data.get('newSubName');
+
+        const existingAttributes = JSON.parse(data.get('existingAttributes') || '[]');
+        const newAttributes = JSON.parse(data.get('newAttributes') || '[]');
+
+        try {
+            // 1. Hauptkategorie behandeln
+            if (mainMode === 'new' && newMainName) {
+                mainId = await db.createMainCategory(systemId, newMainName.trim()); 
+            }
+
+            if (!mainId) return fail(400, { errorAi: "Hauptkategorie konnte nicht ermittelt werden." });
+
+            // 2. Unterkategorie behandeln
+            if (subMode === 'new' && newSubName) {
+                // Holt das Objekt mit { id: '...' } zurück (falls du die db.js wie zuvor besprochen angepasst hast)
+                const subResult = await db.createSubcategory(systemId, mainId, newSubName.trim());
+                subId = subResult?.id || subResult; 
+            }
+
+            if (!subId) return fail(400, { errorAi: "Unterkategorie konnte nicht ermittelt werden." });
+
+            // 3. Komplett neue Filterattribute in der Datenbank anlegen
+            let finalAllowedAttributes = [...existingAttributes];
+
+            for (const attr of newAttributes) {
+                const result = await db.createFilterAttribute(systemId, {
+                    label: attr.label,
+                    ui_type: attr.ui_type || "select",
+                    unit: attr.unit || "",
+                    options: attr.options || [],
+                    is_multiple: false
+                });
+                
+                if (result && result.insertedId) {
+                    finalAllowedAttributes.push(result.insertedId.toString());
+                }
+            }
+
+            // 4. Alle Attribute (bestehende + neu erstellte) der Unterkategorie zuweisen
+            if (finalAllowedAttributes.length > 0) {
+                const categories = await db.getCategories(systemId);
+                const mainCat = categories.find(c => c._id.toString() === mainId.toString());
+                const subCat = mainCat?.subcategories?.find(s => s.id.toString() === subId.toString());
+
+                const currentAllowed = subCat?.allowed_attributes || [];
+                const mergedAttributes = [...new Set([...currentAllowed, ...finalAllowedAttributes])];
+
+                await db.updateSubcategoryAttributes(systemId, mainId, subId, mergedAttributes);
+            }
+
+            return { success: true };
+        } catch (err) {
+            console.error("Fehler bei applyAiStructure:", err);
+            return fail(500, { errorAi: "Datenbankfehler beim Anwenden der KI-Struktur." });
         }
     }
 };

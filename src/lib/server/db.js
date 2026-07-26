@@ -73,7 +73,7 @@ async function createSubcategory(systemId, mainCategoryId, subName) {
             { _id: new ObjectId(mainCategoryId), systemId: new ObjectId(systemId) },
             { $push: { subcategories: { id: subId, name: subName, allowed_attributes: [] } } }
         );
-        return result;
+        return { id: subId }; // 🔥 NEU: Gibt die erstellte ID als Objekt zurück
     } catch (error) {
         console.error("Fehler beim Speichern der Unterkategorie:", error);
         throw error;

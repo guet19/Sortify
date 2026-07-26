@@ -2,6 +2,7 @@
   import { enhance } from "$app/forms";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
+  import { page } from "$app/stores"; // 🔥 NEU: Import für URL-Parameter
 
   let { data, form } = $props();
 
@@ -32,8 +33,26 @@
 
   let confirmDeleteMainId = $state(null);
 
+  // --- NEUE KI-ASSISTENT STATES ---
+  let aiArticleInput = $state("");
+  let isAiLoading = $state(false);
+  let aiResult = $state(null);
+
+  // Auswahlen des Users im KI-Wizard
+  let aiMainMode = $state("existing"); // 'existing' | 'new'
+  let aiSelectedMainId = $state("");
+  let aiNewMainName = $state("");
+
+  let aiSubMode = $state("existing"); // 'existing' | 'new'
+  let aiSelectedSubId = $state("");
+  let aiNewSubName = $state("");
+
+  let aiSelectedExistingAttributes = $state([]); // IDs
+  let aiSelectedNewAttributes = $state([]); // Objekte
+
   onMount(() => {
     if (browser) {
+      // 1. Restore Logik
       const savedMain = sessionStorage.getItem("restoreMainId");
       const savedSub = sessionStorage.getItem("restoreSubId");
       
@@ -44,9 +63,90 @@
         sessionStorage.removeItem("restoreSubId");
         sessionStorage.removeItem("restoreSubName"); 
       }
+
+      // 🔥 NEU: Bookmarklet Logik
+      const aiTitle = $page.url.searchParams.get('ai_title');
+      const aiUrl = $page.url.searchParams.get('ai_url');
+      const aiDesc = $page.url.searchParams.get('ai_desc');
+
+      if (aiTitle || aiUrl) {
+        // Wir bauen einen Text für die KI zusammen
+        aiArticleInput = `Titel: ${aiTitle || ''} | Beschreibung: ${aiDesc || ''} | Link: ${aiUrl || ''}`;
+        
+        // URL in der Adresszeile bereinigen, damit F5 nicht neu triggert
+        const url = new URL(window.location);
+        url.searchParams.delete('ai_title');
+        url.searchParams.delete('ai_url');
+        url.searchParams.delete('ai_desc');
+        window.history.replaceState({}, '', url);
+
+        // Kurz warten und dann automatisch starten!
+        setTimeout(() => generateStructure(), 400);
+      }
     }
   });
 
+  // --- KI FUNKTIONEN ---
+  async function generateStructure() {
+    if (!aiArticleInput.trim()) return;
+    isAiLoading = true;
+    
+    try {
+      const response = await fetch('/api/ai-category-wizard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          articleText: aiArticleInput,
+          categories: data.categories || [],
+          attributes: data.filterAttributes || []
+        })
+      });
+
+      aiResult = await response.json();
+
+      // Vorbefüllen der Felder basierend auf KI-Antwort
+      aiMainMode = aiResult.mainCategory.isNew ? "new" : "existing";
+      if (!aiResult.mainCategory.isNew) aiSelectedMainId = aiResult.mainCategory.id;
+      aiNewMainName = aiResult.mainCategory.suggestedName;
+
+      aiSubMode = aiResult.subCategory.isNew ? "new" : "existing";
+      if (!aiResult.subCategory.isNew) aiSelectedSubId = aiResult.subCategory.id;
+      aiNewSubName = aiResult.subCategory.suggestedName;
+
+      aiSelectedExistingAttributes = [...aiResult.existingAttributeIds];
+      aiSelectedNewAttributes = [...aiResult.newAttributes]; // Alles standardmäßig vorauswählen
+
+    } catch (error) {
+      console.error(error);
+      alert("Fehler bei der KI-Analyse");
+    } finally {
+      isAiLoading = false;
+    }
+  }
+
+  function toggleAiNewAttribute(attr) {
+    if (aiSelectedNewAttributes.includes(attr)) {
+      aiSelectedNewAttributes = aiSelectedNewAttributes.filter(a => a !== attr);
+    } else {
+      aiSelectedNewAttributes = [...aiSelectedNewAttributes, attr];
+    }
+  }
+
+  function toggleAiExistingAttribute(id) {
+    if (aiSelectedExistingAttributes.includes(id)) {
+      aiSelectedExistingAttributes = aiSelectedExistingAttributes.filter(i => i !== id);
+    } else {
+      aiSelectedExistingAttributes = [...aiSelectedExistingAttributes, id];
+    }
+  }
+
+  let aiAvailableSubs = $derived(
+    aiMainMode === 'new' 
+      ? [] 
+      : (data.categories?.find(c => c._id === aiSelectedMainId)?.subcategories || [])
+  );
+
+  // --- BESTEHENDE FUNKTIONEN ---
   function jumpToFilterCreation() {
     if (browser) {
       sessionStorage.setItem("restoreMainId", activeMainId);
@@ -90,7 +190,6 @@
     confirmDeleteMainId = null;
   }
 
-  // --- UMBENENNEN FUNKTIONEN ---
   function startEditMain(category) {
     editingMainId = category._id;
     editMainName = category.name;
@@ -150,6 +249,151 @@
 </script>
 
 <div class="container mt-4 mb-5 space-grotesk">
+
+  {#if successMessage !== ""}
+    <div class="alert alert-success shadow-sm animate-fade-in d-flex align-items-center gap-2 mb-4" style="z-index: 1050; position: relative;">
+      <i class="bi bi-check-circle-fill"></i>
+      {successMessage}
+    </div>
+  {/if}
+
+  <!-- ======================================= -->
+  <!-- KI STRUKTUR ASSISTENT                   -->
+  <!-- ======================================= -->
+  {#if !activeCategory}
+    <div class="card shadow-sm border-0 light-card mb-5 overflow-hidden">
+      <div class="card-header border-bottom p-4" style="background: linear-gradient(135deg, #f8fafc, #eff6ff);">
+        <h3 class="h5 mb-1 text-primary fw-bold"><i class="bi bi-robot me-2"></i> KI Struktur-Assistent</h3>
+        <p class="mb-0 small text-muted-custom">Gib einen Beispielartikel ein. Die KI plant für dich die Kategorien und schlägt passende Filter vor.</p>
+        
+        <div class="input-group shadow-sm mt-3">
+<input type="text" class="form-control light-input py-3" placeholder="Artikel-Name oder Lieferanten-Link (https://...) einfügen" bind:value={aiArticleInput} onkeydown={(e) => e.key === "Enter" && generateStructure()}/>        <button class="btn btn-primary fw-bold px-4" onclick={generateStructure} disabled={isAiLoading || !aiArticleInput}>
+            {#if isAiLoading} <span class="spinner-border spinner-border-sm me-2"></span> Analysiere... {:else} <i class="bi bi-magic me-1"></i> Struktur planen {/if}
+          </button>
+        </div>
+      </div>
+
+      {#if aiResult}
+        <div class="card-body p-4 animate-fade-in" style="background-color: #ffffff;">
+          <form method="POST" action="?/applyAiStructure" use:enhance={() => {
+            return async ({ result, update }) => {
+              await update();
+              if (result.type === "success") {
+                successMessage = "Kategorie-Struktur erfolgreich aufgebaut!";
+                aiResult = null; aiArticleInput = "";
+                setTimeout(() => { successMessage = ""; }, 4000);
+              }
+            };
+          }}>
+            <div class="row g-4 mb-4">
+              <!-- HAUPTKATEGORIE -->
+              <div class="col-md-6">
+                <div class="p-3 rounded border h-100" style="background: #f8fafc;">
+                  <h6 class="fw-bold mb-3">1. Hauptkategorie</h6>
+                  <div class="d-flex gap-3 mb-3">
+                    <label class="form-check-label small" style="cursor: pointer;"><input type="radio" class="form-check-input me-1" value="existing" bind:group={aiMainMode}> Vorhandene nutzen</label>
+                    <label class="form-check-label small" style="cursor: pointer;"><input type="radio" class="form-check-input me-1" value="new" bind:group={aiMainMode}> Neu anlegen</label>
+                  </div>
+                  {#if aiMainMode === 'existing'}
+                    <select class="form-select light-input" name="existingMainId" bind:value={aiSelectedMainId}>
+                      <option value="">-- Wählen --</option>
+                      {#each data.categories as cat} <option value={cat._id}>{cat.name}</option> {/each}
+                    </select>
+                  {:else}
+                    <input type="text" name="newMainName" class="form-control light-input fw-bold text-success" bind:value={aiNewMainName} placeholder="Name der neuen Hauptkategorie">
+                  {/if}
+                  <input type="hidden" name="mainMode" value={aiMainMode}>
+                </div>
+              </div>
+
+              <!-- UNTERKATEGORIE -->
+              <div class="col-md-6">
+                <div class="p-3 rounded border h-100" style="background: #f8fafc;">
+                  <h6 class="fw-bold mb-3">2. Unterkategorie</h6>
+                  <div class="d-flex gap-3 mb-3">
+                    <label class="form-check-label small" style="cursor: pointer;"><input type="radio" class="form-check-input me-1" value="existing" bind:group={aiSubMode} disabled={aiMainMode === 'new'}> Vorhandene nutzen</label>
+                    <label class="form-check-label small" style="cursor: pointer;"><input type="radio" class="form-check-input me-1" value="new" bind:group={aiSubMode}> Neu anlegen</label>
+                  </div>
+                  {#if aiSubMode === 'existing'}
+                    <select class="form-select light-input" name="existingSubId" bind:value={aiSelectedSubId} disabled={aiMainMode === 'new'}>
+                      <option value="">-- Wählen --</option>
+                      {#each aiAvailableSubs as sub} <option value={sub.id}>{sub.name}</option> {/each}
+                    </select>
+                  {:else}
+                    <input type="text" name="newSubName" class="form-control light-input fw-bold text-success" bind:value={aiNewSubName} placeholder="Name der neuen Unterkategorie">
+                  {/if}
+                  <input type="hidden" name="subMode" value={aiSubMode}>
+                </div>
+              </div>
+            </div>
+
+            <!-- FILTER ZUWEISEN / ERSTELLEN -->
+            <h6 class="fw-bold mb-3 mt-2 border-bottom pb-2">3. Welche Filter sollen für diese Unterkategorie gelten?</h6>
+            
+            <div class="row g-3">
+              <!-- BESTEHENDE FILTER -->
+              {#each aiResult.existingAttributeIds as attrId}
+                {@const attrDef = data.filterAttributes.find(a => a._id === attrId)}
+                {#if attrDef}
+                  <div class="col-md-6">
+                    <label class="list-group-item d-flex gap-3 align-items-center p-3 rounded border h-100" style="cursor:pointer; background: #ffffff;">
+                      <input class="form-check-input fs-5 mt-0 light-checkbox flex-shrink-0" type="checkbox" checked={aiSelectedExistingAttributes.includes(attrId)} onchange={() => toggleAiExistingAttribute(attrId)}>
+                      <div class="overflow-hidden">
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                          <strong class="text-title-dark text-truncate">{attrDef.label}</strong>
+                          <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill" style="font-size: 0.7rem;">Existiert bereits</span>
+                        </div>
+                        <div class="small text-muted-custom mt-1 text-truncate">
+  {#if attrDef.ui_type === 'select'}
+    Optionen: {(attrDef.options || []).join(', ') || '-'}
+  {:else if attrDef.ui_type === 'number'}
+    <i class="bi bi-123"></i> Nummernfeld {#if attrDef.unit}({attrDef.unit}){/if}
+  {:else}
+    <i class="bi bi-fonts"></i> Textfeld
+  {/if}
+</div>
+                      </div>
+                    </label>
+                  </div>
+                {/if}
+              {/each}
+
+              <!-- NEUE FILTER (VON KI) -->
+              {#each aiResult.newAttributes as newAttr}
+                <div class="col-md-6">
+                  <label class="list-group-item d-flex gap-3 align-items-center p-3 rounded border h-100" style="cursor:pointer; background: #f0fdf4; border-color: #bbf7d0 !important;">
+                    <input class="form-check-input fs-5 mt-0 light-checkbox flex-shrink-0" type="checkbox" checked={aiSelectedNewAttributes.includes(newAttr)} onchange={() => toggleAiNewAttribute(newAttr)}>
+                    <div class="overflow-hidden">
+                      <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <strong class="text-success text-truncate">{newAttr.label}</strong>
+                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill" style="font-size: 0.7rem;"><i class="bi bi-stars"></i> Wird neu angelegt</span>
+                      </div>
+                      <div class="small text-success text-opacity-75 mt-1 text-truncate">
+                        Optionen: {(newAttr.options || []).join(', ') || '-'}
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              {/each}
+            </div>
+
+            <!-- VERSTECKTE INPUTS FÜR ACTION -->
+            <input type="hidden" name="existingAttributes" value={JSON.stringify(aiSelectedExistingAttributes)}>
+            <input type="hidden" name="newAttributes" value={JSON.stringify(aiSelectedNewAttributes)}>
+
+            <div class="d-flex justify-content-end mt-4 pt-3 border-top">
+              <button type="button" class="btn btn-outline-secondary me-2 btn-light-outline" onclick={() => aiResult = null}>Abbrechen</button>
+              <button type="submit" class="btn btn-primary fw-bold shadow-sm"><i class="bi bi-save me-1"></i> Struktur speichern & anwenden</button>
+            </div>
+          </form>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- ======================================= -->
+  <!-- BESTEHENDE KATEGORIEN VERWALTUNG        -->
+  <!-- ======================================= -->
   <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
     <h2>Kategorien verwalten</h2>
 
@@ -165,13 +409,6 @@
       {/if}
     </div>
   </div>
-
-  {#if successMessage !== ""}
-    <div class="alert alert-success shadow-sm animate-fade-in d-flex align-items-center gap-2 mb-4" style="z-index: 1050; position: relative;">
-      <i class="bi bi-check-circle-fill"></i>
-      {successMessage}
-    </div>
-  {/if}
 
   <div class="row">
     {#if activeCategory && activeSubcategory}
