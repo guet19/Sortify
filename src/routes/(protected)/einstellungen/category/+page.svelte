@@ -2,7 +2,7 @@
   import { enhance } from "$app/forms";
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
-  import { page } from "$app/stores"; // 🔥 NEU: Import für URL-Parameter
+  import { page } from "$app/stores"; 
 
   let { data, form } = $props();
 
@@ -64,23 +64,20 @@
         sessionStorage.removeItem("restoreSubName"); 
       }
 
-      // 🔥 NEU: Bookmarklet Logik
+      // Bookmarklet Logik
       const aiTitle = $page.url.searchParams.get('ai_title');
       const aiUrl = $page.url.searchParams.get('ai_url');
       const aiDesc = $page.url.searchParams.get('ai_desc');
 
       if (aiTitle || aiUrl) {
-        // Wir bauen einen Text für die KI zusammen
         aiArticleInput = `Titel: ${aiTitle || ''} | Beschreibung: ${aiDesc || ''} | Link: ${aiUrl || ''}`;
         
-        // URL in der Adresszeile bereinigen, damit F5 nicht neu triggert
         const url = new URL(window.location);
         url.searchParams.delete('ai_title');
         url.searchParams.delete('ai_url');
         url.searchParams.delete('ai_desc');
         window.history.replaceState({}, '', url);
 
-        // Kurz warten und dann automatisch starten!
         setTimeout(() => generateStructure(), 400);
       }
     }
@@ -103,6 +100,14 @@
       });
 
       aiResult = await response.json();
+
+      // 🔥 NEU: Optionen als editierbaren Komma-String vorbereiten
+      if (aiResult.newAttributes) {
+          aiResult.newAttributes = aiResult.newAttributes.map(attr => ({
+              ...attr,
+              optionsString: (attr.options || []).join(', ')
+          }));
+      }
 
       // Vorbefüllen der Felder basierend auf KI-Antwort
       aiMainMode = aiResult.mainCategory.isNew ? "new" : "existing";
@@ -344,42 +349,66 @@
                           <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill" style="font-size: 0.7rem;">Existiert bereits</span>
                         </div>
                         <div class="small text-muted-custom mt-1 text-truncate">
-  {#if attrDef.ui_type === 'select'}
-    Optionen: {(attrDef.options || []).join(', ') || '-'}
-  {:else if attrDef.ui_type === 'number'}
-    <i class="bi bi-123"></i> Nummernfeld {#if attrDef.unit}({attrDef.unit}){/if}
-  {:else}
-    <i class="bi bi-fonts"></i> Textfeld
-  {/if}
-</div>
+                          {#if attrDef.ui_type === 'select'}
+                            Optionen: {(attrDef.options || []).join(', ') || '-'}
+                          {:else if attrDef.ui_type === 'number'}
+                            <i class="bi bi-123"></i> Nummernfeld {#if attrDef.unit}({attrDef.unit}){/if}
+                          {:else}
+                            <i class="bi bi-fonts"></i> Textfeld
+                          {/if}
+                        </div>
                       </div>
                     </label>
                   </div>
                 {/if}
               {/each}
 
-              <!-- NEUE FILTER (VON KI) -->
+              <!-- 🔥 NEUE FILTER (VON KI) - JETZT EDITIERBAR -->
               {#each aiResult.newAttributes as newAttr}
                 <div class="col-md-6">
-                  <label class="list-group-item d-flex gap-3 align-items-center p-3 rounded border h-100" style="cursor:pointer; background: #f0fdf4; border-color: #bbf7d0 !important;">
-                    <input class="form-check-input fs-5 mt-0 light-checkbox flex-shrink-0" type="checkbox" checked={aiSelectedNewAttributes.includes(newAttr)} onchange={() => toggleAiNewAttribute(newAttr)}>
-                    <div class="overflow-hidden">
-                      <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <strong class="text-success text-truncate">{newAttr.label}</strong>
+                  <div class="p-3 rounded border h-100 d-flex gap-3 align-items-start" style="background: #f0fdf4; border-color: #bbf7d0 !important;">
+                    
+                    <!-- Die Checkbox -->
+                    <input class="form-check-input fs-5 mt-1 light-checkbox flex-shrink-0" type="checkbox" checked={aiSelectedNewAttributes.includes(newAttr)} onchange={() => toggleAiNewAttribute(newAttr)} style="cursor: pointer;">
+                    
+                    <!-- Der editierbare Bereich -->
+                    <div class="w-100 overflow-hidden">
+                      <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
                         <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill" style="font-size: 0.7rem;"><i class="bi bi-stars"></i> Wird neu angelegt</span>
                       </div>
-                      <div class="small text-success text-opacity-75 mt-1 text-truncate">
-                        Optionen: {(newAttr.options || []).join(', ') || '-'}
-                      </div>
+                      
+                      <!-- Name editieren -->
+                      <input type="text" class="form-control form-control-sm light-input fw-bold text-success mb-2" bind:value={newAttr.label} placeholder="Name des Filters">
+
+                      <!-- Optionen oder Einheiten editieren -->
+                      {#if newAttr.ui_type === 'select'}
+                        <div class="small text-muted-custom mb-1" style="font-size: 0.75rem;">Optionen (Komma-getrennt):</div>
+                        <input type="text" class="form-control form-control-sm light-input" bind:value={newAttr.optionsString} placeholder="Option 1, Option 2, Option 3...">
+                      
+                      {:else if newAttr.ui_type === 'number'}
+                        <div class="d-flex align-items-center gap-2 mt-2">
+                          <i class="bi bi-123 text-muted-custom" title="Nummernfeld"></i>
+                          <input type="text" class="form-control form-control-sm light-input w-50" bind:value={newAttr.unit} placeholder="Einheit (z.B. mm, kg)">
+                        </div>
+                      
+                      {:else}
+                        <div class="small text-muted-custom mt-2"><i class="bi bi-fonts"></i> Textfeld</div>
+                      {/if}
                     </div>
-                  </label>
+
+                  </div>
                 </div>
               {/each}
             </div>
 
-            <!-- VERSTECKTE INPUTS FÜR ACTION -->
+            <!-- 🔥 VERSTECKTE INPUTS FÜR ACTION (Wandelt String beim Speichern wieder in Array um) -->
             <input type="hidden" name="existingAttributes" value={JSON.stringify(aiSelectedExistingAttributes)}>
-            <input type="hidden" name="newAttributes" value={JSON.stringify(aiSelectedNewAttributes)}>
+            <input type="hidden" name="newAttributes" value={JSON.stringify(
+              aiSelectedNewAttributes.map(attr => ({
+                ...attr,
+                options: attr.ui_type === 'select' ? (attr.optionsString || '').split(',').map(s => s.trim()).filter(s => s !== "") : []
+              }))
+            )}>
 
             <div class="d-flex justify-content-end mt-4 pt-3 border-top">
               <button type="button" class="btn btn-outline-secondary me-2 btn-light-outline" onclick={() => aiResult = null}>Abbrechen</button>
