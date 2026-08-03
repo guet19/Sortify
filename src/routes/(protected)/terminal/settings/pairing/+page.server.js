@@ -1,19 +1,22 @@
 import dbModule from '$lib/server/db';
 import { fail } from '@sveltejs/kit';
-import { ObjectId } from 'mongodb'; // WICHTIG: Wird für die ID-Prüfung benötigt
+import { ObjectId } from 'mongodb'; 
 
-function getSystemId(locals) {
+// 🔥 FIX: Holt zuverlässig das AKTIVE System (die 9), in dem sich der User gerade befindet!
+function getActiveSystemId(locals) {
+    // Prio 1: Die aktive ID, die wir auch beim Kalibrieren nutzen (das ist die korrekte 9!)
+    if (locals.systemId) {
+        return locals.systemId.toString();
+    }
+    // Prio 2: Fallback, falls middleware nicht griff
     if (locals.user && locals.user.systems && locals.user.systems.length > 0) {
         return locals.user.systems[0].systemId.toString();
     }
-    if (locals.user && locals.user.systemId) {
-        return locals.user.systemId.toString();
-    }
-    return "6a4ea775e94b7120d470bea7"; 
+    throw new Error("Konnte keine aktive System-ID ermitteln.");
 }
 
 export const load = async ({ locals }) => {
-    const systemId = getSystemId(locals);
+    const systemId = getActiveSystemId(locals);
     const db = await dbModule.getDb();
     const pairings = db.collection('device_pairings');
 
@@ -34,7 +37,7 @@ export const actions = {
 
         if (!code1) return fail(400, { error: 'Bitte Code eingeben', step: 1 });
 
-        const systemId = getSystemId(locals);
+        const systemId = getActiveSystemId(locals);
         const db = await dbModule.getDb();
         const pairings = db.collection('device_pairings');
 
@@ -70,7 +73,6 @@ export const actions = {
         const db = await dbModule.getDb();
         const pairings = db.collection('device_pairings');
         
-        // 🔥 NEU: Wir suchen das Gerät gezielt über seine ID, um zu sehen, was damit passiert ist
         let objectId;
         try {
             objectId = new ObjectId(pairingId);
@@ -80,25 +82,23 @@ export const actions = {
 
         const device = await pairings.findOne({ _id: objectId });
 
-        // Wenn das Gerät nicht mehr existiert, oder vom Pi auf Schritt 1 zurückgesetzt wurde (Timeout / Abbruch)
         if (!device || device.status === 'waiting_for_web' || device.status === 'cancelled') {
             return fail(400, { 
                 error: 'Zeit abgelaufen (oder am Terminal abgebrochen). Bitte starte den Vorgang mit dem neuen Code auf dem Display von vorne.', 
-                step: 1 // Wirft den Benutzer hart auf den ersten Screen zurück!
+                step: 1 
             });
         }
 
-        // Falls der Nutzer auf "Weiter" klickt, aber am Pi noch nicht "Bestätigen" gedrückt hat
         if (device.status === 'user_claimed') {
             return fail(400, { error: 'Bitte bestätige die Anfrage zuerst auf dem Touch-Display des Terminals.', step: 2, pairingId });
         }
 
-        // Falscher Code eingegeben
         if (device.code2 !== code2 || device.status !== 'pi_confirmed') {
             return fail(400, { error: 'Falscher Code 2. Bitte erneut versuchen.', step: 2, pairingId });
         }
 
-        const systemId = getSystemId(locals); 
+        // 🔥 FIX: Speichert das Terminal endlich unter der aktiven ID (Endung 9)!
+        const systemId = getActiveSystemId(locals); 
 
         await pairings.updateOne(
             { _id: device._id },
@@ -109,7 +109,7 @@ export const actions = {
     },
 
     removeTerminal: async ({ locals }) => {
-        const systemId = getSystemId(locals);
+        const systemId = getActiveSystemId(locals);
         const db = await dbModule.getDb();
         const pairings = db.collection('device_pairings');
 

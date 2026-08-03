@@ -1747,32 +1747,78 @@ export async function requestScaleWeight(systemId) {
 }
 
 // Sendet den Kalibrierungs-Befehl und wartet, bis der Pi "done" meldet
+// 🔥 SPEZIELLE DIAGNOSE-VERSION 🔥
 export async function sendCalibrationCommand(systemId, commandType, weight = 0) {
-    const db = await getDb(); // Name deiner internen getDb Funktion
-    const collection = db.collection('hardware_commands');
+    if (!systemId) throw new Error("Fehlende System-ID.");
+    const db = await getDb();
     
-    // Befehl in MongoDB schreiben
-    const result = await collection.insertOne({
-        systemId: new ObjectId(systemId),
-        command: commandType,
-        weight: Number(weight),
+    const hwCollection = db.collection('hardware_commands');
+    const scaleCollection = db.collection('scale_requests');
+
+    let safeCommand = commandType;
+    if (commandType === 'zero') safeCommand = 'calibrate_zero';
+    if (commandType === 'ratio') safeCommand = 'calibrate_ratio';
+
+    const payload = {
+        systemId: typeof systemId === 'string' ? new ObjectId(systemId) : systemId,
+        command: safeCommand,
+        weight: Number(weight) || 0,
         status: "pending",
         createdAt: new Date()
-    });
-    
-    // Warten auf Antwort (Polling)
-    for (let i = 0; i < 40; i++) { // max. 10 Sekunden warten
+    };
+
+    console.log("\n=========================================");
+    console.log("📡 SENDE KALIBRIERUNG:", safeCommand);
+    console.log("🆔 Gesendete ID:", systemId.toString());
+    console.log("📦 Payload für DB:", payload);
+    console.log("=========================================");
+
+    const hwResult = await hwCollection.insertOne({ ...payload });
+    const scaleResult = await scaleCollection.insertOne({ ...payload });
+
+    let sawProcessing = false;
+
+    // Wir lauschen jetzt ganz genau, was der Pi in der Datenbank macht
+    for (let i = 0; i < 40; i++) { 
         await new Promise(resolve => setTimeout(resolve, 250));
-        const doc = await collection.findOne({ _id: result.insertedId });
-        
-        if (doc && doc.status === "done") {
-            await collection.deleteOne({ _id: result.insertedId }); // Aufräumen
+
+        const docHw = await hwCollection.findOne({ _id: hwResult.insertedId });
+        const docScale = await scaleCollection.findOne({ _id: scaleResult.insertedId });
+
+        // Wenn der Status auf "processing" springt, wissen wir, der Pi hat es gelesen!
+        if ((docHw && docHw.status === "processing") || (docScale && docScale.status === "processing")) {
+            if (!sawProcessing) {
+                console.log("⚡ Terminal hat den Befehl gesehen (Status: processing). Warte auf Abschluss...");
+                sawProcessing = true;
+            }
+        }
+
+        if (docHw && docHw.status === "done") {
+            console.log("✅ HW-Befehl erfolgreich abgeschlossen!");
+            await hwCollection.deleteOne({ _id: hwResult.insertedId });
+            await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
+            return true;
+        }
+
+        if (docScale && docScale.status === "done") {
+            console.log("✅ Waagen-Befehl erfolgreich abgeschlossen!");
+            await hwCollection.deleteOne({ _id: hwResult.insertedId });
+            await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
             return true;
         }
     }
-    
-    // Timeout
-    await collection.deleteOne({ _id: result.insertedId });
+
+    console.log("\n❌ TIMEOUT ERREICHT! Terminal hat nicht geantwortet.");
+    if (sawProcessing) {
+        console.log("🚨 DIAGNOSE: Das Terminal hat den Befehl gesehen (processing), ist danach aber EINGEFROREN!");
+        console.log("👉 Das bedeutet: Die IDs stimmen perfekt! Aber dein Python-Skript stürzt beim Auslesen des HX711-Waagen-Chips ab (prüfe die Kabel der Waage am Pi).");
+    } else {
+        console.log("🚨 DIAGNOSE: Das Terminal hat den Befehl KOMPLETT IGNORIERT (blieb auf pending).");
+        console.log("👉 Das bedeutet: Die IDs zwischen SvelteKit und dem Raspberry Pi stimmen immer noch nicht überein ODER der Pi hat keine Internetverbindung zur DB.");
+    }
+
+    await hwCollection.deleteOne({ _id: hwResult.insertedId });
+    await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
     throw new Error("Timeout: Das Terminal antwortet nicht.");
 }
 
