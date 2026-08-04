@@ -12,34 +12,39 @@
     export let data;
     export let form;
 
-    // 🔥 NEU: copiedArticle aus den data entpacken
-    const { categories, attributes, copiedArticle } = data;
+    // 🔥 Absolut sicheres Entpacken. Verhindert Absturz, falls der Server kurz hakt.
+    const categories = data?.categories || [];
+    const attributes = data?.attributes || [];
+    const copiedArticle = data?.copiedArticle || null;
+    const bookmarkletData = data?.bookmarkletData || {};
 
     // --- State Management ---
-    let title = "";
-    let description = "";
-    let supplier = "";
-    let gtin = ""; 
-    let price = "";
-    let orderLink = "";
-    let importUrl = "";
+    // Priorität: Kopie -> Bookmarklet -> Leer
+    let title = copiedArticle?.title ? `${copiedArticle.title} (Kopie)` : (bookmarkletData?.title || "");
+    let description = copiedArticle?.description || bookmarkletData?.desc || "";
+    let orderLink = copiedArticle?.orderLink || bookmarkletData?.url || "";
+    
+    let supplier = copiedArticle?.supplier || "";
+    let gtin = copiedArticle?.gtin || ""; 
+    let price = copiedArticle?.price || "";
+    let istBestand = copiedArticle ? 0 : ""; // Bei Kopie Start auf 0
+
+    let importUrl = orderLink;
     let isExtracting = false;
 
     let totalPackPrice = "";
     let packQuantity = "";
     
-    let istBestand = "";
-
     $: if (totalPackPrice && packQuantity && parseFloat(packQuantity) > 0) {
         price = (parseFloat(totalPackPrice) / parseFloat(packQuantity)).toFixed(2);
     }
 
-    let rawImportText = "";
-    let importedImageUrl = "";
-    let attributeValues = {};
+    let rawImportText = bookmarkletData?.desc || ""; 
+    let importedImageUrl = bookmarkletData?.img || ""; 
+    let attributeValues = copiedArticle?.attributes ? { ...copiedArticle.attributes } : {};
 
-    let selectedMainCategoryId = "";
-    let selectedSubcategoryId = "";
+    let selectedMainCategoryId = copiedArticle?.mainCategoryId || "";
+    let selectedSubcategoryId = copiedArticle?.subcategoryId || "";
 
     let formErrors = {};
     let showSuccessMessage = false;
@@ -47,85 +52,62 @@
     let numberWarnings = {};
     let warningTimeouts = {};
 
+    // --- Bookmarklet & KI Workflow States ---
+    let isFromBookmarklet = !!(bookmarkletData?.title || bookmarkletData?.url);
+    let aiChoiceMade = false;
+    let showAIPrompt = false;
+    let showAIWarning = false;
+
     // --- Echtzeit-Fehlerbereinigung ---
     $: if (selectedMainCategoryId) formErrors.mainCategory = false;
     $: if (selectedSubcategoryId) formErrors.subCategory = false;
     $: if (title && title.trim() !== "") formErrors.title = false;
     $: if (istBestand !== null && istBestand !== undefined && istBestand.toString().trim() !== "") formErrors.istBestand = false;
 
-    // --- Bookmarklet & KI Workflow States ---
-    let isFromBookmarklet = false;
-    let aiChoiceMade = false;
-    let showAIPrompt = false;
-    let showAIWarning = false;
-
-    // Kategorien-Logik
-    $: mainCategoryOptions = categories
-        .filter((cat) => cat.subcategories && cat.subcategories.length > 0)
+    // 🔥 KUGELSICHERE Kategorien-Logik
+    $: safeCategories = Array.isArray(categories) ? categories : [];
+    
+    $: mainCategoryOptions = safeCategories
+        .filter((cat) => cat && Array.isArray(cat.subcategories) && cat.subcategories.length > 0)
         .map((cat) => ({ value: cat._id, label: cat.name }));
 
-    $: selectedMainCategory = categories.find((cat) => cat._id === selectedMainCategoryId) || null;
-    $: availableSubcategories = selectedMainCategory ? selectedMainCategory.subcategories : [];
+    $: selectedMainCategory = safeCategories.find((cat) => cat._id === selectedMainCategoryId) || null;
+    
+    $: availableSubcategories = selectedMainCategory && Array.isArray(selectedMainCategory.subcategories) 
+        ? selectedMainCategory.subcategories 
+        : [];
+        
     $: subCategoryOptions = availableSubcategories.map((sub) => ({ value: sub.id, label: sub.name }));
 
     $: selectedSubcategory = availableSubcategories.find((sub) => sub.id === selectedSubcategoryId) || null;
-    $: activeAttributes = selectedSubcategory
-        ? attributes.filter((attr) => selectedSubcategory.allowed_attributes.includes(attr._id)).sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+    
+    $: safeAttributes = Array.isArray(attributes) ? attributes : [];
+    
+    $: activeAttributes = selectedSubcategory && Array.isArray(selectedSubcategory.allowed_attributes)
+        ? safeAttributes.filter((attr) => selectedSubcategory.allowed_attributes.includes(attr._id)).sort((a, b) => (a.label || "").localeCompare(b.label || "", 'de', { sensitivity: 'base' }))
         : [];
 
-    // 🔥 NEU: onMount für das automatische Ausfüllen der Kopie
     onMount(async () => {
-        if (copiedArticle) {
-            title = copiedArticle.title ? `${copiedArticle.title} (Kopie)` : "";
-            description = copiedArticle.description || "";
-            supplier = copiedArticle.supplier || "";
-            gtin = copiedArticle.gtin || "";
-            price = copiedArticle.price || "";
-            orderLink = copiedArticle.orderLink || "";
-            istBestand = 0; // Bei einer Kopie startet der Bestand meistens bei 0
-            
-            selectedMainCategoryId = copiedArticle.mainCategoryId || "";
-            
-            // Warten, bis Svelte das Unterkategorien-Dropdown gerendert hat
+        if (copiedArticle && copiedArticle.subcategoryId) {
             await tick();
-            selectedSubcategoryId = copiedArticle.subcategoryId || "";
-            
-            if (copiedArticle.attributes) {
-                attributeValues = { ...copiedArticle.attributes };
-            }
+            selectedSubcategoryId = copiedArticle.subcategoryId;
+        }
 
-            // Wenn der Originalartikel ein Bild hatte, laden wir es direkt in den Cropper!
-            if (copiedArticle.imagePath) {
-                await loadExternalImage(copiedArticle.imagePath);
+        const imageToLoad = copiedArticle?.imagePath || importedImageUrl;
+        if (imageToLoad) {
+            try {
+                await loadExternalImage(imageToLoad);
+            } catch (err) {
+                console.warn("Bild konnte nicht automatisch im Cropper geladen werden:", err);
             }
         }
     });
 
-    // --- REAKTIVER URL-IMPORT (Bookmarklet Empfang) ---
-    $: {
-        const urlParams = $page.url.searchParams;
-        const urlTitle = urlParams.get("title");
-        const urlSource = urlParams.get("url");
-        const urlDesc = urlParams.get("desc");
-        const urlImg = urlParams.get("img"); 
-
-        if (urlTitle || urlSource || urlDesc || urlImg) {
-            isFromBookmarklet = true;
-        }
-
-        if (urlTitle && !title && !copiedArticle) title = urlTitle;
-        if (urlSource && !orderLink) {
-            orderLink = urlSource;
-            importUrl = orderLink;
-            rawImportText = urlDesc || "";
-        }
-        if (urlImg && !importedImageUrl) {
-            importedImageUrl = urlImg;
-        }
-    }
-
-    $: if (isFromBookmarklet && !aiChoiceMade) {
-        showAIPrompt = !!(selectedMainCategoryId && selectedSubcategoryId);
+    // --- KI Prompt Trigger ---
+    $: if (isFromBookmarklet && !aiChoiceMade && selectedMainCategoryId && selectedSubcategoryId) {
+        showAIPrompt = true;
+    } else {
+        showAIPrompt = false;
     }
 
     function acceptAI() {
@@ -175,9 +157,13 @@
                     attributeValues = { ...attributeValues, ...result.specs };
                 }
 
-                const imageToLoad = importedImageUrl || result.finalImageUrl;
-                if (imageToLoad && !imagePreview) {
-                    await loadExternalImage(imageToLoad);
+                const aiImageToLoad = result.finalImageUrl;
+                if (aiImageToLoad && aiImageToLoad !== importedImageUrl) {
+                    try {
+                        await loadExternalImage(aiImageToLoad);
+                    } catch (e) {
+                        console.warn("KI Bild konnte nicht geladen werden", e);
+                    }
                 }
             }
         } catch (error) {
@@ -216,18 +202,26 @@
     let cropperInstance = null;
     let croppedFileBlob = null;
 
+    // 🔥 FIX: CropperJS sicherer Start
     async function handleImageSelect(event) {
         const file = event.target.files[0];
         if (!file) return;
         if (imagePreview) URL.revokeObjectURL(imagePreview);
         imagePreview = URL.createObjectURL(file);
         isCropping = true;
+        
         await tick();
-        if (cropperInstance) cropperInstance.destroy();
-        cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
+        
+        setTimeout(() => {
+            if (!cropperImageEl) return;
+            if (cropperInstance) cropperInstance.destroy();
+            cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
+        }, 50);
     }
 
+    // 🔥 Robuster Proxy-Aufruf
     async function loadExternalImage(imageUrl) {
+        if (!imageUrl) return;
         try {
             if (imageUrl.startsWith("data:image") || imageUrl.startsWith("blob:")) {
                 const response = await fetch(imageUrl);
@@ -237,21 +231,35 @@
             }
             const proxyUrl = `/api/fetch-image?url=${encodeURIComponent(imageUrl)}`;
             const response = await fetch(proxyUrl);
+            
             if (!response.ok) throw new Error("Interner Proxy fehlgeschlagen");
+            
             const blob = await response.blob();
-            processImageBlob(blob);
+            
+            if (blob && blob.size > 0) {
+                processImageBlob(blob);
+            } else {
+                throw new Error("Leeres Bild erhalten");
+            }
         } catch (error) {
-            console.error("Bild blockiert:", error);
+            console.error("Bild blockiert (Seite bleibt stabil):", error);
+            imagePreview = imageUrl; 
         }
     }
 
+    // 🔥 FIX: CropperJS sicherer Start
     async function processImageBlob(blob) {
         if (imagePreview) URL.revokeObjectURL(imagePreview);
         imagePreview = URL.createObjectURL(blob);
         isCropping = true;
+        
         await tick();
-        if (cropperInstance) cropperInstance.destroy();
-        cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
+        
+        setTimeout(() => {
+            if (!cropperImageEl) return;
+            if (cropperInstance) cropperInstance.destroy();
+            cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
+        }, 50);
     }
 
     function applyCrop() {
@@ -358,7 +366,6 @@
                 <div class="form-group tooltip-container">
                     <span class="label-text">Hauptkategorie *</span>
                     <div class="select-wrapper" class:error-highlight={formErrors.mainCategory || (isFromBookmarklet && !aiChoiceMade && !selectedMainCategoryId)}>
-                        <!-- 🔥 WICHTIG: on:change anstatt reaktives Statement, damit Kopie nicht gelöscht wird -->
                         <select 
                             name="mainCategoryId" 
                             class="standard-select" 
@@ -470,6 +477,9 @@
                 <label for="orderLink" class="label-text">Bestelllink</label>
                 <input type="url" id="orderLink" name="orderLink" bind:value={orderLink} placeholder="https://..." />
             </div>
+
+            <!-- 🔥 Verstecktes Feld, um die Bild-URL vom Bookmarklet an den Server zu senden -->
+            <input type="hidden" name="externalImageUrl" value={importedImageUrl} />
 
             <div class="image-area">
                 <span class="label-text">Artikelbild (4:3)</span>

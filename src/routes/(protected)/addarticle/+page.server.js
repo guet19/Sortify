@@ -15,7 +15,7 @@ cloudinary.config({
     api_secret: CLOUDINARY_API_SECRET
 });
 
-// 🔥 WICHTIG: Hier "url" hinzugefügt, um den ?copy= Parameter lesen zu können
+// 🔥 WICHTIG: Hier "url" hinzugefügt, um den ?copy= Parameter und das Bookmarklet lesen zu können
 export async function load({ locals, url }) { 
     // 1. System-ID aus dem Rucksack (locals) holen
     const systemId = locals.systemId;
@@ -29,7 +29,7 @@ export async function load({ locals, url }) {
         const categories = await db.getCategories(systemId);
         const attributes = await db.getFilterAttributes(systemId);
 
-        // 🔥 NEU: Kopier-Logik
+        // Kopier-Logik
         const copyId = url.searchParams.get('copy');
         let copiedArticle = null;
         
@@ -45,12 +45,21 @@ export async function load({ locals, url }) {
             }
         }
 
+        // 🔥 NEU: Bookmarklet-Daten aus der URL auslesen
+        const bookmarkletData = {
+            title: url.searchParams.get('title') || '',
+            url: url.searchParams.get('url') || '',
+            img: url.searchParams.get('img') || '',
+            desc: url.searchParams.get('desc') || ''
+        };
+
         // JSON.parse(JSON.stringify) ist der ultimative Schutz gegen POJO-Fehler
         return {
             categories: JSON.parse(JSON.stringify(categories)),
             attributes: JSON.parse(JSON.stringify(attributes)),
-            // 🔥 Den kopierten Artikel ans Frontend senden
-            copiedArticle: copiedArticle ? JSON.parse(JSON.stringify(copiedArticle)) : null
+            copiedArticle: copiedArticle ? JSON.parse(JSON.stringify(copiedArticle)) : null,
+            // 🔥 Diese Daten reichen wir jetzt ans Frontend weiter
+            bookmarkletData 
         };
     } catch (e) {
         console.error("--- LOAD FEHLER DIAGNOSE ---");
@@ -73,7 +82,9 @@ export const actions = {
         const title = data.get('title');
         const mainCategoryId = data.get('mainCategoryId');
         const istBestandRaw = data.get('istBestand');
+        
         const imageFile = data.get('image'); 
+        const externalImageUrl = data.get('externalImageUrl'); // 🔥 NEU: Link vom Bookmarklet holen
 
         if (!title || !mainCategoryId || istBestandRaw === null || istBestandRaw === '') {
             return fail(400, { error: "Titel, Hauptkategorie und Ist-Bestand sind erforderlich." });
@@ -84,9 +95,10 @@ export const actions = {
             const sollBestand = data.get('sollBestand') ? parseInt(data.get('sollBestand'), 10) : null;
             const mindestBestand = data.get('mindestBestand') ? parseInt(data.get('mindestBestand'), 10) : null;
 
-            let imagePath = null;
+            // 🔥 Standardmäßig nutzen wir den Link vom Bookmarklet (falls vorhanden)
+            let imagePath = externalImageUrl || null;
 
-            // Stream-Upload zu Cloudinary
+            // Stream-Upload zu Cloudinary (überschreibt imagePath, wenn eine Datei hochgeladen wurde)
             if (imageFile && imageFile instanceof Blob && imageFile.size > 0) {
                 const arrayBuffer = await imageFile.arrayBuffer();
                 const buffer = Buffer.from(arrayBuffer);
@@ -128,7 +140,7 @@ export const actions = {
                 supplier: data.get('supplier'),
                 price: parseFloat(data.get('price') || "0"),
                 orderLink: data.get('orderLink'),
-                imagePath, 
+                imagePath, // Hier liegt jetzt entweder der Shop-Link oder der Cloudinary-Link drin
                 attributes: itemAttributes,
                 createdAt: new Date(),
                 updatedAt: new Date()
