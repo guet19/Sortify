@@ -33,9 +33,8 @@
 </div>
 
 <style>
-    /* ... (Bisherige Styles bleiben gleich, plus das hier:) ... */
     :global(body) { margin: 0; padding: 0; background-color: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif; }
-    .terminal-viewport { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    .terminal-viewport { display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
     .terminal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 2rem; background-color: #1e293b; border-bottom: 2px solid #334155; }
     
     .home-link { text-decoration: none; color: inherit; }
@@ -63,5 +62,17 @@
     }
     .settings-btn:hover, .settings-btn:active { background-color: #334155; color: #fff; border-color: #3b82f6; }
     
-    .terminal-content { flex: 1; padding: 2rem; overflow-y: auto; }
+    .terminal-content { flex: 1; padding: 2rem; overflow-y: auto; overflow-x: hidden; min-width: 0; }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .terminal-header { padding: 0.75rem 1rem; gap: 0.75rem; }
+        .branding h1 { font-size: 1.3rem; gap: 0.5rem; }
+        .badge { font-size: 0.65rem; padding: 0.2rem 0.5rem; letter-spacing: 1px; }
+        .system-status { gap: 0.75rem; }
+        .status-text { display: none; } /* Der farbige Punkt reicht als Status */
+        .settings-btn { width: 44px; height: 44px; border-radius: 10px; }
+        .settings-btn svg { width: 22px; height: 22px; }
+        .terminal-content { padding: 1rem; }
+    }
 </style>

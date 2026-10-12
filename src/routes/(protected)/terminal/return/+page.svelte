@@ -170,7 +170,8 @@
                             {#if isScanning && lastScannedCode}
                                 ⏳ Prüfe: {lastScannedCode}...
                             {:else}
-                                Warte auf Scanner-Eingabe...
+                                <span class="scan-hint-desktop">Warte auf Scanner-Eingabe...</span>
+                                <span class="scan-hint-mobile">Barcode scannen oder unten eingeben</span>
                             {/if}
                         </span>
                     </div>
@@ -181,6 +182,8 @@
                         type="text" 
                         name="barcode" 
                         class="hidden-scan-input" 
+                        placeholder="Barcode, z.B. A-01"
+                        autocomplete="off" 
                         use:focusOnInit
                         on:keydown={(e) => {
                             if (e.key === 'Enter') {
@@ -192,7 +195,7 @@
                             }
                         }}
                     >
-                    <button type="submit" style="display: none;">Senden</button>
+                    <button type="submit" class="manual-submit">Barcode prüfen</button>
                 </form>
             </div>
 
@@ -531,4 +534,48 @@
     
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+
+    .manual-submit { display: none; }
+    .scan-hint-mobile { display: none; }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .terminal-page { padding: 0; }
+        .header { margin-bottom: 1.25rem; gap: 0.75rem; }
+        h1 { font-size: 1.5rem; text-align: left; }
+        .btn-back { flex-shrink: 0; padding: 0.6rem 0.9rem; }
+        .card { padding: 1.5rem 1.1rem; border-radius: 14px; }
+        .emoji-hero { font-size: 3rem; }
+        .step-title { font-size: 1.5rem; }
+        .step-desc { font-size: 1rem; margin-bottom: 1.25rem; }
+        .scan-animation-wrapper { padding: 1.25rem 1rem; }
+        .scan-hint-desktop { display: none; }
+        .scan-hint-mobile { display: inline; }
+        .article-profile-panel { padding: 1.25rem 1rem; margin-bottom: 1.5rem; }
+        .article-title { font-size: 1.25rem; overflow-wrap: anywhere; }
+        .image-showcase { width: 130px; height: 130px; }
+        .article-profile-panel-mini { padding: 0.75rem 1rem; }
+        .article-title-mini { font-size: 1.05rem; overflow-wrap: anywhere; }
+        /* LED-Button nicht mehr über dem Inhalt schweben lassen */
+        .retrigger-form { position: static; display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+        .stats-grid { gap: 0.75rem; margin-bottom: 1.5rem; }
+        .stat-box { min-width: 0; flex: 1; padding: 0.75rem; }
+        .stat-box .label { font-size: 0.75rem; }
+        .stat-box .value { font-size: 1.25rem; }
+        .huge-btn { padding: 1.1rem; font-size: 1.1rem; }
+
+        /* Kein Hardware-Scanner am Handy: Barcode-Feld sichtbar machen und von Hand eingeben */
+        .hidden-scan-input {
+            position: static; left: auto; top: auto; opacity: 1; clip: auto; margin: 1rem 0 0 0;
+            width: 100%; height: auto; padding: 0.9rem 1rem; overflow: visible;
+            background: #0f172a; color: #f8fafc; border: 1px solid #475569; border-radius: 10px;
+            font-size: 1.1rem; font-family: monospace; text-align: center;
+        }
+        .hidden-scan-input:focus { outline: none; border-color: #3b82f6; }
+        .manual-submit {
+            display: block; position: static; left: auto; width: 100%; height: auto; margin-top: 0.75rem;
+            background: #3b82f6; color: white; border: none; border-radius: 10px;
+            padding: 0.9rem; font-size: 1.05rem; font-weight: bold; cursor: pointer;
+        }
+    }
 </style>

@@ -49,4 +49,14 @@
     .icon { font-size: 5rem; margin-bottom: 1rem; }
     h3 { margin: 0; font-size: 2rem; }
     p { margin: 0; color: #cbd5e1; font-size: 1.2rem; line-height: 1.5; max-width: 80%; }
+
+    /* ===== Smartphone: Karten untereinander, kompakt ===== */
+    @media (max-width: 640px) {
+        .dashboard-container { padding-top: 1rem; }
+        h2 { font-size: 1.8rem; margin-bottom: 1.5rem; }
+        .action-grid { grid-template-columns: 1fr; gap: 1rem; }
+        .action-card { flex-direction: row; justify-content: flex-start; padding: 1.5rem; gap: 1.25rem; text-align: left; border-radius: 16px; }
+        .icon { font-size: 2.75rem; margin-bottom: 0; }
+        h3 { font-size: 1.4rem; }
+    }
 </style>

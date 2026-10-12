@@ -215,6 +215,10 @@
         }
         return article.assigned_barcode || null;
     }
+
+    // Smartphone: Filter-Seitenleiste ein-/ausklappen
+    let showFilters = false;
+    $: activeFilterCount = Object.values($assignFilterStore.selectedAttributeFilters).filter(v => v?.length > 0).length + Object.keys($assignFilterStore.activeRangeFilters).length;
 </script>
 
 <div class="terminal-page space-grotesk">
@@ -272,8 +276,13 @@
         </div>
     </div>
 
+    <button type="button" class="btn-toggle-filters" on:click={() => (showFilters = !showFilters)} aria-expanded={showFilters}>
+        <span>Filter{#if activeFilterCount > 0}<span class="badge">{activeFilterCount}</span>{/if}</span>
+        <span>{showFilters ? '▲' : '▼'}</span>
+    </button>
+
     <div class="content-wrapper">
-        <div class="sidebar-section">
+        <div class="sidebar-section" class:open={showFilters}>
             <div class="sidebar-header">
                 <h3>Spezifikationen</h3>
                 {#if Object.values($assignFilterStore.selectedAttributeFilters).some(arr => arr?.length > 0) || Object.keys($assignFilterStore.activeRangeFilters).length > 0}
@@ -470,5 +479,48 @@
 
     @media (max-width: 1024px) {
         .article-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ===== Smartphone ===== */
+    .btn-toggle-filters { display: none; }
+    @media (max-width: 768px) {
+        .terminal-page { padding: 0; }
+        .header { margin-bottom: 1rem; gap: 0.75rem; }
+        h1 { font-size: 1.6rem; }
+        .btn-back { padding: 0.6rem 1rem; flex-shrink: 0; }
+        .top-bar { padding: 1rem; margin-bottom: 1rem; gap: 1rem; }
+        .filter-right { max-width: none; }
+
+        /* Filter-Seitenleiste wird ausklappbar und volle Breite */
+        .content-wrapper { flex-direction: column; gap: 1rem; align-items: stretch; }
+        .btn-toggle-filters {
+            display: flex; justify-content: space-between; align-items: center; width: 100%;
+            background: #1e293b; color: white; border: 1px solid #334155; border-radius: 12px;
+            padding: 0.9rem 1rem; font-size: 1rem; font-weight: 600; cursor: pointer; margin-bottom: 1rem;
+        }
+        .btn-toggle-filters .badge { margin-left: 0.4rem; }
+        .sidebar-section { display: none; flex: none; width: 100%; position: static; max-height: none; padding: 1rem; }
+        .sidebar-section.open { display: block; }
+
+        .results-header { gap: 0.75rem; margin-bottom: 1rem; }
+        .sort-select { min-width: 0; width: auto; max-width: 55%; }
+
+        /* Artikel als kompakte Liste: Bild links, Infos rechts */
+        .article-grid { grid-template-columns: 1fr; gap: 0.75rem; }
+        .card { flex-direction: row; height: auto; }
+        .card:hover { transform: none; }
+        .card-image { width: 96px; height: auto; min-height: 96px; flex-shrink: 0; border-bottom: none; border-right: 1px solid #334155; }
+        .card-image img { padding: 0.5rem; }
+        .no-image { font-size: 0.8rem; text-align: center; }
+        .card-content { padding: 0.75rem 0.9rem; gap: 0.5rem; min-width: 0; }
+        .card-content h3 { font-size: 1rem; }
+        .stock-badge { font-size: 0.9rem; padding: 0.25rem 0.6rem; }
+        .barcode-badge { font-size: 0.85rem; padding: 0.25rem 0.6rem; }
+        .empty-state { padding: 2rem 1rem; }
+
+        /* Filter-Auswahl als Fenster über fast die ganze Höhe */
+        .modal-window { width: calc(100% - 1.5rem); max-height: 85dvh; }
+        .modal-header, .modal-footer { padding: 1rem; }
+        .btn-assign { padding: 0.6rem; font-size: 0.9rem; }
     }
 </style>

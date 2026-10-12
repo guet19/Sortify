@@ -518,4 +518,27 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
     @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .header { flex-direction: column; gap: 1rem; margin-bottom: 1.25rem; padding-bottom: 1rem; }
+        h1 { font-size: 1.6rem; }
+        .subtitle { font-size: 0.95rem; }
+        .filter-bar { flex-direction: column; align-items: stretch; gap: 0.75rem; padding: 1rem; margin-bottom: 1.25rem; }
+        .filter-group { flex-direction: column; align-items: stretch; gap: 0.5rem; }
+        .modern-select { width: 100%; font-size: 1rem; }
+        .article-grid { grid-template-columns: 1fr; gap: 1rem; }
+        .article-card { padding: 1rem; gap: 1rem; }
+        .title-info h3 { font-size: 1.05rem; overflow-wrap: anywhere; }
+        .card-actions { flex-direction: column; }
+        .modal-window { width: calc(100% - 1rem); max-height: 92dvh; overflow-y: auto; }
+        .modal-header { padding: 1rem 1.1rem; }
+        .modal-body { padding: 1.5rem 1.1rem; }
+        .emoji-hero { font-size: 3rem; }
+        .scale-animation { padding: 1.75rem 1rem; }
+        .result-value { font-size: 2.4rem; }
+        .huge-btn { width: 100%; padding: 1rem; }
+        .empty-state { padding: 2rem 1rem; }
+        .empty-state .icon { font-size: 3rem; }
+    }
 </style>

@@ -356,4 +356,17 @@
         20% { opacity: 1; }
         100% { opacity: 0.2; }
     }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .dashboard-wrapper { padding: 0; min-height: 0; }
+        .monitor-card { padding: 1.25rem; border-radius: 16px; }
+        .header { margin-bottom: 1.25rem; gap: 0.5rem; }
+        .title { font-size: 1.3rem; }
+        .digital-display { margin-bottom: 1.25rem; padding: 1.5rem 0.75rem; min-height: 200px; }
+        .display-label { font-size: 0.9rem; margin-bottom: 0.5rem; }
+        .weight-value { font-size: 4.5rem; }
+        .unit { font-size: 1.75rem; }
+        .action-btn { padding: 1rem; font-size: 1.1rem; }
+    }
 </style>

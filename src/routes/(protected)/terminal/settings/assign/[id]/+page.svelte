@@ -643,9 +643,9 @@
                             </span>
                         </div>
                         
-                        <input bind:this={scanInputRef} bind:value={scanInput} type="text" name="barcode" class="hidden-scan-input" required use:focusOnInit>
+                        <input bind:this={scanInputRef} bind:value={scanInput} type="text" name="barcode" class="hidden-scan-input" placeholder="Barcode, z.B. A-01" autocomplete="off" required use:focusOnInit>
                         
-                        <button type="submit" tabindex="-1" style="position: absolute; left: -9999px; width: 1px; height: 1px;">Scan</button>
+                        <button type="submit" tabindex="-1" class="manual-submit">Barcode prüfen</button>
                     </form>
                 {/if}
 
@@ -1073,6 +1073,7 @@
     .scan-line { width: 80%; height: 2px; background: var(--color-blue); box-shadow: 0 0 10px var(--color-blue); animation: scan 2s linear infinite; position: absolute; top: 0; }
     
     .hidden-scan-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+    .manual-submit { position: absolute; left: -9999px; width: 1px; height: 1px; }
     
     .button-stack { display: flex; flex-direction: column; gap: 1rem; }
     .button-row { display: flex; gap: 1rem; }
@@ -1119,4 +1120,67 @@
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes scan { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
     @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15px); } }
+
+    /* ===== Tablet & Smartphone ===== */
+    @media (max-width: 1024px) {
+        .article-layout { grid-template-columns: 1fr; gap: 2rem; }
+        .left-column { position: static; }
+    }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .terminal-page { padding: 0; }
+        .header { margin-bottom: 1.25rem; padding-bottom: 1rem; gap: 0.75rem; flex-wrap: wrap; }
+        .page-title { font-size: 1.6rem; overflow-wrap: anywhere; }
+        .btn-back { padding: 0.6rem 1rem; }
+        .article-layout { gap: 1.25rem; }
+        .left-column, .info-section { gap: 1rem; }
+        .image-section { height: 220px; border-radius: 12px; }
+        .hardware-trigger-btn { padding: 1.1rem 1rem; gap: 1rem; border-radius: 12px; }
+        .hardware-trigger-btn .icon-large { font-size: 2.2rem; }
+        .hardware-trigger-btn .btn-text strong { font-size: 1.15rem; }
+        .hardware-trigger-btn .btn-text span { font-size: 0.85rem; }
+        .drawer-highlight { padding: 1.1rem; }
+        .highlight-header { margin-bottom: 1rem; flex-wrap: wrap; }
+        .slot-item { padding: 0.75rem 0.9rem; gap: 0.5rem; }
+        .meta-grid { grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        .meta-item { padding: 0.9rem; gap: 0.6rem; flex-direction: column; align-items: flex-start; }
+        .meta-icon { width: 38px; height: 38px; font-size: 1.4rem; }
+        .meta-value { font-size: 1.05rem; overflow-wrap: anywhere; }
+        .highlight-green { font-size: 1.3rem; }
+        .meta-item.total-stock-item { grid-column: 1 / -1; }
+
+        /* Assistenten-Fenster: fast volle Breite, bei Bedarf scrollbar */
+        .modal-window, .modal-content { width: calc(100% - 1rem); max-height: 92dvh; overflow-y: auto; border-radius: 16px; }
+        .modal-header { padding: 1rem 1.1rem; }
+        .modal-body { padding: 1.5rem 1.1rem; }
+        .retrigger-form { position: static; display: flex; justify-content: flex-end; margin-bottom: 1rem; }
+        .emoji-hero { font-size: 3rem; }
+        .step-title { font-size: 1.4rem; }
+        .step-desc { font-size: 1rem; margin-bottom: 1.25rem; }
+        .scan-animation-wrapper { padding: 1.25rem 1rem; }
+        .scale-animation { padding: 1.75rem 1rem; }
+        .button-row { flex-direction: column; }
+        .huge-btn { padding: 1rem 1.25rem; }
+        .result-card { padding: 1.25rem; }
+        .result-value { font-size: 2.6rem; }
+        .modern-stats .value { font-size: 1.15rem; }
+        .conflict-article-card { flex-direction: column; text-align: center; gap: 1rem; padding: 1rem; }
+        .conflict-details { text-align: center; align-items: center; }
+        .block-link { align-self: center; }
+
+        /* Kein Hardware-Scanner am Handy: Barcode-Feld sichtbar machen und von Hand eingeben */
+        .hidden-scan-input {
+            position: static; left: auto; top: auto; opacity: 1; clip: auto; margin: 1rem 0 0 0;
+            width: 100%; height: auto; padding: 0.9rem 1rem; overflow: visible;
+            background: #0f172a; color: #f8fafc; border: 1px solid #475569; border-radius: 10px;
+            font-size: 1.1rem; font-family: monospace; text-align: center;
+        }
+        .hidden-scan-input:focus { outline: none; border-color: #3b82f6; }
+        .manual-submit {
+            display: block; position: static; left: auto; width: 100%; height: auto; margin-top: 0.75rem;
+            background: #3b82f6; color: white; border: none; border-radius: 10px;
+            padding: 0.9rem; font-size: 1.05rem; font-weight: bold; cursor: pointer;
+        }
+    }
 </style>

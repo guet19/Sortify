@@ -349,4 +349,18 @@
         justify-content: center;
         margin-bottom: 24px;
     }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .dashboard-wrapper { padding: 0; min-height: 0; }
+        .wizard-card { padding: 1.25rem; border-radius: 16px; }
+        .header { margin-bottom: 1.25rem; padding-bottom: 1rem; gap: 0.75rem; }
+        .title { font-size: 1.25rem; }
+        .step-indicator { flex-shrink: 0; white-space: nowrap; }
+        .step-title { font-size: 1.25rem; }
+        .step-desc { font-size: 0.95rem; }
+        .weight-input { width: 100%; max-width: 200px; }
+        .btn-group { flex-direction: column; }
+        .action-btn { flex: none; padding: 1rem; font-size: 1.05rem; }
+    }
 </style>

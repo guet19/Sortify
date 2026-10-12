@@ -627,4 +627,27 @@
     .warning-box h4 { margin: 0 0 0.5rem 0; color: #ef4444; }
     .warning-box p { margin: 0; color: #cbd5e1; font-size: 0.95rem; line-height: 1.4; }
     .highlight-code { color: #f8fafc; background: #334155; padding: 0.1rem 0.4rem; border-radius: 4px; font-family: monospace; }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .header { margin-bottom: 1.25rem; padding-bottom: 1rem; }
+        .header h1 { font-size: 1.6rem; }
+        .subtitle { font-size: 1rem; }
+        .dashboard-grid { grid-template-columns: 1fr; gap: 1rem; }
+        .shelf-card { padding: 1rem; }
+        .shelf-title h2 { font-size: 1.2rem; }
+        .shelf-title .icon { font-size: 1.5rem; }
+        .add-shelf-btn .plus-icon { font-size: 2rem; }
+        .add-shelf-btn span { font-size: 1.05rem; }
+        .setup-container, .calibration-container { padding: 1.25rem; }
+        .button-row { flex-direction: column; }
+        .btn-cancel, .btn-primary, .btn-danger { width: 100%; padding: 0.9rem; }
+        .barcode-text { font-size: 1rem; overflow-wrap: anywhere; }
+        .modal-content, .modal-window { width: calc(100% - 1rem); max-height: 92dvh; overflow-y: auto; }
+        /* Ohne Hardware-Scanner: Absende-Button für die Eingabe von Hand zeigen */
+        .btn-hidden {
+            display: block; width: 100%; margin-top: 0.75rem; background: #3b82f6; color: white; border: none;
+            border-radius: 10px; padding: 0.9rem; font-size: 1.05rem; font-weight: bold; cursor: pointer;
+        }
+    }
 </style>

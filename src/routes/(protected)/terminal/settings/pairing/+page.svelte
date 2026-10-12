@@ -243,4 +243,14 @@
     .back-link:hover { background-color: #2a4b7a; }
     .remove-btn { display: inline-flex; align-items: center; justify-content: center; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); color: #ef4444; padding: 12px 24px; border-radius: 8px; cursor: pointer; transition: all 0.2s; font-size: 16px; }
     .remove-btn:hover { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.6); }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .pairing-container { margin: 0; padding: 1.25rem; }
+        .header-section { margin-bottom: 1.5rem; padding-bottom: 1rem; }
+        .header-section h1 { font-size: 1.4rem; }
+        .grid-layout { gap: 1.5rem; }
+        .action-buttons-row { flex-direction: column; }
+        .remove-btn { width: 100%; }
+    }
 </style>

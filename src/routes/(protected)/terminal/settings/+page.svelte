@@ -213,4 +213,19 @@
         font-size: 1.1rem; 
         line-height: 1.5; 
     }
+
+    /* ===== Smartphone ===== */
+    @media (max-width: 640px) {
+        .settings-container { padding-top: 0; }
+        .header-area { margin-bottom: 1.25rem; gap: 0.75rem; }
+        h2 { font-size: 1.5rem; }
+        .back-btn { padding: 0.6rem 0.9rem; font-size: 0.95rem; flex-shrink: 0; }
+        .action-grid { gap: 0.75rem; }
+        .action-card { padding: 1rem; gap: 1rem; border-radius: 14px; }
+        .action-card:hover { transform: none; }
+        .icon { width: 52px; height: 52px; font-size: 1.8rem; border-radius: 12px; }
+        .icon :global(svg) { width: 26px; height: 26px; }
+        h3 { font-size: 1.15rem; }
+        p { font-size: 0.9rem; }
+    }
 </style>
