@@ -11,7 +11,9 @@ const API_PERMISSIONS = {
     '/api/scale': ['/terminal/return', '/terminal/settings/scale', '/terminal/settings/assign', '/terminal/settings/maintenance'],
     '/api/fetch-image': ['/addarticle', '/editarticle'],
     '/api/extract-article': ['/addarticle', '/editarticle'],
+    '/api/suggest-category': ['/addarticle'],
     '/api/ai-category-wizard': ['/einstellungen/category'],
+    '/api/apply-category-structure': ['/einstellungen/category'],
     '/api/pairing-status': ['/terminal/settings/pairing']
 };
 

@@ -49,9 +49,31 @@
 
   let aiSelectedExistingAttributes = $state([]); // IDs
   let aiSelectedNewAttributes = $state([]); // Objekte
+  let aiError = $state("");
+
+  // Ausführliche Shop-Daten vom Lesezeichen (v2); im Eingabefeld steht nur der Titel
+  let aiImportText = $state("");
+  let aiImportTitle = $state("");
+  let aiImportReceived = false;
+
+  function handleImportMessage(event, shopOrigin) {
+    const payload = event.data;
+    if (!payload || payload.type !== "sortify-import" || typeof payload.text !== "string") return;
+    if (!shopOrigin || event.origin !== shopOrigin) return;
+
+    event.source?.postMessage({ type: "sortify-import-ack" }, event.origin);
+    if (aiImportReceived) return;
+    aiImportReceived = true;
+
+    aiImportText = payload.text.slice(0, 18000);
+    aiImportTitle = String(payload.title || "").slice(0, 200);
+    aiArticleInput = aiImportTitle;
+    generateStructure();
+  }
 
   onMount(() => {
     if (browser) {
+
       // 1. Restore Logik
       const savedMain = sessionStorage.getItem("restoreMainId");
       const savedSub = sessionStorage.getItem("restoreSubId");
@@ -68,15 +90,25 @@
       const aiTitle = $page.url.searchParams.get('ai_title');
       const aiUrl = $page.url.searchParams.get('ai_url');
       const aiDesc = $page.url.searchParams.get('ai_desc');
+      const isNewBookmarklet = $page.url.searchParams.get('ai_import') === '2';
 
       if (aiTitle || aiUrl) {
         aiArticleInput = `Titel: ${aiTitle || ''} | Beschreibung: ${aiDesc || ''} | Link: ${aiUrl || ''}`;
         
         const url = new URL(window.location);
-        url.searchParams.delete('ai_title');
-        url.searchParams.delete('ai_url');
-        url.searchParams.delete('ai_desc');
+        ['ai_title', 'ai_url', 'ai_desc', 'ai_import'].forEach((key) => url.searchParams.delete(key));
         window.history.replaceState({}, '', url);
+
+        if (isNewBookmarklet) {
+          // Neues Lesezeichen: ausführliche Daten kommen per postMessage – nur vom Shop der übergebenen Seite
+          let shopOrigin = "";
+          try { shopOrigin = new URL(aiUrl).origin; } catch {}
+          const listener = (event) => handleImportMessage(event, shopOrigin);
+          window.addEventListener("message", listener);
+          // Falls keine Daten ankommen (z.B. nach einem Login), nur mit Titel & Link planen
+          setTimeout(() => { if (!aiImportReceived) { aiImportReceived = true; generateStructure(); } }, 4000);
+          return () => window.removeEventListener("message", listener);
+        }
 
         setTimeout(() => generateStructure(), 400);
       }
@@ -87,19 +119,25 @@
   async function generateStructure() {
     if (!aiArticleInput.trim()) return;
     isAiLoading = true;
+    aiError = "";
     
     try {
+      // Unverändert importierter Titel -> die ausführlichen Shop-Daten verwenden
+      const articleText = aiImportText && aiArticleInput === aiImportTitle ? aiImportText : aiArticleInput;
+      // Kategorien & Filter lädt der Server selbst aus der Datenbank
       const response = await fetch('/api/ai-category-wizard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          articleText: aiArticleInput,
-          categories: data.categories || [],
-          attributes: data.filterAttributes || []
-        })
+        body: JSON.stringify({ articleText })
       });
 
-      aiResult = await response.json();
+      const result = await response.json();
+      if (!response.ok) {
+        aiResult = null;
+        aiError = result.error || "Fehler bei der KI-Analyse.";
+        return;
+      }
+      aiResult = result;
 
       // 🔥 NEU: Optionen als editierbaren Komma-String vorbereiten
       if (aiResult.newAttributes) {
@@ -123,7 +161,8 @@
 
     } catch (error) {
       console.error(error);
-      alert("Fehler bei der KI-Analyse");
+      aiResult = null;
+      aiError = "Fehler bei der KI-Analyse. Bitte versuche es erneut.";
     } finally {
       isAiLoading = false;
     }
@@ -277,6 +316,12 @@
           </button>
         </div>
       </div>
+
+      {#if aiError || form?.errorAi}
+        <div class="alert alert-danger m-4 mb-0 d-flex align-items-center gap-2">
+          <i class="bi bi-exclamation-triangle-fill"></i> {aiError || form?.errorAi}
+        </div>
+      {/if}
 
       {#if aiResult}
         <div class="card-body p-4 animate-fade-in" style="background-color: #ffffff;">

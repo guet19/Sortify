@@ -2,6 +2,7 @@ import { error, fail } from '@sveltejs/kit';
 import db from '$lib/server/db.js'; // WICHTIG: Als Default-Import ohne geschweifte Klammern!
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
+import { canAccessPath } from '$lib/permissions.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { 
     CLOUDINARY_CLOUD_NAME, 
@@ -63,7 +64,9 @@ export async function load({ locals, url }) {
             attributes: JSON.parse(JSON.stringify(attributes)),
             copiedArticle: copiedArticle ? JSON.parse(JSON.stringify(copiedArticle)) : null,
             // 🔥 Diese Daten reichen wir jetzt ans Frontend weiter
-            bookmarkletData 
+            bookmarkletData,
+            // Darf der Nutzer per KI neue Kategorien & Filter anlegen?
+            canManageCategories: canAccessPath('/einstellungen/category', locals.allowedRoutes || [])
         };
     } catch (e) {
         console.error("Fehler beim Laden der Formulardaten:", e);

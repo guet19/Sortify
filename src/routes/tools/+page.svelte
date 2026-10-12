@@ -4,7 +4,8 @@
     // Läuft als Lesezeichen auf der Shop-Seite: sammelt Produktdaten und alle großen Produktbilder
     // und übergibt sie per postMessage an das geöffnete Sortify-Fenster (keine Längenbegrenzung wie bei URLs).
     // Wichtig: Die Funktion darf nichts von außerhalb verwenden, da sie als Text ins Lesezeichen kopiert wird.
-    function sortifyImport(origin) {
+    // mode: 'article' -> neuen Artikel anlegen, 'category' -> Kategorie-Struktur mit KI planen
+    function sortifyImport(origin, mode) {
         var d = document;
         var clean = function (s, n) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, n); };
         var meta = function (sel) { var m = d.querySelector(sel); return m ? m.content : ''; };
@@ -65,7 +66,9 @@
 
         var payload = { type: 'sortify-import', version: 2, title: d.title, url: location.href, description: description, text: text, images: images };
         // Kurze Basisdaten zusätzlich in der URL (falls die Übergabe z.B. wegen Login nicht klappt)
-        var target = origin + '/addarticle?import=2&title=' + encodeURIComponent(d.title) + '&url=' + encodeURIComponent(location.href) + '&img=' + encodeURIComponent(images[0] ? images[0].url : '');
+        var target = mode === 'category'
+            ? origin + '/einstellungen/category?ai_import=2&ai_title=' + encodeURIComponent(d.title) + '&ai_url=' + encodeURIComponent(location.href)
+            : origin + '/addarticle?import=2&title=' + encodeURIComponent(d.title) + '&url=' + encodeURIComponent(location.href) + '&img=' + encodeURIComponent(images[0] ? images[0].url : '');
         var w = window.open(target, '_blank');
         if (!w) { alert('Bitte erlaube Pop-ups für diese Seite, damit Sortify geöffnet werden kann.'); return; }
 
@@ -81,7 +84,9 @@
     }
 
     // URL-kodiert, damit Zeichen wie % im Lesezeichen nicht verfälscht werden
-    $: bookmarkletCode = 'javascript:' + encodeURIComponent(`(${sortifyImport.toString()})(${JSON.stringify($page.url.origin)})`);
+    const toBookmarklet = (mode) => 'javascript:' + encodeURIComponent(`(${sortifyImport.toString()})(${JSON.stringify($page.url.origin)}, ${JSON.stringify(mode)})`);
+    $: bookmarkletCode = toBookmarklet('article');
+    $: categoryBookmarkletCode = toBookmarklet('category');
     
     function handleClick(event) {
         event.preventDefault(); 
@@ -111,8 +116,21 @@
             ➕ Add to Sortify 
         </a>
 
+        <p class="instruction" style="margin-top: 1.5rem;">
+            Mit dem zweiten Lesezeichen plant die KI für ein Produkt die passende <strong>Haupt- und Unterkategorie samt Filtern</strong> – ideal, wenn eine neue Produktart ins Lager kommt.
+        </p>
+
+        <a 
+            class="bookmarklet-btn bookmarklet-btn-secondary" 
+            title="Sortify Kategorie planen" 
+            href={categoryBookmarkletCode} 
+            on:click={handleClick}
+        >
+            🗂️ Sortify Kategorie planen
+        </a>
+
         <p class="gif-hint update-hint">
-            <strong>Neue Version:</strong> Falls Sie das Lesezeichen schon früher installiert haben, löschen Sie es bitte und ziehen Sie den Button erneut in die Leiste – erst dann werden mehrere Bilder und mehr Produktdaten übernommen.
+            <strong>Neue Version:</strong> Falls Sie die Lesezeichen schon früher installiert haben, löschen Sie diese bitte und ziehen Sie die Buttons erneut in die Leiste – erst dann werden mehrere Bilder und deutlich mehr Produktdaten übernommen.
         </p>
 
         <p class="gif-hint">
@@ -236,6 +254,7 @@
         cursor: grabbing; 
     }
     
+    .bookmarklet-btn-secondary { background: #0f766e !important; margin-top: 0.5rem; }
     .update-hint { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 0.75rem 1rem; border-radius: 8px; }
     .gif-hint {
         margin-top: 30px;

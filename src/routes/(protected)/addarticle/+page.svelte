@@ -5,7 +5,7 @@
     import SearchableSelect from "$lib/components/SearchableSelect.svelte";
     import { prepareOnWhite, rotateBlob } from "$lib/imageTools.js";
     import { page } from "$app/stores";
-    import { goto } from "$app/navigation"; 
+    import { goto, invalidateAll } from "$app/navigation"; 
 
     import "cropperjs/dist/cropper.css";
     import Cropper from "cropperjs";
@@ -14,8 +14,9 @@
     export let form;
 
     // 🔥 Absolut sicheres Entpacken. Verhindert Absturz, falls der Server kurz hakt.
-    const categories = data?.categories || [];
-    const attributes = data?.attributes || [];
+    // Reaktiv, damit per KI neu angelegte Kategorien & Filter sofort erscheinen
+    $: categories = data?.categories || [];
+    $: attributes = data?.attributes || [];
     const copiedArticle = data?.copiedArticle || null;
     const bookmarkletData = data?.bookmarkletData || {};
 
@@ -81,6 +82,133 @@
             .slice(0, 24)
             .map(i => ({ url: i.url, alt: String(i.alt || "").slice(0, 80) }));
         if (candidates.length > 0) imageCandidates = candidates;
+
+        requestCategorySuggestion();
+    }
+
+    // --- KI-Vorschlag für Haupt- & Unterkategorie (nur bestehende Kategorien) ---
+    let categorySuggestionState = ""; // "" | "loading" | "done" | "none"
+    let suggestedCategory = null;
+    let categorySuggestionRequested = false;
+    $: isSuggestionActive = !!suggestedCategory
+        && selectedMainCategoryId === suggestedCategory.mainCategoryId
+        && selectedSubcategoryId === suggestedCategory.subcategoryId;
+
+    async function requestCategorySuggestion() {
+        if (categorySuggestionRequested || copiedArticle || selectedMainCategoryId || mainCategoryOptions.length === 0) return;
+        const text = rawImportText || [title, bookmarkletData?.url].filter(Boolean).join("\n");
+        if (!text) return;
+        categorySuggestionRequested = true;
+        categorySuggestionState = "loading";
+        try {
+            const res = await fetch("/api/suggest-category", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text })
+            });
+            const result = await res.json();
+            // Nur übernehmen, wenn in der Zwischenzeit nicht selbst gewählt wurde
+            if (res.ok && result.suggestion && !selectedMainCategoryId) {
+                selectedMainCategoryId = result.suggestion.mainCategoryId;
+                await tick(); // Unterkategorien der neuen Hauptkategorie erst rendern lassen
+                selectedSubcategoryId = result.suggestion.subcategoryId;
+                suggestedCategory = result.suggestion;
+                categorySuggestionState = "done";
+            } else {
+                categorySuggestionState = "none";
+            }
+        } catch (err) {
+            console.warn("Kategorie-Vorschlag fehlgeschlagen:", err);
+            categorySuggestionState = "none";
+        }
+    }
+
+    // --- KI-Empfehlung für eine NEUE Kategorie-Struktur (wenn keine bestehende passt) ---
+    let structure = null;          // Antwort des KI-Assistenten
+    let structureState = "";       // "" | "loading" | "ready" | "saving"
+    let structureError = "";
+    let structMainMode = "existing", structMainId = "", structNewMainName = "";
+    let structSubMode = "existing", structSubId = "", structNewSubName = "";
+    let structExistingAttrs = [];  // IDs bestehender Filter
+    let structNewAttrs = [];       // neue Filter (bearbeitbar)
+
+    $: structAvailableSubs = structMainMode === "new"
+        ? []
+        : (safeCategories.find((c) => c._id === structMainId)?.subcategories || []);
+    $: if (structMainMode === "new") structSubMode = "new";
+
+    // avoid: vom Nutzer abgelehnte Zuordnung { mainCategoryId, subcategoryId }
+    async function requestCategoryStructure(avoid = null) {
+        structureState = "loading";
+        structureError = "";
+        try {
+            const articleText = (rawImportText || [title, bookmarkletData?.url].filter(Boolean).join("\n")).slice(0, 18000);
+            const res = await fetch("/api/ai-category-wizard", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ articleText, avoid })
+            });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || "Fehler bei der KI-Analyse.");
+
+            structure = result;
+            structMainMode = result.mainCategory.isNew ? "new" : "existing";
+            structMainId = result.mainCategory.id || "";
+            structNewMainName = result.mainCategory.suggestedName || "";
+            structSubMode = result.subCategory.isNew ? "new" : "existing";
+            structSubId = result.subCategory.id || "";
+            structNewSubName = result.subCategory.suggestedName || "";
+            structExistingAttrs = [...result.existingAttributeIds];
+            structNewAttrs = result.newAttributes.map((a) => ({ ...a, selected: true, optionsString: (a.options || []).join(", ") }));
+            structureState = "ready";
+        } catch (err) {
+            structureError = err.message || "Fehler bei der KI-Analyse.";
+            structureState = "";
+        }
+    }
+
+    function toggleStructExistingAttr(id) {
+        structExistingAttrs = structExistingAttrs.includes(id)
+            ? structExistingAttrs.filter((x) => x !== id)
+            : [...structExistingAttrs, id];
+    }
+
+    async function applyStructure() {
+        structureState = "saving";
+        structureError = "";
+        try {
+            const fd = new FormData();
+            fd.set("mainMode", structMainMode);
+            fd.set("existingMainId", structMainId);
+            fd.set("newMainName", structNewMainName);
+            fd.set("subMode", structSubMode);
+            fd.set("existingSubId", structSubId);
+            fd.set("newSubName", structNewSubName);
+            fd.set("existingAttributes", JSON.stringify(structExistingAttrs));
+            fd.set("newAttributes", JSON.stringify(structNewAttrs.filter((a) => a.selected).map((a) => ({
+                label: a.label,
+                ui_type: a.ui_type,
+                unit: a.unit || "",
+                options: a.ui_type === "select" ? (a.optionsString || "").split(",").map((o) => o.trim()).filter(Boolean) : []
+            }))));
+
+            const res = await fetch("/api/apply-category-structure", { method: "POST", body: fd });
+            const result = await res.json();
+            if (!res.ok) throw new Error(result.error || "Die Kategorie konnte nicht angelegt werden.");
+
+            // Neue Kategorien & Filter laden und direkt auswählen
+            await invalidateAll();
+            selectedMainCategoryId = result.mainId;
+            await tick();
+            selectedSubcategoryId = result.subId;
+            suggestedCategory = { mainCategoryId: result.mainId, subcategoryId: result.subId };
+            categorySuggestionState = "created";
+            structure = null;
+            structureState = "";
+        } catch (err) {
+            structureError = err.message || "Die Kategorie konnte nicht angelegt werden.";
+            structureState = "ready";
+        }
     }
 
     // Vorschaubild direkt vom Shop laden; bei Hotlink-Schutz über den eigenen Proxy, sonst ausblenden
@@ -140,7 +268,16 @@
         : [];
 
     onMount(async () => {
-        if (isFromBookmarklet) window.addEventListener("message", handleImportMessage);
+        if (isFromBookmarklet) {
+            window.addEventListener("message", handleImportMessage);
+            if ($page.url.searchParams.get("import") === "2") {
+                // Neues Lesezeichen: auf die Daten warten, notfalls nur mit Titel & URL vorschlagen
+                setTimeout(requestCategorySuggestion, 4000);
+            } else {
+                // Altes Lesezeichen: die Daten stehen bereits in der URL
+                requestCategorySuggestion();
+            }
+        }
 
         if (copiedArticle && copiedArticle.subcategoryId) {
             await tick();
@@ -441,6 +578,130 @@
         <div class="form-section">
             <h2>1. Kategorisierung festlegen</h2>
 
+            {#if categorySuggestionState === "loading"}
+                <div class="ai-category-status"><span class="mini-spinner"></span> KI sucht die passende Kategorie…</div>
+            {:else if isSuggestionActive && categorySuggestionState === "created"}
+                <div class="ai-category-status done">✨ Neue Kategorie angelegt und ausgewählt.</div>
+            {:else if isSuggestionActive}
+                <div class="ai-category-status done no-match">
+                    <span>✨ Kategorie von der KI vorgeschlagen – bitte kurz prüfen.</span>
+                    {#if data.canManageCategories && !structure}
+                        <!-- Nicht einverstanden? Andere/neue Kategorie per KI planen lassen -->
+                        <button type="button" class="btn-structure btn-structure-secondary" disabled={structureState === "loading"}
+                            on:click={() => requestCategoryStructure({ mainCategoryId: selectedMainCategoryId, subcategoryId: selectedSubcategoryId })}>
+                            {#if structureState === "loading"}<span class="mini-spinner"></span> KI plant Kategorie…{:else}Nicht passend? Andere Kategorie per KI erstellen{/if}
+                        </button>
+                    {/if}
+                </div>
+            {:else if isFromBookmarklet && !selectedMainCategoryId && !structure && (categorySuggestionState === "none" || mainCategoryOptions.length === 0)}
+                <div class="ai-category-status no-match">
+                    <span>Keine passende Kategorie gefunden – bitte selbst wählen{data.canManageCategories ? ' oder eine neue anlegen lassen' : ''}.</span>
+                    {#if data.canManageCategories}
+                        <button type="button" class="btn-structure" on:click={requestCategoryStructure} disabled={structureState === "loading"}>
+                            {#if structureState === "loading"}<span class="mini-spinner"></span> KI plant Kategorie…{:else}✨ KI-Empfehlung für passende Kategorie erstellen{/if}
+                        </button>
+                    {/if}
+                </div>
+            {/if}
+
+            {#if structureError && !structure}
+                <div class="alert error" style="margin-bottom: 1rem;">{structureError}</div>
+            {/if}
+
+            {#if structure}
+                <div class="struct-panel">
+                    <div class="struct-title">✨ KI-Empfehlung für die Kategorie</div>
+
+                    <div class="struct-grid">
+                        <div class="struct-box">
+                            <span class="struct-label">Hauptkategorie</span>
+                            <div class="struct-modes">
+                                <label><input type="radio" name="ai_struct_main" value="existing" bind:group={structMainMode} disabled={mainCategoryOptions.length === 0}> Bestehende</label>
+                                <label><input type="radio" name="ai_struct_main" value="new" bind:group={structMainMode}> Neu anlegen</label>
+                            </div>
+                            {#if structMainMode === "existing"}
+                                <select class="standard-select" bind:value={structMainId} on:change={() => (structSubId = "")}>
+                                    <option value="" disabled>Wählen...</option>
+                                    {#each safeCategories as cat}<option value={cat._id}>{cat.name}</option>{/each}
+                                </select>
+                            {:else}
+                                <input type="text" class="struct-input-new" bind:value={structNewMainName} maxlength="60" placeholder="Name der neuen Hauptkategorie" />
+                            {/if}
+                        </div>
+
+                        <div class="struct-box">
+                            <span class="struct-label">Unterkategorie</span>
+                            <div class="struct-modes">
+                                <label><input type="radio" name="ai_struct_sub" value="existing" bind:group={structSubMode} disabled={structMainMode === "new" || structAvailableSubs.length === 0}> Bestehende</label>
+                                <label><input type="radio" name="ai_struct_sub" value="new" bind:group={structSubMode}> Neu anlegen</label>
+                            </div>
+                            {#if structSubMode === "existing"}
+                                <select class="standard-select" bind:value={structSubId}>
+                                    <option value="" disabled>Wählen...</option>
+                                    {#each structAvailableSubs as sub}<option value={sub.id}>{sub.name}</option>{/each}
+                                </select>
+                            {:else}
+                                <input type="text" class="struct-input-new" bind:value={structNewSubName} maxlength="60" placeholder="Name der neuen Unterkategorie" />
+                            {/if}
+                        </div>
+                    </div>
+
+                    <span class="struct-label" style="margin-top: 1.25rem; display: block;">Filter für diese Unterkategorie</span>
+                    <div class="struct-filters">
+                        {#each structure.existingAttributeIds as attrId}
+                            {@const def = safeAttributes.find((a) => a._id === attrId)}
+                            {#if def}
+                                <label class="struct-filter">
+                                    <input type="checkbox" checked={structExistingAttrs.includes(attrId)} on:change={() => toggleStructExistingAttr(attrId)} />
+                                    <div class="struct-filter-body">
+                                        <div class="struct-filter-head"><strong>{def.label}</strong><span class="struct-badge">vorhanden</span></div>
+                                        <small>
+                                            {#if def.ui_type === "select"}Optionen: {(def.options || []).join(", ") || "–"}
+                                            {:else if def.ui_type === "number"}Zahl{def.unit ? ` (${def.unit})` : ""}
+                                            {:else}Text{/if}
+                                        </small>
+                                    </div>
+                                </label>
+                            {/if}
+                        {/each}
+
+                        {#each structNewAttrs as attr}
+                            <div class="struct-filter is-new">
+                                <input type="checkbox" bind:checked={attr.selected} />
+                                <div class="struct-filter-body">
+                                    <div class="struct-filter-head"><span class="struct-badge new">neu</span></div>
+                                    <input type="text" class="struct-input-new" bind:value={attr.label} maxlength="60" placeholder="Name des Filters" />
+                                    {#if attr.ui_type === "select"}
+                                        <small>Optionen (mit Komma getrennt):</small>
+                                        <input type="text" bind:value={attr.optionsString} placeholder="Option 1, Option 2, ..." />
+                                    {:else if attr.ui_type === "number"}
+                                        <small>Zahl – Einheit:</small>
+                                        <input type="text" bind:value={attr.unit} maxlength="15" placeholder="z.B. mm" />
+                                    {:else}
+                                        <small>Textfeld</small>
+                                    {/if}
+                                </div>
+                            </div>
+                        {/each}
+
+                        {#if structure.existingAttributeIds.length === 0 && structNewAttrs.length === 0}
+                            <small class="struct-empty">Keine Filter vorgeschlagen.</small>
+                        {/if}
+                    </div>
+
+                    {#if structureError}
+                        <div class="alert error" style="margin: 1rem 0 0 0;">{structureError}</div>
+                    {/if}
+
+                    <div class="struct-actions">
+                        <button type="button" class="btn-ai-no" on:click={() => { structure = null; structureError = ""; }}>Verwerfen</button>
+                        <button type="button" class="btn-ai-yes" on:click={applyStructure} disabled={structureState === "saving"}>
+                            {structureState === "saving" ? "Wird angelegt…" : "Kategorie anlegen & übernehmen"}
+                        </button>
+                    </div>
+                </div>
+            {/if}
+            
             {#if mainCategoryOptions.length === 0}
                 <div class="alert error" style="margin-bottom: 0;">
                     <strong>Keine Kategorien verfügbar!</strong> Bitte legen Sie zuerst in den Einstellungen eine Hauptkategorie inkl. Unterkategorie an, um Artikel speichern zu können.
@@ -871,6 +1132,52 @@
     .candidate:hover { border-color: #93c5fd; }
     .candidate.selected { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
     .candidate img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+    /* Hinweis zum KI-Kategorievorschlag */
+    .ai-category-status {
+        display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; padding: 0.6rem 0.9rem;
+        border-radius: 8px; font-size: 0.9rem; font-weight: 600; background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0;
+    }
+    .ai-category-status.done { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .mini-spinner {
+        width: 14px; height: 14px; border: 2px solid #cbd5e1; border-top-color: #3b82f6; border-radius: 50%;
+        animation: mini-spin 0.8s linear infinite; flex-shrink: 0;
+    }
+    @keyframes mini-spin { to { transform: rotate(360deg); } }
+
+    /* KI-Empfehlung für eine neue Kategorie-Struktur */
+    .ai-category-status.no-match { flex-wrap: wrap; justify-content: space-between; }
+    .btn-structure {
+        display: inline-flex; align-items: center; gap: 0.5rem; background: #3b82f6; color: #fff; border: none;
+        border-radius: 8px; padding: 0.55rem 1rem; font-weight: 700; font-size: 0.9rem; cursor: pointer;
+    }
+    .btn-structure:hover:not(:disabled) { background: #2563eb; }
+    .btn-structure:disabled { opacity: 0.8; cursor: wait; }
+    .btn-structure-secondary { background: #ffffff; color: #1d4ed8; border: 1px solid #93c5fd; }
+    .btn-structure-secondary:hover:not(:disabled) { background: #eff6ff; }
+    .struct-panel { border: 1px solid #bfdbfe; background: #f8fbff; border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+    .struct-title { font-weight: 700; color: #1d4ed8; margin-bottom: 1rem; }
+    .struct-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .struct-box { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+    .struct-label { font-weight: 700; color: #334155; font-size: 0.9rem; }
+    .struct-modes { display: flex; gap: 1rem; font-size: 0.85rem; color: #475569; flex-wrap: wrap; }
+    .struct-modes label { display: flex; align-items: center; gap: 0.3rem; cursor: pointer; white-space: nowrap; }
+    .struct-input-new { font-weight: 700; color: #15803d; }
+    .struct-filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.75rem; margin-top: 0.6rem; }
+    .struct-filter { display: flex; gap: 0.6rem; align-items: flex-start; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem; cursor: pointer; }
+    .struct-filter.is-new { background: #f0fdf4; border-color: #bbf7d0; cursor: default; }
+    .struct-filter > input[type="checkbox"] { margin-top: 0.2rem; width: 1.05rem; height: 1.05rem; flex-shrink: 0; cursor: pointer; }
+    .struct-filter-body { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; flex: 1; }
+    .struct-filter-body small { color: #64748b; font-size: 0.78rem; overflow-wrap: anywhere; }
+    .struct-filter-head { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+    .struct-badge { font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 999px; background: #dbeafe; color: #1d4ed8; }
+    .struct-badge.new { background: #dcfce7; color: #15803d; }
+    .struct-empty { color: #64748b; }
+    .struct-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; flex-wrap: wrap; }
+    @media (max-width: 640px) {
+        .struct-grid { grid-template-columns: 1fr; }
+        .struct-actions > button { flex: 1; }
+    }
 
     /* Bild drehen */
     .btn-rotate { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; cursor: pointer; }
