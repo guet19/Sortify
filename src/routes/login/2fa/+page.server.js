@@ -82,11 +82,9 @@ export const actions = {
 
         if (systems.length === 1) {
             throw redirect(303, redirectTo); 
-        } else if (systems.length > 1) {
-            throw redirect(303, `/select-system?redirectTo=${encodeURIComponent(redirectTo)}`);
-        } else {
-            return fail(403, { error: 'Dir ist noch kein Lager zugewiesen.' });
         }
+        // Mehrere Lager -> Auswahl, kein Lager -> dort ein eigenes Lager anlegen
+        throw redirect(303, `/select-system?redirectTo=${encodeURIComponent(redirectTo)}`);
     },
 
     // -------------------------------------------------------------------------

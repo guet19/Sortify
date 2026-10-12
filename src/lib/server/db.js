@@ -1327,6 +1327,38 @@ async function triggerSingleLedBlue(systemId, barcode) {
         throw error;
     }
 }
+// Anzahl der Lager, die ein Nutzer selbst erstellt hat
+async function countSystemsCreatedBy(userId) {
+    const db = await getDb();
+    return await db.collection('systems').countDocuments({ createdBy: new ObjectId(userId) });
+}
+
+// Neues Lager anlegen – der Ersteller wird automatisch Administrator
+async function createSystem(userId, name, color = '#3b82f6') {
+    const db = await getDb();
+    const result = await db.collection('systems').insertOne({
+        name,
+        createdBy: new ObjectId(userId),
+        createdAt: new Date()
+    });
+    await db.collection('users').updateOne(
+        { _id: new ObjectId(userId) },
+        { $push: { systems: { systemId: result.insertedId, role: 'admin', color } } }
+    );
+    return result.insertedId.toString();
+}
+
+// Mehrere Lager in EINER Abfrage laden (statt einer Abfrage pro Lager)
+async function getSystemsByIds(ids) {
+    const validIds = ids.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
+    if (validIds.length === 0) return [];
+    const db = await getDb();
+    const systems = await db.collection('systems')
+        .find({ _id: { $in: validIds } }, { projection: { name: 1, roles: 1, createdBy: 1 } })
+        .toArray();
+    return systems.map(s => ({ ...s, _id: s._id.toString(), createdBy: s.createdBy?.toString() || null }));
+}
+
 async function getSystemById(id) {
     try {
         const db = await getDb();
@@ -1716,18 +1748,19 @@ async function verify2FABackupCode(userId, code) {
 // 7. ROLLEN- UND BERECHTIGUNGSVERWALTUNG
 // ==========================================
 
+const DEFAULT_ROLES = [
+    { roleId: 'admin', name: 'Administrator', allowedRoutes: ['*'], isSystemRole: true },
+    { roleId: 'user', name: 'Benutzer', allowedRoutes: ['/', '/terminal'], isSystemRole: true }
+];
+
 export async function getSystemRoles(systemId) {
     const db = await getDb();
     const system = await db.collection("systems").findOne({ _id: new ObjectId(systemId) });
     
-    // Fallback: Wenn das System noch keine Rollen hat, generieren wir die Standard-Rollen on-the-fly
-    if (!system || !system.roles) {
-        return [
-            { roleId: 'admin', name: 'Administrator', allowedRoutes: ['*'], isSystemRole: true },
-            { roleId: 'user', name: 'Benutzer', allowedRoutes: ['/artikel'], isSystemRole: true }
-        ];
-    }
-    return system.roles;
+    // Fehlende Standard-Rollen ergänzen (gespeicherte Versionen haben Vorrang)
+    const storedRoles = system?.roles || [];
+    const missingDefaults = DEFAULT_ROLES.filter(d => !storedRoles.some(r => r.roleId === d.roleId));
+    return [...missingDefaults, ...storedRoles];
 }
 
 export async function createSystemRole(systemId, roleName, allowedRoutes, startPage) {
@@ -1920,6 +1953,9 @@ export default {
     triggerEmptyLedsBlue,
     triggerSingleLedBlue,
     getSystemById,
+    getSystemsByIds,
+    createSystem,
+    countSystemsCreatedBy,
     createSystemInvitation,
     getInvitationsBySystem,
     enableTwoFactor,

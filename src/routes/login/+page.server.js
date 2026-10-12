@@ -106,15 +106,12 @@ export const actions = {
         if (user.mustChangePassword) {
             // Zwingt den Nutzer in unser wasserdichtes Profil-Modal
             throw redirect(303, '/profil');
-        } else if (systems.length > 1) {
-            // Mehrere Lager -> Systemauswahl
-            throw redirect(303, `/select-system?redirectTo=${encodeURIComponent(redirectTo)}`);
         } else if (systems.length === 1) {
             // Nur ein Lager -> Normaler Login
             throw redirect(303, redirectTo);
         } else {
-            // Gar kein Lager zugewiesen
-            return fail(403, { error: 'Dir ist noch kein Lager zugewiesen. Bitte kontaktiere einen Administrator.' });
+            // Mehrere Lager -> Auswahl, kein Lager -> dort ein eigenes Lager anlegen
+            throw redirect(303, `/select-system?redirectTo=${encodeURIComponent(redirectTo)}`);
         }
     },
 

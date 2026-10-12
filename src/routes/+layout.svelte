@@ -5,6 +5,10 @@
     import favicon from "$lib/assets/favicon.svg";
     let { children } = $props();
 
+    // Lager für das Dropdown in der Menüleiste
+    let systems = $derived($page.data.systems || []);
+    let activeSystem = $derived(systems.find(s => s.id === $page.data.activeSystemId));
+
     // Zentrale Funktion: Prüft, ob der Menüpunkt gerendert werden darf
     function canSee(path) {
         // 1. "Tools" ist für absolut jeden sichtbar
@@ -104,6 +108,47 @@
 
             {#if $page.data.isLoggedIn && $page.data.user}
                 <div class="d-flex align-items-center gap-3">
+                    <!-- Lager-Umschalter -->
+                    <div class="dropdown">
+                        <button
+                            class="btn system-switch dropdown-toggle space-grotesk"
+                            type="button"
+                            data-bs-toggle="dropdown"
+                            aria-expanded="false"
+                        >
+                            <i class="bi bi-box-seam"></i>
+                            <span class="system-switch-name">{activeSystem?.name || 'Lager wählen'}</span>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                            {#if systems.length > 0}
+                                <li><h6 class="dropdown-header">Lager wechseln</h6></li>
+                                {#each systems as system (system.id)}
+                                    <li>
+                                        <!-- Normaler POST (kein enhance), damit alle Daten des neuen Lagers frisch geladen werden -->
+                                        <form method="POST" action="/select-system?/select">
+                                            <input type="hidden" name="systemId" value={system.id} />
+                                            <button
+                                                type="submit"
+                                                class="dropdown-item d-flex justify-content-between align-items-center gap-3"
+                                                class:active={system.id === $page.data.activeSystemId}
+                                                disabled={system.id === $page.data.activeSystemId}
+                                            >
+                                                <span>{system.name}</span>
+                                                <small class="text-body-secondary">{system.roleName}</small>
+                                            </button>
+                                        </form>
+                                    </li>
+                                {/each}
+                                <li><hr class="dropdown-divider" /></li>
+                            {/if}
+                            <li>
+                                <a class="dropdown-item" href="/lager">
+                                    <i class="bi bi-pencil-square me-2"></i>Lager bearbeiten
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+
                     <a
                         href="/profil"
                         class="text-decoration-none d-flex align-items-center gap-2 user-link space-grotesk"

@@ -38,6 +38,8 @@ async function authHandle({ event, resolve }) {
             event.cookies.delete('systemId', { path: '/' });
         } else {
             event.locals.sessionToken = sessionToken;
+            // Mitgliedschaften für Lager-Dropdown & Lagerverwaltung (spart erneutes Laden des Users)
+            event.locals.userSystems = user.systems || [];
         }
     }
 
@@ -101,7 +103,8 @@ async function authHandle({ event, resolve }) {
         '/select-system', 
         '/logout', 
         '/tools', 
-        '/profil'
+        '/profil',
+        '/lager'
     ];
     if (systemIndependentRoutes.some(route => path.startsWith(route))) {
         if (systemId) event.locals.systemId = systemId;
