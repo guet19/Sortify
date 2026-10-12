@@ -1,6 +1,7 @@
 <script>
     import "./styles.css";
     import { page } from "$app/stores";
+    import { canAccessPath } from "$lib/permissions.js";
     import favicon from "$lib/assets/favicon.svg";
     let { children } = $props();
 
@@ -21,11 +22,7 @@
         // Falls die Rolle Vollzugriff hat
         if (allowed.includes('*')) return true;
 
-        // 🔥 FIX: Exakter Match für die Startseite ("/")!
-        return allowed.some(r => {
-            if (r === '/') return path === '/';
-            return path.startsWith(r);
-        });
+        return canAccessPath(path, allowed);
     }
 </script>
 
@@ -119,11 +116,10 @@
                         </span>
                     </a>
 
-                    <a
-                        href="/logout"
-                        class="btn btn-danger m-0"
-                        data-sveltekit-reload>Abmelden</a
-                    >
+                    <!-- Logout per POST (ein Link könnte von fremden Seiten ausgelöst werden) -->
+                    <form method="POST" action="/logout" class="m-0">
+                        <button type="submit" class="btn btn-danger m-0">Abmelden</button>
+                    </form>
                 </div>
             {/if}
         </div>

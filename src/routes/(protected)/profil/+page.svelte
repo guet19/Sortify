@@ -197,8 +197,15 @@
                 Dein Konto ist durch die Zwei-Faktor-Authentifizierung geschützt. Bei jedem Login wird zusätzlich zu deinem Passwort ein Code aus deiner Authenticator-App abgefragt.
             </p>
             <form method="POST" action="?/disable2FA" use:enhance={() => {
-                return async ({ result }) => { if (result.type === 'success') window.location.reload(); };
+                return async ({ result, update }) => {
+                    if (result.type === 'success') window.location.reload();
+                    else await update();
+                };
             }}>
+                <div class="input-group" style="margin-bottom: 0.75rem;">
+                    <label for="disable2faPassword">Aktuelles Passwort zur Bestätigung</label>
+                    <input type="password" id="disable2faPassword" name="currentPassword" autocomplete="current-password" required />
+                </div>
                 <button type="submit" class="btn-danger" on:click={(e) => !confirm('Möchtest du 2FA wirklich deaktivieren? Dein Konto ist danach weniger geschützt.') && e.preventDefault()}>
                     2FA deaktivieren
                 </button>
@@ -304,11 +311,11 @@
                     </div>
                     <div class="input-group mb-3">
                         <label for="newPassword">Neues Passwort</label>
-                        <input type="password" id="newPassword" name="newPassword" minlength="8" required />
+                        <input type="password" id="newPassword" name="newPassword" minlength="10" maxlength="72" required />
                     </div>
                     <div class="input-group mb-4">
                         <label for="confirmPassword">Neues Passwort bestätigen</label>
-                        <input type="password" id="confirmPassword" name="confirmPassword" minlength="8" required />
+                        <input type="password" id="confirmPassword" name="confirmPassword" minlength="10" maxlength="72" required />
                     </div>
                 </form>
                 

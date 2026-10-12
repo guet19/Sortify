@@ -45,7 +45,7 @@
             <div class="form-row">
                 <div class="input-group">
                     <label for="password">Passwort *</label>
-                    <input type="password" id="password" name="password" required placeholder="Min. 6 Zeichen" />
+                    <input type="password" id="password" name="password" required minlength="10" maxlength="72" placeholder="Min. 10 Zeichen" />
                 </div>
                 
                 <div class="input-group">

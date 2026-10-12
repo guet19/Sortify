@@ -1,13 +1,27 @@
 import { json } from '@sveltejs/kit';
 import { GoogleGenAI } from '@google/genai';
 import { env } from '$env/dynamic/private';
+import db from '$lib/server/db.js';
 
-export async function POST({ request }) {
+// Obergrenzen gegen Kostenmissbrauch der KI-API
+const MAX_INPUT_CHARS = 200_000;
+const AI_CALLS_PER_HOUR = 60;
+
+export async function POST({ request, locals }) {
     try {
         const { html, expectedAttributes } = await request.json();
 
-        if (!html) {
+
+        if (!html || typeof html !== 'string') {
             return json({ error: 'Keine Daten empfangen.' }, { status: 400 });
+        }
+        if (html.length > MAX_INPUT_CHARS) {
+            return json({ error: 'Die Seite ist zu groß für die Analyse.' }, { status: 413 });
+        }
+
+        const limit = await db.rateLimit(`ai:${locals.user.id}`, AI_CALLS_PER_HOUR, 60 * 60 * 1000);
+        if (!limit.allowed) {
+            return json({ error: `KI-Limit erreicht. Bitte in ${limit.retryAfterMinutes} Minute(n) erneut versuchen.` }, { status: 429 });
         }
 
         if (!env.GEMINI_API_KEY) {
@@ -63,10 +77,11 @@ GIB AUSSCHLIESSLICH DAS JSON ZURÜCK! Keine Begrüßung, keine Erklärungen.`,
         }
         
         const extractedData = JSON.parse(match[0]);
+
         return json(extractedData);
 
     } catch (error) {
         console.error("❌ FATALER FEHLER IM BACKEND:", error);
-        return json({ error: 'Fehler beim Analysieren der Artikeldaten', details: error.message }, { status: 500 });
+        return json({ error: 'Fehler beim Analysieren der Artikeldaten' }, { status: 500 });
     }
 }

@@ -3,6 +3,25 @@ import { fail, error } from '@sveltejs/kit';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { ObjectId } from 'mongodb'; 
+import { isHexColor, BCRYPT_ROUNDS } from '$lib/server/security.js';
+
+// Prüft, ob die Rolle in diesem System existiert und ob der aktuelle Nutzer sie vergeben darf.
+// Nur Admins dürfen die Admin-Rolle vergeben.
+async function validateRole(systemId, role, actorRole) {
+    if (!role) return 'Bitte wähle eine Rolle aus.';
+    const roles = await db.getSystemRoles(systemId);
+    if (!roles.some(r => r.roleId === role)) return 'Diese Rolle existiert nicht.';
+    if (role === 'admin' && actorRole !== 'admin') return 'Nur Administratoren dürfen die Admin-Rolle vergeben.';
+    return null;
+}
+
+// Lädt einen Nutzer nur, wenn er auch zu diesem System gehört
+async function getMemberOfSystem(systemId, userId) {
+    if (!ObjectId.isValid(userId)) return null;
+    const user = await db.getUserById(userId);
+    const membership = user?.systems?.find(s => s.systemId === systemId.toString());
+    return membership ? { user, membership } : null;
+}
 
 export async function load({ locals }) {
     // 1. Sichere Daten aus dem Hook (locals) abrufen
@@ -55,9 +74,12 @@ export const actions = {
         const color = data.get('color')?.toString() || '#3b82f6';
 
         if (!username || !role) return fail(400, { localError: 'Bitte fülle alle Felder aus.' });
+        if (!isHexColor(color)) return fail(400, { localError: 'Ungültige Farbe.' });
+        const roleError = await validateRole(systemId, role, locals.role);
+        if (roleError) return fail(403, { localError: roleError });
 
-        const plainPassword = crypto.randomBytes(4).toString('hex'); 
-        const hashedPassword = await bcrypt.hash(plainPassword, 10);
+        const plainPassword = crypto.randomBytes(6).toString('hex'); // 12 Zeichen Startpasswort
+        const hashedPassword = await bcrypt.hash(plainPassword, BCRYPT_ROUNDS);
 
         // 🔥 NEU: color als 5. Parameter übergeben
         const result = await db.createLocalSystemUser(systemId, username, hashedPassword, role, color);
@@ -83,17 +105,15 @@ export const actions = {
         const color = data.get('color')?.toString() || '#3b82f6';
 
         if (!email || !role) return fail(400, { emailError: 'Bitte gib eine E-Mail-Adresse ein.' });
+        if (!isHexColor(color)) return fail(400, { emailError: 'Ungültige Farbe.' });
+        const roleError = await validateRole(systemId, role, locals.role);
+        if (roleError) return fail(403, { emailError: roleError });
 
-        // 🔥 NEU: color als 4. Parameter übergeben
         const result = await db.inviteUserToSystem(systemId, email, role, color);
         
         if (!result.success) return fail(400, { emailError: result.message });
 
-        if (result.status === 'existing_added') {
-            return { success: true, type: 'email', message: `${email} wurde erfolgreich hinzugefügt.` };
-        } else {
-            return { success: true, type: 'email', message: `Einladungs-Link gesendet an ${email}.` };
-        }
+        return { success: true, type: 'email', message: `${email} wurde erfolgreich hinzugefügt.` };
     },
 
     updateRole: async ({ request, locals }) => {
@@ -108,6 +128,11 @@ export const actions = {
 
         if (!targetUserId || !newRole) return fail(400, { tableError: 'Ungültige Daten.' });
         if (targetUserId === adminId) return fail(400, { tableError: 'Eigene Rolle nicht änderbar.' });
+        if (locals.role !== 'admin') return fail(403, { tableError: 'Nur Administratoren dürfen Rollen ändern.' });
+
+        const roleError = await validateRole(systemId, newRole, locals.role);
+        if (roleError) return fail(400, { tableError: roleError });
+        if (!(await getMemberOfSystem(systemId, targetUserId))) return fail(404, { tableError: 'Mitarbeiter nicht gefunden.' });
 
         await db.updateUserSystemRole(systemId, targetUserId, newRole);
         return { success: true };
@@ -125,6 +150,8 @@ export const actions = {
         const newColor = data.get('newColor')?.toString();
 
         if (!targetUserId || !newColor) return fail(400, { tableError: 'Ungültige Daten.' });
+        if (!isHexColor(newColor)) return fail(400, { tableError: 'Ungültige Farbe.' });
+        if (!(await getMemberOfSystem(systemId, targetUserId))) return fail(404, { tableError: 'Mitarbeiter nicht gefunden.' });
 
         // Farbe in der Datenbank aktualisieren (Diese Funktion muss in der db.js existieren!)
         await db.updateUserSystemColor(systemId, targetUserId, newColor);
@@ -144,12 +171,23 @@ export const actions = {
         if (!targetUserId) return fail(400, { tableError: 'Ungültige Daten.' });
         if (targetUserId === adminId) return fail(400, { tableError: 'Du kannst dich nicht selbst entfernen.' });
 
-        const user = await db.getUserById(targetUserId);
-        if (!user) return fail(404, { tableError: 'Mitarbeiter nicht gefunden.' });
+        // Nur Mitglieder DIESES Lagers dürfen entfernt werden
+        const member = await getMemberOfSystem(systemId, targetUserId);
+        if (!member) return fail(404, { tableError: 'Mitarbeiter nicht gefunden.' });
+        const { user, membership } = member;
+
+        if (membership.role === 'admin' && locals.role !== 'admin') {
+            return fail(403, { tableError: 'Nur Administratoren dürfen Administratoren entfernen.' });
+        }
 
         if (!user.email) {
+            // Lokale Konten existieren nur in diesem Lager -> komplett löschen
             const database = await db.getDb();
-            await database.collection('users').deleteOne({ _id: new ObjectId(targetUserId) });
+            await database.collection('users').deleteOne({
+                _id: new ObjectId(targetUserId),
+                "systems.systemId": new ObjectId(systemId)
+            });
+            await db.deleteUserSessions(targetUserId);
         } else {
             await db.removeUserFromSystem(systemId, targetUserId);
         }

@@ -1,21 +1,43 @@
 import db from '$lib/server/db.js';
 import { redirect, error } from '@sveltejs/kit';
+import { sequence } from '@sveltejs/kit/hooks';
+import { dev } from '$app/environment';
+import { canAccessPath } from '$lib/permissions.js';
+import { safeRedirect } from '$lib/server/security.js';
 
-export async function handle({ event, resolve }) {
-    const userId = event.cookies.get('session'); 
+// Zusätzliche Sicherheits-Header für jede Antwort (CSP kommt aus svelte.config.js)
+async function securityHeaders({ event, resolve }) {
+    const response = await resolve(event);
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    response.headers.set('X-Frame-Options', 'DENY');
+    response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    if (!dev) {
+        response.headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
+    return response;
+}
+
+async function authHandle({ event, resolve }) {
+    const sessionToken = event.cookies.get('session');
     const path = event.url.pathname;
-    
-    // Fallback: Falls das systemId Cookie fehlt, nutzen wir wieder die Test-ID
-    const systemId = event.cookies.get('systemId') || "6a4ea775e94b7120d470bea7";
+
+    // Ohne Cookie gibt es kein aktives Lager -> /select-system übernimmt
+    const systemId = event.cookies.get('systemId') || null;
 
     let user = null;
 
-    // 1. ZOMBIE-COOKIE FILTER (Prüft, ob der Cookie-User überhaupt noch existiert)
-    if (userId) {
-        user = await db.getUserById(userId);
+    // 1. SESSION PRÜFEN (Cookie enthält ein Zufalls-Token, in der DB liegt nur dessen Hash)
+    if (sessionToken) {
+        const session = await db.getSession(sessionToken);
+        if (session) {
+            user = await db.getUserById(session.userId.toString());
+        }
         if (!user) {
             event.cookies.delete('session', { path: '/' });
             event.cookies.delete('systemId', { path: '/' });
+        } else {
+            event.locals.sessionToken = sessionToken;
         }
     }
 
@@ -87,7 +109,7 @@ export async function handle({ event, resolve }) {
     }
 
     // 7. RBAC BERECHTIGUNGEN PRÜFEN
-    if (!user.systems) {
+    if (!user.systems || !systemId) {
         throw redirect(303, '/select-system');
     }
 
@@ -105,6 +127,7 @@ export async function handle({ event, resolve }) {
 
     // Administratoren dürfen alles
     if (systemContext.role === 'admin') {
+        event.locals.allowedRoutes = ['*'];
         return await resolve(event);
     }
 
@@ -115,24 +138,18 @@ export async function handle({ event, resolve }) {
         throw error(403, 'Keine Berechtigungen für dieses System hinterlegt.');
     }
 
+    const allowed = roleDefinition.allowedRoutes;
+    // Für +layout.server.js merken, damit die Rollen nicht ein zweites Mal geladen werden
+    event.locals.allowedRoutes = allowed;
+
     // Individuelle Startseite prüfen und priorisieren
     if (path === '/') {
         if (roleDefinition.startPage && roleDefinition.startPage !== '/') {
-            throw redirect(303, roleDefinition.startPage);
+            throw redirect(303, safeRedirect(roleDefinition.startPage));
         }
     }
 
-    const allowed = roleDefinition.allowedRoutes;
-    
-    // Vollzugriff ('*') direkt erlauben
-    if (allowed.includes('*')) {
-        return await resolve(event);
-    }
-
-    const hasAccess = allowed.some(route => {
-        if (route === '/') return path === '/'; 
-        return path.startsWith(route);          
-    });
+    const hasAccess = canAccessPath(path, allowed);
 
     if (!hasAccess) {
         // Intelligente Weiterleitung, falls der User direkt auf '/' landet (und keine startPage definiert war)
@@ -156,3 +173,5 @@ export async function handle({ event, resolve }) {
 
     return await resolve(event);
 }
+
+export const handle = sequence(securityHeaders, authHandle);

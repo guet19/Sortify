@@ -3,7 +3,8 @@ import { randomUUID } from 'crypto'; // Falls du Node.js nutzt, ansonsten crypto
 import { MongoClient, ObjectId } from "mongodb";
 // ÄNDERUNG: Wir nutzen den dynamischen Import, der ist sicherer für Netlify!
 import { env } from '$env/dynamic/private';
-import bcrypt from "bcryptjs"; 
+import bcrypt from "bcryptjs";
+import { generateToken, hashToken, generateNumericCode, escapeRegex, BCRYPT_ROUNDS } from './security.js';
 
 // ==========================================
 // 0. SERVERLESS CONNECTION POOLING
@@ -218,7 +219,7 @@ async function getFilterAttributeByLabel(systemId, label) {
         const collection = db.collection("filter_attributes");
         const attribute = await collection.findOne({ 
             systemId: new ObjectId(systemId),
-            label: { $regex: new RegExp(`^${label}$`, 'i') } 
+            label: { $regex: new RegExp(`^${escapeRegex(label)}$`, 'i') } 
         });
         if (attribute && attribute._id) attribute._id = attribute._id.toString();
         return attribute;
@@ -382,7 +383,7 @@ async function createInitialUser(email, plainTextPassword, userData = {}, verifi
         const existingUser = await collection.findOne({ email: email });
         if (existingUser) return { success: false, message: "Benutzer existiert bereits" };
 
-        const salt = await bcrypt.genSalt(10);
+        const salt = await bcrypt.genSalt(BCRYPT_ROUNDS);
         const hashedPassword = await bcrypt.hash(plainTextPassword, salt);
 
         const result = await collection.insertOne({
@@ -553,6 +554,93 @@ async function endSessionLog(sessionId) {
     }
 }
 
+// Generischer Zähler gegen Brute-Force & Mail-Spam (z.B. key = "verify:max@muster.ch").
+// Zählt atomar hoch; nach Ablauf des Fensters beginnt die Zählung neu.
+async function rateLimit(key, max, windowMs) {
+    try {
+        const db = await getDb();
+        const now = new Date();
+        const isActive = { $gt: ['$expiresAt', now] };
+        const entry = await db.collection('rate_limits').findOneAndUpdate(
+            { key },
+            [{ $set: {
+                count: { $cond: [isActive, { $add: ['$count', 1] }, 1] },
+                expiresAt: { $cond: [isActive, '$expiresAt', new Date(now.getTime() + windowMs)] }
+            } }],
+            { upsert: true, returnDocument: 'after' }
+        );
+        return {
+            allowed: entry.count <= max,
+            retryAfterMinutes: Math.ceil((entry.expiresAt.getTime() - now.getTime()) / 60000)
+        };
+    } catch (error) {
+        // Fail-open: Ein DB-Problem soll den Login nicht komplett blockieren
+        console.error("Fehler im Rate-Limiter:", error);
+        return { allowed: true, retryAfterMinutes: 0 };
+    }
+}
+
+// ==========================================
+// 5b. SESSIONS (Zufalls-Token statt User-ID im Cookie)
+// ==========================================
+// type 'session'    = echte Anmeldung
+// type 'pending2fa' = Passwort korrekt, 2FA-Code steht noch aus
+
+async function createSession(userId, type = 'session', maxAgeSeconds = 60 * 60 * 24 * 7) {
+    const db = await getDb();
+    const token = generateToken();
+    const tokenHash = hashToken(token);
+    await db.collection('sessions').insertOne({
+        tokenHash,
+        userId: new ObjectId(userId),
+        type,
+        attempts: 0,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + maxAgeSeconds * 1000)
+    });
+    return { token, tokenHash };
+}
+
+async function getSession(token, type = 'session') {
+    if (!token) return null;
+    try {
+        const db = await getDb();
+        return await db.collection('sessions').findOne({
+            tokenHash: hashToken(token),
+            type,
+            expiresAt: { $gt: new Date() }
+        });
+    } catch (error) {
+        console.error("Fehler beim Laden der Session:", error);
+        return null;
+    }
+}
+
+// Zählt Fehlversuche (z.B. 2FA) und liefert den neuen Stand zurück
+async function incrementSessionAttempts(token) {
+    const db = await getDb();
+    const result = await db.collection('sessions').findOneAndUpdate(
+        { tokenHash: hashToken(token) },
+        { $inc: { attempts: 1 } },
+        { returnDocument: 'after' }
+    );
+    return result?.attempts ?? Infinity;
+}
+
+async function deleteSession(token) {
+    if (!token) return;
+    const db = await getDb();
+    await db.collection('sessions').deleteOne({ tokenHash: hashToken(token) });
+}
+
+// Meldet einen Nutzer überall ab (z.B. nach Passwortänderung)
+async function deleteUserSessions(userId, exceptToken = null) {
+    const db = await getDb();
+    const filter = { userId: new ObjectId(userId) };
+    if (exceptToken) filter.tokenHash = { $ne: hashToken(exceptToken) };
+    await db.collection('sessions').deleteMany(filter);
+}
+
 async function savePasswordResetToken(email) {
     try {
         const db = await getDb();
@@ -560,13 +648,10 @@ async function savePasswordResetToken(email) {
         
         const cleanEmail = email.toString().toLowerCase().trim();
         const user = await collection.findOne({ 
-            email: { $regex: new RegExp(`^${cleanEmail}$`, 'i') } 
+            email: { $regex: new RegExp(`^${escapeRegex(cleanEmail)}$`, 'i') } 
         });
 
-        if (!user) {
-            console.log(`[DB] Kein Nutzer mit E-Mail ${cleanEmail} gefunden.`);
-            return null; 
-        }
+        if (!user) return null;
 
         const token = crypto.randomBytes(32).toString('hex');
         const expires = new Date(Date.now() + 60 * 60 * 1000); 
@@ -576,7 +661,6 @@ async function savePasswordResetToken(email) {
             { $set: { resetToken: token, resetExpires: expires } }
         );
         
-        console.log(`[DB] Token für ${cleanEmail} erfolgreich generiert.`);
         return token; 
 
     } catch (error) {
@@ -605,7 +689,7 @@ async function resetUserPassword(userId, plainTextPassword) {
     try {
         const db = await getDb();
         const collection = db.collection("users");
-        const salt = await bcrypt.genSalt(10);
+        const salt = await bcrypt.genSalt(BCRYPT_ROUNDS);
         const hashedPassword = await bcrypt.hash(plainTextPassword, salt);
 
         await collection.updateOne(
@@ -615,6 +699,7 @@ async function resetUserPassword(userId, plainTextPassword) {
                 $unset: { resetToken: "", resetExpires: "" } 
             }
         );
+        await deleteUserSessions(userId);
         return true;
     } catch (error) {
         console.error("Fehler beim Zurücksetzen des Passworts:", error);
@@ -627,14 +712,16 @@ async function renewVerificationData(email) {
         const db = await getDb();
         const collection = db.collection("users");
         
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        const code = generateNumericCode();
         const token = crypto.randomBytes(32).toString('hex');
         const expires = new Date(Date.now() + 15 * 60000); 
 
-        await collection.updateOne(
-            { email: email },
+        // Nur für existierende, noch nicht bestätigte Konten (sonst könnte man Mails an beliebige Adressen auslösen)
+        const result = await collection.updateOne(
+            { email: email, isVerified: false },
             { $set: { verificationCode: code, verificationToken: token, verificationExpires: expires } }
         );
+        if (result.matchedCount === 0) return null;
         
         return { code, token };
     } catch (error) {
@@ -1327,7 +1414,7 @@ export async function createLocalUser(systemId, username, firstName, lastName, i
     const existingUser = await db.collection('users').findOne({ username: username.toLowerCase() });
     if (existingUser) return { success: false, message: 'Dieser Benutzername ist bereits vergeben.' };
 
-    const hashedPassword = await bcrypt.hash(initialPassword, 10);
+    const hashedPassword = await bcrypt.hash(initialPassword, BCRYPT_ROUNDS);
 
     const newUser = {
         username: username.toLowerCase(),
@@ -1359,7 +1446,7 @@ export async function resetPasswordByAdmin(userId, systemId, newPassword) {
     
     if (!user) return { success: false, message: 'Nutzer nicht gefunden oder nicht im System.' };
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
     await db.collection('users').updateOne(
         { _id: new ObjectId(userId) },
@@ -1370,6 +1457,7 @@ export async function resetPasswordByAdmin(userId, systemId, newPassword) {
             } 
         }
     );
+    await deleteUserSessions(userId);
 
     return { success: true };
 }
@@ -1481,6 +1569,7 @@ export async function confirmPasswordChange(token) {
             $unset: { pendingPassword: "", passwordChangeToken: "", passwordChangeExpires: "" }
         }
     );
+    await deleteUserSessions(user._id);
 
     return { success: true };
 }
@@ -1496,7 +1585,7 @@ async function createLocalSystemUser(systemId, username, hashedPw, role, color) 
     
     // Prüfen ob der Benutzername systemweit schon existiert
     const existing = await db.collection('users').findOne({ 
-        username: { $regex: new RegExp(`^${username}$`, 'i') } 
+        username: { $regex: new RegExp(`^${escapeRegex(username)}$`, 'i') } 
     });
     if (existing) return { success: false, message: 'Dieser Benutzername ist bereits vergeben.' };
 
@@ -1542,42 +1631,29 @@ async function addUserToSystem(systemId, email, role, color) {
     return { success: true, user: user };
 }
 
-// 3. Benutzer per E-Mail einladen (Shell-Account Logik)
-async function inviteUserToSystem(systemId, email, role) {
+// 3. Bestehendes Konto per E-Mail zum System hinzufügen
+// Unbekannte Adressen müssen sich zuerst selbst registrieren (es werden keine Konten ohne Passwort angelegt)
+async function inviteUserToSystem(systemId, email, role, color = '#3b82f6') {
     const db = await getDb();
-    const lowerEmail = email.toLowerCase();
-    
-    // Prüfen, ob die Mail schon registriert ist
-    let user = await db.collection('users').findOne({ email: lowerEmail });
-    
-    if (user) {
-        // Prüfen, ob der Nutzer schon im System ist
-        if (user.systems?.some(s => s.systemId.toString() === systemId)) {
-            return { success: false, message: 'Dieser Benutzer ist bereits Teil des Systems.' };
-        }
-        
-        // Fügt das System zum bestehenden Account hinzu
-        await db.collection('users').updateOne(
-            { _id: user._id },
-            { $push: { systems: { systemId: new ObjectId(systemId), role: role } } }
-        );
-        return { success: true, status: 'existing_added' };
-    } else {
-        // Shell-Account für neuen Nutzer erstellen
-        const inviteToken = crypto.randomBytes(32).toString('hex');
-        const shellUser = {
-            email: lowerEmail,
-            username: null, // Wird bei der Registrierung gesetzt
-            password: null, // Wird vom Nutzer selbst gesetzt
-            systems: [{ systemId: new ObjectId(systemId), role: role }],
-            isVerified: false,
-            inviteToken: inviteToken,
-            createdAt: new Date()
+    const user = await db.collection('users').findOne({ email: email.toLowerCase() });
+
+    if (!user) {
+        return {
+            success: false,
+            message: 'Zu dieser E-Mail-Adresse gibt es noch kein Konto. Bitte die Person, sich zuerst zu registrieren – danach kannst du sie hier hinzufügen.'
         };
-        
-        await db.collection('users').insertOne(shellUser);
-        return { success: true, status: 'new_invited', token: inviteToken };
     }
+
+    // Prüfen, ob der Nutzer schon im System ist
+    if (user.systems?.some(s => s.systemId.toString() === systemId.toString())) {
+        return { success: false, message: 'Dieser Benutzer ist bereits Teil des Systems.' };
+    }
+
+    await db.collection('users').updateOne(
+        { _id: user._id },
+        { $push: { systems: { systemId: new ObjectId(systemId), role, color } } }
+    );
+    return { success: true, status: 'existing_added' };
 }
 
 async function changePasswordDirectly(userId, hashedPassword) {
@@ -1626,18 +1702,14 @@ async function set2FABackupCode(userId, code) {
 
 // Prüft den Notfallcode und löscht ihn danach
 async function verify2FABackupCode(userId, code) {
+    if (!code) return false;
     const db = await getDb();
-    const user = await db.collection('users').findOne({ _id: new ObjectId(userId) });
-    
-    if (user && user.backupCode === code && user.backupCodeExpires > new Date()) {
-        // Code ist gültig -> Direkt wieder aus der DB löschen, damit er nur 1x funktioniert
-        await db.collection('users').updateOne(
-            { _id: new ObjectId(userId) },
-            { $unset: { backupCode: "", backupCodeExpires: "" } }
-        );
-        return true;
-    }
-    return false;
+    // Prüfen und Löschen in einem Schritt, damit der Code garantiert nur 1x funktioniert
+    const user = await db.collection('users').findOneAndUpdate(
+        { _id: new ObjectId(userId), backupCode: String(code), backupCodeExpires: { $gt: new Date() } },
+        { $unset: { backupCode: "", backupCodeExpires: "" } }
+    );
+    return !!user;
 }
 // ==========================================
 // 7. ROLLEN- UND BERECHTIGUNGSVERWALTUNG
@@ -1747,7 +1819,6 @@ export async function requestScaleWeight(systemId) {
 }
 
 // Sendet den Kalibrierungs-Befehl und wartet, bis der Pi "done" meldet
-// 🔥 SPEZIELLE DIAGNOSE-VERSION 🔥
 export async function sendCalibrationCommand(systemId, commandType, weight = 0) {
     if (!systemId) throw new Error("Fehlende System-ID.");
     const db = await getDb();
@@ -1767,12 +1838,6 @@ export async function sendCalibrationCommand(systemId, commandType, weight = 0) 
         createdAt: new Date()
     };
 
-    console.log("\n=========================================");
-    console.log("📡 SENDE KALIBRIERUNG:", safeCommand);
-    console.log("🆔 Gesendete ID:", systemId.toString());
-    console.log("📦 Payload für DB:", payload);
-    console.log("=========================================");
-
     const hwResult = await hwCollection.insertOne({ ...payload });
     const scaleResult = await scaleCollection.insertOne({ ...payload });
 
@@ -1787,35 +1852,26 @@ export async function sendCalibrationCommand(systemId, commandType, weight = 0) 
 
         // Wenn der Status auf "processing" springt, wissen wir, der Pi hat es gelesen!
         if ((docHw && docHw.status === "processing") || (docScale && docScale.status === "processing")) {
-            if (!sawProcessing) {
-                console.log("⚡ Terminal hat den Befehl gesehen (Status: processing). Warte auf Abschluss...");
-                sawProcessing = true;
-            }
+            sawProcessing = true;
         }
 
         if (docHw && docHw.status === "done") {
-            console.log("✅ HW-Befehl erfolgreich abgeschlossen!");
             await hwCollection.deleteOne({ _id: hwResult.insertedId });
             await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
             return true;
         }
 
         if (docScale && docScale.status === "done") {
-            console.log("✅ Waagen-Befehl erfolgreich abgeschlossen!");
             await hwCollection.deleteOne({ _id: hwResult.insertedId });
             await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
             return true;
         }
     }
 
-    console.log("\n❌ TIMEOUT ERREICHT! Terminal hat nicht geantwortet.");
-    if (sawProcessing) {
-        console.log("🚨 DIAGNOSE: Das Terminal hat den Befehl gesehen (processing), ist danach aber EINGEFROREN!");
-        console.log("👉 Das bedeutet: Die IDs stimmen perfekt! Aber dein Python-Skript stürzt beim Auslesen des HX711-Waagen-Chips ab (prüfe die Kabel der Waage am Pi).");
-    } else {
-        console.log("🚨 DIAGNOSE: Das Terminal hat den Befehl KOMPLETT IGNORIERT (blieb auf pending).");
-        console.log("👉 Das bedeutet: Die IDs zwischen SvelteKit und dem Raspberry Pi stimmen immer noch nicht überein ODER der Pi hat keine Internetverbindung zur DB.");
-    }
+    // Diagnose für die Logs: Hat der Pi den Befehl überhaupt gesehen?
+    console.warn(sawProcessing
+        ? `[Kalibrierung] Timeout (System ${systemId}): Terminal hat den Befehl angenommen, aber nicht abgeschlossen – Waage/HX711-Verkabelung am Pi prüfen.`
+        : `[Kalibrierung] Timeout (System ${systemId}): Terminal hat den Befehl nicht abgeholt – System-ID oder DB-Verbindung des Pi prüfen.`);
 
     await hwCollection.deleteOne({ _id: hwResult.insertedId });
     await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
@@ -1854,6 +1910,12 @@ export default {
     deleteLoginAttempt,
     createSessionLog,
     endSessionLog,
+    rateLimit,
+    createSession,
+    getSession,
+    incrementSessionAttempts,
+    deleteSession,
+    deleteUserSessions,
     savePasswordResetToken,
     getUserByResetToken,
     resetUserPassword,

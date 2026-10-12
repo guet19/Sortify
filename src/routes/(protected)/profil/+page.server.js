@@ -4,9 +4,11 @@ import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
 import bcrypt from 'bcryptjs'; 
 import { sendEmailChangeVerification, sendPasswordChangeVerification } from '$lib/server/email.js'; 
+import { env } from '$env/dynamic/private';
+import { passwordError, BCRYPT_ROUNDS } from '$lib/server/security.js';
 
-export async function load({ cookies }) {
-    const userId = cookies.get('session');
+export async function load({ locals }) {
+    const userId = locals.user?.id;
     if (!userId) {
         throw error(401, 'Nicht autorisiert');
     }
@@ -65,8 +67,8 @@ export async function load({ cookies }) {
 }
 
 export const actions = {
-    updateProfile: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    updateProfile: async ({ request, locals }) => {
+        const userId = locals.user?.id;
         if (!userId) {
             return fail(401, { error: "Nicht autorisiert." });
         }
@@ -89,8 +91,8 @@ export const actions = {
         }
     },
 
-    enable2FA: async ({ request, cookies }) => {
-        const userId = cookies.get('session');
+    enable2FA: async ({ request, locals }) => {
+        const userId = locals.user?.id;
         if (!userId) return fail(401, { error: "Nicht autorisiert." });
 
         // 🔥 FIX: Harter Server-Check, ob E-Mail vorhanden ist
@@ -122,16 +124,24 @@ export const actions = {
         return { success: true, message: 'Zwei-Faktor-Authentifizierung wurde erfolgreich aktiviert!' };
     },
 
-    disable2FA: async ({ cookies }) => {
-        const userId = cookies.get('session');
+    disable2FA: async ({ request, locals }) => {
+        const userId = locals.user?.id;
         if (!userId) return fail(401, { error: "Nicht autorisiert." });
+
+        // Abschalten nur mit aktuellem Passwort (schützt bei offen gelassener Sitzung)
+        const data = await request.formData();
+        const currentPassword = data.get('currentPassword')?.toString();
+        const user = await db.getUserById(userId);
+        if (!user || !currentPassword || !(await bcrypt.compare(currentPassword, user.password))) {
+            return fail(400, { error: 'Das eingegebene Passwort ist falsch.' });
+        }
 
         await db.disableTwoFactor(userId);
         return { success: true, message: 'Zwei-Faktor-Authentifizierung wurde deaktiviert.' };
     },
 
-    requestEmailChange: async ({ request, cookies, url }) => {
-        const userId = cookies.get('session');
+    requestEmailChange: async ({ request, locals }) => {
+        const userId = locals.user?.id;
         if (!userId) return fail(401, { error: "Nicht autorisiert." });
 
         const data = await request.formData();
@@ -161,7 +171,7 @@ export const actions = {
         }
 
         try {
-            await sendEmailChangeVerification(newEmail, user.firstName || 'Benutzer', result.token, url.origin);
+            await sendEmailChangeVerification(newEmail, user.firstName || 'Benutzer', result.token, env.BASE_URL);
             return { emailSuccess: `Ein Bestätigungslink wurde an ${newEmail} gesendet!` };
         } catch (err) {
             console.error(err);
@@ -169,8 +179,8 @@ export const actions = {
         }
     },
 
-    requestPasswordChange: async ({ request, cookies, url }) => {
-        const userId = cookies.get('session');
+    requestPasswordChange: async ({ request, locals }) => {
+        const userId = locals.user?.id;
         if (!userId) return fail(401, { error: "Nicht autorisiert." });
 
         const data = await request.formData();
@@ -186,8 +196,9 @@ export const actions = {
             return fail(400, { pwError: 'Die neuen Passwörter stimmen nicht überein.' });
         }
 
-        if (newPassword.length < 8) {
-            return fail(400, { pwError: 'Das neue Passwort muss mindestens 8 Zeichen lang sein.' });
+        const pwRuleError = passwordError(newPassword);
+        if (pwRuleError) {
+            return fail(400, { pwError: pwRuleError });
         }
 
         const user = await db.getUserById(userId);
@@ -198,10 +209,12 @@ export const actions = {
             return fail(400, { pwError: 'Das aktuelle Passwort ist falsch.' });
         }
 
-        const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+        const hashedNewPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
 
         if (!user.email) {
             await db.changePasswordDirectly(userId, hashedNewPassword);
+            // Alle anderen Geräte abmelden, die aktuelle Sitzung bleibt bestehen
+            await db.deleteUserSessions(userId, locals.sessionToken);
             return { pwSuccess: 'Dein Passwort wurde erfolgreich geändert! Du hast nun vollen Zugriff.' };
         }
 
@@ -212,7 +225,7 @@ export const actions = {
         }
 
         try {
-            await sendPasswordChangeVerification(user.email, user.firstName || 'Benutzer', result.token, url.origin);
+            await sendPasswordChangeVerification(user.email, user.firstName || 'Benutzer', result.token, env.BASE_URL);
             return { pwSuccess: 'Ein Bestätigungslink wurde an deine E-Mail-Adresse gesendet!' };
         } catch (err) {
             console.error(err);
@@ -221,6 +234,7 @@ export const actions = {
     },
     
     cancelPasswordChange: async ({ cookies }) => {
+        await db.deleteSession(cookies.get('session'));
         cookies.delete('session', { path: '/' });
         cookies.delete('systemId', { path: '/' });
         cookies.delete('pending2fa', { path: '/' });

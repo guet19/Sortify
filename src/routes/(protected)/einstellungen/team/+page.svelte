@@ -176,9 +176,9 @@
             </div>
 
             <div class="profile-card">
-                <h2 class="h3-style mb-3">Mitglied per E-Mail einladen</h2>
+                <h2 class="h3-style mb-3">Mitglied per E-Mail hinzufügen</h2>
                 <p class="text-muted mb-4" style="min-height: 42px;">
-                    Sendet einen Einladungslink. Falls das Konto existiert, wird es direkt freigeschaltet.
+                    Die Person braucht bereits ein Sortify-Konto mit dieser E-Mail-Adresse und wird direkt freigeschaltet.
                 </p>
 
                 {#if form?.emailError}
@@ -188,7 +188,7 @@
                 {#if form?.success && form?.type === 'email'}
                     <div class="alert success mb-3">{form.message}</div>
                     <form method="GET" class="mt-2">
-                        <button type="submit" class="btn-outline w-100">Weitere Person einladen</button>
+                        <button type="submit" class="btn-outline w-100">Weitere Person hinzufügen</button>
                     </form>
                 {:else}
                     <form method="POST" action="?/inviteEmailUser" use:enhance class="profile-form">
@@ -212,7 +212,7 @@
                                 <span class="text-sm text-gray-500">Diese Farbe leuchtet am Fach auf</span>
                             </div>
                         </div>
-                        <button type="submit" class="btn-primary w-100 mt-2">Einladung senden</button>
+                        <button type="submit" class="btn-primary w-100 mt-2">Hinzufügen</button>
                     </form>
                 {/if}
             </div>

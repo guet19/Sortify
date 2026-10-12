@@ -183,7 +183,7 @@
                 </div>
             </div>
 
-            {#if article.orderLink}
+            {#if article.orderLink && /^https?:\/\//i.test(article.orderLink)}
                 <div class="actions">
                     <a href={article.orderLink} target="_blank" rel="noopener noreferrer" class="btn-order">
                         Artikel aufrufen

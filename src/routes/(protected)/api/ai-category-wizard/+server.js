@@ -2,12 +2,32 @@ import { json } from '@sveltejs/kit';
 import * as cheerio from 'cheerio';
 import { GoogleGenAI } from '@google/genai';
 import { env } from '$env/dynamic/private';
+import { safeFetch, readLimited } from '$lib/server/security.js';
+import db from '$lib/server/db.js';
 
 const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
-export async function POST({ request }) {
+// Obergrenzen gegen Kostenmissbrauch der KI-API
+const MAX_INPUT_CHARS = 5_000;
+const AI_CALLS_PER_HOUR = 60;
+
+export async function POST({ request, locals }) {
     try {
-        const { articleText, categories, attributes } = await request.json();
+        const { articleText, categories = [], attributes = [] } = await request.json();
+
+        if (!articleText || typeof articleText !== 'string' || articleText.length > MAX_INPUT_CHARS) {
+            return json({ error: `Bitte gib einen Text oder Link mit max. ${MAX_INPUT_CHARS} Zeichen ein.` }, { status: 400 });
+        }
+        if (!Array.isArray(categories) || !Array.isArray(attributes)) {
+            return json({ error: 'Ungültige Daten.' }, { status: 400 });
+        }
+
+        // Gemeinsames Kontingent mit dem Artikel-Import
+        const limit = await db.rateLimit(`ai:${locals.user.id}`, AI_CALLS_PER_HOUR, 60 * 60 * 1000);
+        if (!limit.allowed) {
+            return json({ error: `KI-Limit erreicht. Bitte in ${limit.retryAfterMinutes} Minute(n) erneut versuchen.` }, { status: 429 });
+        }
+
         let promptContext = articleText;
 
         console.log("🚀 KI Struktur-Assistent gestartet...");
@@ -15,13 +35,13 @@ export async function POST({ request }) {
         // Prüfen, ob die Eingabe ein Web-Link ist
         if (articleText.startsWith('http://') || articleText.startsWith('https://')) {
             try {
-                const webResponse = await fetch(articleText, {
+                const webResponse = await safeFetch(articleText, {
                     headers: {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     }
                 });
                 
-                const html = await webResponse.text();
+                const html = (await readLimited(webResponse, 2 * 1024 * 1024)).toString('utf8');
                 const $ = cheerio.load(html);
                 
                 const title = $('title').text().trim();
@@ -117,6 +137,6 @@ export async function POST({ request }) {
 
     } catch (error) {
         console.error("❌ FATALER KI Fehler:", error);
-        return json({ error: 'Fehler bei der KI-Generierung', details: error.message }, { status: 500 });
+        return json({ error: 'Fehler bei der KI-Generierung' }, { status: 500 });
     }
 }

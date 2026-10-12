@@ -8,12 +8,15 @@ const transporter = nodemailer.createTransport({
     auth: {
         user: env.SMTP_EMAIL,
         pass: env.SMTP_PASSWORD
-    },
-    // Optional, aber auf Netlify oft ein Lebensretter, falls TLS-Zertifikate zicken:
-    tls: {
-        rejectUnauthorized: false
     }
 });
+
+// Nutzereingaben (Namen) vor dem Einfügen ins Mail-HTML entschärfen
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 export async function sendVerificationEmail(toEmail, code, token) {
     try {
@@ -99,7 +102,7 @@ export async function sendSystemInviteEmail(toEmail, inviterName, systemName, to
                 <div style="font-family: 'Segoe UI', Tahoma, Geneva, sans-serif; max-width: 600px; margin: 0 auto; padding: 30px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
                     <h2 style="color: #3b82f6; margin-top: 0;">Du wurdest eingeladen!</h2>
                     <p style="color: #334155; font-size: 16px; line-height: 1.5;">
-                        <strong>${inviterName}</strong> hat dich eingeladen, im Lager <strong>"${systemName}"</strong> mitzuarbeiten.
+                        <strong>${escapeHtml(inviterName)}</strong> hat dich eingeladen, im Lager <strong>"${escapeHtml(systemName)}"</strong> mitzuarbeiten.
                     </p>
                     
                     <p style="color: #334155; font-size: 15px; margin-top: 25px;">Klicke auf den untenstehenden Link, um die Einladung anzunehmen:</p>
@@ -133,7 +136,7 @@ export async function sendEmailChangeVerification(newEmail, userName, token, bas
         subject: 'Bestätigung deiner neuen E-Mail-Adresse',
         html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Hallo ${userName},</h2>
+                <h2>Hallo ${escapeHtml(userName)},</h2>
                 <p>Du hast in deinem Sortify-Profil eine Änderung deiner E-Mail-Adresse beantragt.</p>
                 <p>Bitte klicke auf den folgenden Link, um diese E-Mail-Adresse zu bestätigen. Deine Login-Daten werden erst nach dem Klick aktualisiert.</p>
                 <div style="margin: 30px 0;">
@@ -163,7 +166,7 @@ export async function sendPasswordChangeVerification(email, userName, token, bas
         subject: 'Sicherheitswarnung: Änderung deines Passworts',
         html: `
             <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                <h2>Hallo ${userName},</h2>
+                <h2>Hallo ${escapeHtml(userName)},</h2>
                 <p>Es wurde eine Änderung deines Passworts für dein Sortify-Konto beantragt.</p>
                 <p>Wenn du das warst, klicke bitte auf den folgenden Link, um das neue Passwort zu aktivieren. Bis dahin bleibt dein altes Passwort gültig.</p>
                 <div style="margin: 30px 0;">
@@ -185,7 +188,7 @@ export async function send2FABackupCode(email, firstName, code) {
     const subject = "Dein Sortify Notfall-Code für den Login";
     const htmlBody = `
         <div style="font-family: Arial, sans-serif; color: #334155; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #22c55e;">Hallo ${firstName},</h2>
+            <h2 style="color: #22c55e;">Hallo ${escapeHtml(firstName)},</h2>
             <p>Du hast angefordert, dich ohne deine Authenticator-App anzumelden.</p>
             <p>Dein temporärer Notfall-Code lautet:</p>
             <div style="font-size: 24px; font-weight: bold; letter-spacing: 5px; padding: 15px; background: #f8fafc; border: 1px solid #cbd5e1; text-align: center; border-radius: 6px; margin: 20px 0;">

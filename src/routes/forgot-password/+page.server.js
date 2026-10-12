@@ -2,29 +2,31 @@ import { fail } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { sendPasswordResetEmail } from '$lib/server/email.js';
 
+const ONE_HOUR = 60 * 60 * 1000;
+
 export const actions = {
-    default: async ({ request }) => {
+    default: async ({ request, getClientAddress }) => {
         const data = await request.formData();
-        const email = data.get('email').toString().toLowerCase().trim();
+        const email = data.get('email')?.toString().toLowerCase().trim();
         if (!email) {
             return fail(400, { error: 'Bitte gib eine E-Mail-Adresse ein.' });
         }
 
-        console.log(`[Passwort-Reset] Anfrage für E-Mail: ${email}`);
+        // Schutz vor Mail-Spam: max. 3 Mails pro Adresse und 10 pro IP und Stunde
+        const perAccount = await db.rateLimit(`reset:${email}`, 3, ONE_HOUR);
+        const perIp = await db.rateLimit(`reset-ip:${getClientAddress()}`, 10, ONE_HOUR);
+        if (!perAccount.allowed || !perIp.allowed) {
+            return fail(429, { error: 'Zu viele Anfragen. Bitte versuche es später erneut.' });
+        }
 
-        // Token in der DB generieren
+        // Token in der DB generieren (null, falls die Adresse nicht existiert)
         const token = await db.savePasswordResetToken(email);
 
-        if (!token) {
-            console.log("[Passwort-Reset] ABBRUCH: E-Mail nicht in der Datenbank gefunden oder Tippfehler.");
-        } else {
-            console.log("[Passwort-Reset] Token generiert. Versuche E-Mail zu senden...");
+        if (token) {
             try {
-                // HIER IST DER FIX: Nur noch 2 Parameter (email und token) übergeben!
                 await sendPasswordResetEmail(email, token);
-                console.log("[Passwort-Reset] ERFOLG: E-Mail wurde an den SMTP-Server übergeben!");
             } catch (error) {
-                console.error("[Passwort-Reset] KRITISCHER FEHLER beim E-Mail-Versand:", error);
+                console.error("[Passwort-Reset] Fehler beim E-Mail-Versand:", error);
             }
         }
 

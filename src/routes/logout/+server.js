@@ -1,29 +1,33 @@
 import { redirect } from '@sveltejs/kit';
 import dbClient from '$lib/server/db.js';
+import { hashToken } from '$lib/server/security.js';
 
-// Anstelle von "actions" nutzen wir hier die Methode "GET".
-// Dadurch kannst du den Logout überall in deiner App über einen 
-// simplen HTML-Link aufrufen: <a href="/logout">Abmelden</a>
-export async function GET({ cookies }) {
-    const sessionId = cookies.get('session');
+// Logout nur per POST: <form method="POST" action="/logout"><button>Abmelden</button></form>
+// (Ein GET-Link könnte von fremden Seiten z.B. über ein <img> ausgelöst werden.
+// Formular-POSTs von fremden Seiten blockiert SvelteKit automatisch.)
+export async function POST({ cookies }) {
+    const sessionToken = cookies.get('session');
 
-    if (sessionId) {
+    if (sessionToken) {
         try {
-            const db = await dbClient.getDb();
+            // Session serverseitig ungültig machen (Cookie allein löschen reicht nicht)
+            await dbClient.deleteSession(sessionToken);
             // Log-Eintrag abschließen: logoutTime setzen
-            await db.collection('sessionLogs').updateOne(
-                { sessionId: sessionId },
-                { $set: { logoutTime: new Date(), lastActive: new Date() } }
-            );
+            await dbClient.endSessionLog(hashToken(sessionToken));
         } catch (error) {
-            console.error("Fehler beim Logout-Logging:", error);
+            console.error("Fehler beim Logout:", error);
         }
     }
 
     // WICHTIG: Beide Cookies sicher und vollständig löschen!
     cookies.delete('session', { path: '/' });
-    cookies.delete('systemId', { path: '/' }); // <--- NEU: Verhindert verwaiste Lager-Sitzungen
+    cookies.delete('systemId', { path: '/' }); // Verhindert verwaiste Lager-Sitzungen
 
     // Zurück zum Login leiten inkl. Erfolgsmeldung
     throw redirect(303, '/login?loggedOut=true');
+}
+
+// Alte Links/Lesezeichen auf /logout führen einfach zur Startseite
+export function GET() {
+    throw redirect(303, '/');
 }

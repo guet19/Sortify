@@ -1,5 +1,6 @@
 import { redirect, fail } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
+import { safeRedirect } from '$lib/server/security.js';
 
 export async function load({ locals }) {
     // 1. Ist der User überhaupt eingeloggt?
@@ -30,12 +31,20 @@ export async function load({ locals }) {
 }
 
 export const actions = {
-    select: async ({ request, cookies, url }) => {
+    select: async ({ request, cookies, url, locals }) => {
+        if (!locals.user) throw redirect(303, '/login');
+
         const data = await request.formData();
-        const systemId = data.get('systemId');
+        const systemId = data.get('systemId')?.toString();
 
         if (!systemId) {
             return fail(400, { error: 'Kein System ausgewählt.' });
+        }
+
+        // Nur Lager akzeptieren, in denen der Nutzer auch Mitglied ist
+        const user = await db.getUserById(locals.user.id);
+        if (!user?.systems?.some(s => s.systemId === systemId)) {
+            return fail(403, { error: 'Kein Zugriff auf dieses Lager.' });
         }
 
         // 4. Das ausgewählte Lager als Cookie setzen!
@@ -48,7 +57,7 @@ export const actions = {
         });
 
         // 5. Zurück dorthin, wo der User ursprünglich hinwollte
-        const redirectTo = url.searchParams.get('redirectTo') || '/';
+        const redirectTo = safeRedirect(url.searchParams.get('redirectTo'));
         throw redirect(303, redirectTo);
     }
 };

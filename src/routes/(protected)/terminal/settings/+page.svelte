@@ -1,5 +1,6 @@
 <script>
     import { page } from "$app/stores";
+    import { canAccessPath } from "$lib/permissions.js";
 
     // Zentrale Funktion: Prüft, ob der Menüpunkt gerendert werden darf
     function canSee(path) {
@@ -9,10 +10,7 @@
         const allowed = $page.data.allowedRoutes || [];
         if (allowed.includes('*')) return true;
 
-        return allowed.some(r => {
-            if (r === '/') return path === '/';
-            return path.startsWith(r);
-        });
+        return canAccessPath(path, allowed);
     }
 </script>
 
@@ -95,14 +93,16 @@
         {/if}
 
         <!-- Karte 4: Abmelden (Immer sichtbar) -->
-        <!-- Nutzt deine bestehende /logout Route mit reload, um die Session sauber zu beenden -->
-        <a href="/logout" data-sveltekit-reload class="action-card danger">
-            <div class="icon">🔒</div>
-            <div class="card-content">
-                <h3>Abmelden</h3>
-                <p>Sitzung auf diesem Terminal beenden und zum Login zurückkehren.</p>
-            </div>
-        </a>
+        <!-- Logout per POST (ein Link könnte von fremden Seiten ausgelöst werden) -->
+        <form method="POST" action="/logout" class="logout-form">
+            <button type="submit" class="action-card danger">
+                <div class="icon">🔒</div>
+                <div class="card-content">
+                    <h3>Abmelden</h3>
+                    <p>Sitzung auf diesem Terminal beenden und zum Login zurückkehren.</p>
+                </div>
+            </button>
+        </form>
 
     </div>
 </div>
@@ -167,6 +167,10 @@
         gap: 2rem;
         transition: all 0.2s ease-in-out;
     }
+
+    /* Button soll exakt wie die Link-Karten aussehen */
+    .logout-form { display: contents; }
+    button.action-card { width: 100%; text-align: left; font: inherit; cursor: pointer; }
 
     .action-card:hover { 
         background-color: #334155; 

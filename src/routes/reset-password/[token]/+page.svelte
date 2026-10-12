@@ -30,12 +30,12 @@
             
             <div class="input-group">
                 <label for="password">Neues Passwort</label>
-                <input type="password" id="password" name="password" required minlength="8" placeholder="••••••••" />
+                <input type="password" id="password" name="password" required minlength="10" maxlength="72" placeholder="••••••••" />
             </div>
 
             <div class="input-group">
                 <label for="passwordConfirm">Passwort wiederholen</label>
-                <input type="password" id="passwordConfirm" name="passwordConfirm" required minlength="8" placeholder="••••••••" />
+                <input type="password" id="passwordConfirm" name="passwordConfirm" required minlength="10" maxlength="72" placeholder="••••••••" />
             </div>
 
             <button type="submit" class="btn-primary" disabled={isSubmitting}>

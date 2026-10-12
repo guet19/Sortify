@@ -1,5 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
+import { passwordError } from '$lib/server/security.js';
 
 // Wird aufgerufen, wenn der Nutzer auf den Link in der E-Mail klickt
 export async function load({ params }) {
@@ -16,10 +17,11 @@ export async function load({ params }) {
 export const actions = {
     default: async ({ request, params }) => {
         const data = await request.formData();
-        const password = data.get('password');
-        const passwordConfirm = data.get('passwordConfirm');
+        const password = data.get('password')?.toString() || '';
+        const passwordConfirm = data.get('passwordConfirm')?.toString() || '';
 
-        if (password.length < 8) return fail(400, { error: 'Das Passwort muss mindestens 8 Zeichen lang sein.' });
+        const pwError = passwordError(password);
+        if (pwError) return fail(400, { error: pwError });
         if (password !== passwordConfirm) return fail(400, { error: 'Die Passwörter stimmen nicht überein.' });
 
         const user = await db.getUserByResetToken(params.token);

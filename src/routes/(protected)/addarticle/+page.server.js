@@ -1,6 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import db from '$lib/server/db.js'; // WICHTIG: Als Default-Import ohne geschweifte Klammern!
 import { ObjectId } from 'mongodb';
+import { safeHttpUrl } from '$lib/server/security.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { 
     CLOUDINARY_CLOUD_NAME, 
@@ -62,9 +63,8 @@ export async function load({ locals, url }) {
             bookmarkletData 
         };
     } catch (e) {
-        console.error("--- LOAD FEHLER DIAGNOSE ---");
-        console.error("Meldung:", e.message);
-        throw error(500, `Fehler beim Laden der Formulardaten: ${e.message}`);
+        console.error("Fehler beim Laden der Formulardaten:", e);
+        throw error(500, 'Fehler beim Laden der Formulardaten.');
     }
 }
 
@@ -84,10 +84,16 @@ export const actions = {
         const istBestandRaw = data.get('istBestand');
         
         const imageFile = data.get('image'); 
-        const externalImageUrl = data.get('externalImageUrl'); // 🔥 NEU: Link vom Bookmarklet holen
+        const externalImageUrl = safeHttpUrl(data.get('externalImageUrl')); // Link vom Bookmarklet (nur http/https)
 
         if (!title || !mainCategoryId || istBestandRaw === null || istBestandRaw === '') {
             return fail(400, { error: "Titel, Hauptkategorie und Ist-Bestand sind erforderlich." });
+        }
+        if (title.toString().length > 200) {
+            return fail(400, { error: "Der Titel darf maximal 200 Zeichen lang sein." });
+        }
+        if (!ObjectId.isValid(mainCategoryId.toString())) {
+            return fail(400, { error: "Ungültige Hauptkategorie." });
         }
 
         try {
@@ -139,7 +145,7 @@ export const actions = {
                 mindestBestand,
                 supplier: data.get('supplier'),
                 price: parseFloat(data.get('price') || "0"),
-                orderLink: data.get('orderLink'),
+                orderLink: safeHttpUrl(data.get('orderLink')),
                 imagePath, // Hier liegt jetzt entweder der Shop-Link oder der Cloudinary-Link drin
                 attributes: itemAttributes,
                 createdAt: new Date(),
@@ -152,8 +158,8 @@ export const actions = {
             return { success: true, message: "Artikel erfolgreich gespeichert!" };
             
         } catch (e) {
-            console.error("🚨 SPEICHERFEHLER:", e.message);
-            return fail(500, { error: `Serverfehler beim Speichern: ${e.message}` });
+            console.error("🚨 SPEICHERFEHLER:", e);
+            return fail(500, { error: 'Serverfehler beim Speichern. Bitte versuche es erneut.' });
         }
     }
 };

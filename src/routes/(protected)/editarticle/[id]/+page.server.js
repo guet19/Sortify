@@ -1,6 +1,7 @@
 import db from '$lib/server/db.js';
 import { error, redirect, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
+import { safeHttpUrl } from '$lib/server/security.js';
 import { v2 as cloudinary } from 'cloudinary';
 import { 
     CLOUDINARY_CLOUD_NAME, 
@@ -58,13 +59,17 @@ export const actions = {
             title: formData.get("title")?.toString().trim() || "",
             description: formData.get("description")?.toString().trim() || "",
             // WICHTIG: Die Kategorie-ID muss wieder eine ObjectId werden!
-            mainCategoryId: formData.get("mainCategoryId") ? new ObjectId(formData.get("mainCategoryId").toString()) : null,
+            mainCategoryId: ObjectId.isValid(formData.get("mainCategoryId")?.toString()) ? new ObjectId(formData.get("mainCategoryId").toString()) : null,
             subcategoryId: formData.get("subcategoryId")?.toString() || "",
             supplier: formData.get("supplier")?.toString().trim() || "",
             gtin: formData.get("gtin")?.toString().trim() || "",
-            orderLink: formData.get("orderLink")?.toString().trim() || "",
+            orderLink: safeHttpUrl(formData.get("orderLink")),
             updatedAt: new Date()
         };
+
+        if (!updateData.title || updateData.title.length > 200) {
+            return fail(400, { error: "Der Titel muss zwischen 1 und 200 Zeichen lang sein." });
+        }
 
         const priceStr = formData.get("price");
         updateData.price = priceStr ? parseFloat(priceStr) : null;

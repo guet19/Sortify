@@ -2,10 +2,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { sendVerificationEmail } from '$lib/server/email.js';
+import { generateNumericCode, passwordError } from '$lib/server/security.js';
 // ACHTUNG: Der 'crypto' Import wurde entfernt, da er Netlify zum Absturz bringen kann!
 
-export async function load({ cookies }) {
-    if (cookies.get('session')) {
+export async function load({ locals }) {
+    if (locals.user) {
         throw redirect(303, '/');
     }
 }
@@ -14,7 +15,7 @@ export const actions = {
     default: async ({ request, url }) => {
         const data = await request.formData();
         
-        const email = data.get('email')?.toString().trim();
+        const email = data.get('email')?.toString().trim().toLowerCase();
         const password = data.get('password')?.toString();
         const passwordConfirm = data.get('passwordConfirm')?.toString();
         
@@ -31,13 +32,14 @@ export const actions = {
             return fail(400, { error: "Die Passwörter stimmen nicht überein." });
         }
 
-        if (password.length < 6) {
-            return fail(400, { error: "Das Passwort muss mindestens 6 Zeichen lang sein." });
+        const pwError = passwordError(password);
+        if (pwError) {
+            return fail(400, { error: pwError });
         }
 
         try {
             // Nutzt jetzt die global verfügbare Web Crypto API (ohne Import)
-            const vCode = Math.floor(100000 + Math.random() * 900000).toString(); 
+            const vCode = generateNumericCode(); 
             const vToken = crypto.randomUUID(); 
             const vExpires = new Date(Date.now() + 15 * 60 * 1000); 
 

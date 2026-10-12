@@ -1,6 +1,33 @@
 import db from '$lib/server/db.js';
 import { fail, error } from '@sveltejs/kit';
 
+// Die Liste der Routen, die du mit Checkboxen vergeben kannst
+const AVAILABLE_ROUTES = [
+    { path: '/', name: 'Inventar (Startseite)' },
+    
+    // Artikel-Management
+    { path: '/addarticle', name: 'Artikel hinzufügen' },
+    { path: '/editarticle', name: 'Artikel bearbeiten' },
+    
+    // Einstellungen
+    { path: '/einstellungen/authorization', name: 'Berechtigungsverwaltung' },
+    { path: '/einstellungen/category', name: 'Kategorien verwalten' },
+    { path: '/einstellungen/filter_attributes', name: 'Filter & Attribute' },
+    { path: '/einstellungen/security', name: 'Sicherheitseinstellungen' },
+    { path: '/einstellungen/team', name: 'Teamverwaltung inkl. Rollen' },
+
+    // Terminal & Terminal-Settings
+    // Hinweis: '/terminal' gibt KEINEN Zugriff auf die Hardware-Einstellungen,
+    // diese müssen einzeln freigegeben werden
+    { path: '/terminal', name: 'Terminal: Suche & Rückgabe' },
+    { path: '/terminal/settings/assign', name: 'Terminal-Hardware: Zuweisung' },
+    { path: '/terminal/settings/scale', name: 'Terminal-Hardware: Waage' },
+    { path: '/terminal/settings/calibration', name: 'Terminal-Hardware: Kalibrierung' },
+    { path: '/terminal/settings/maintenance', name: 'Terminal-Hardware: Wartung' },
+    { path: '/terminal/settings/shelf', name: 'Terminal-Hardware: Regalverwaltung' },
+    { path: '/terminal/settings/pairing', name: 'Terminal-Hardware: Kopplung' }
+];
+
 export async function load({ locals }) {
     const systemId = locals.systemId;
     
@@ -11,31 +38,10 @@ export async function load({ locals }) {
 
     const roles = await db.getSystemRoles(systemId);
     
-    // Die Liste der Routen, die du mit Checkboxen vergeben kannst
-    const availableRoutes = [
-        { path: '/', name: 'Inventar (Startseite)' },
-        
-        // Artikel-Management
-        { path: '/addarticle', name: 'Artikel hinzufügen' },
-        { path: '/editarticle', name: 'Artikel bearbeiten' },
-        
-        // Einstellungen
-        { path: '/einstellungen/authorization', name: 'Berechtigungsverwaltung' },
-        { path: '/einstellungen/category', name: 'Kategorien verwalten' },
-        { path: '/einstellungen/filter_attributes', name: 'Filter & Attribute' },
-        { path: '/einstellungen/security', name: 'Sicherheitseinstellungen' },
-        { path: '/einstellungen/team', name: 'Teamverwaltung inkl. Rollen' },
-
-        // Terminal & Terminal-Settings
-        { path: '/terminal', name: 'Terminal: Suche & Rückgabe' },
-        { path: '/terminal/settings/assign', name: 'Terminal-Hardware: Zuweisung' },
-        { path: '/terminal/settings/maintenance', name: 'Terminal-Hardware: Wartung' },
-        { path: '/terminal/settings/shelf', name: 'Terminal-Hardware: Regalverwaltung' }
-    ];
 
     return {
         roles,
-        availableRoutes
+        availableRoutes: AVAILABLE_ROUTES
     };
 }
 
@@ -54,6 +60,9 @@ export const actions = {
         const startPage = data.get('startPage')?.toString() || '/';
 
         if (!roleName) return fail(400, { error: 'Bitte einen Namen für die Rolle eingeben.' });
+        const knownPaths = AVAILABLE_ROUTES.map(r => r.path);
+        if (allowedRoutes.some(r => !knownPaths.includes(r))) return fail(400, { error: 'Ungültige Berechtigung.' });
+        if (!allowedRoutes.includes(startPage) && startPage !== '/') return fail(400, { error: 'Die Startseite muss zu den erlaubten Bereichen gehören.' });
         if (allowedRoutes.length === 0) return fail(400, { error: 'Bitte wähle mindestens eine Berechtigung aus.' });
 
         // 🔥 NEU: startPage als 4. Parameter an die Datenbank-Funktion übergeben
