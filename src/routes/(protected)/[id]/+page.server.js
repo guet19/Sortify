@@ -1,6 +1,7 @@
 import db from '$lib/server/db.js';
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb'; // 🔥 NEU: Import hinzugefügt
+import { lightUpArticle, turnOffArticle } from '$lib/server/leds.js';
 
 export async function load({ params, locals }) { 
     // 1. Die System-ID aus dem Rucksack (locals) holen
@@ -43,12 +44,36 @@ export async function load({ params, locals }) {
     return {
         article: JSON.parse(JSON.stringify(article)),
         categories: JSON.parse(JSON.stringify(categories)),
-        attributes: JSON.parse(JSON.stringify(attributes))
+        attributes: JSON.parse(JSON.stringify(attributes)),
+        // LED-Farbe des Nutzers für den Leucht-Button
+        userColor: locals.color || '#3b82f6'
     };
 }
 
 // --- Action für das Speichern des Bestandes ---
 export const actions = {
+    // Lässt alle Fächer dieses Artikels im Regal aufleuchten (10 Sekunden)
+    lightUp: async ({ params, locals }) => {
+        if (!locals.systemId || !ObjectId.isValid(params.id)) return fail(400, { ledError: 'Ungültiger Artikel.' });
+        try {
+            const result = await lightUpArticle(locals.systemId, params.id, locals.color || '#3b82f6', locals.user.id);
+            return result.success ? result : fail(400, { ledError: result.error });
+        } catch (err) {
+            console.error("Fehler beim Aufleuchten des Artikels:", err);
+            return fail(500, { ledError: 'Das Regal konnte nicht angesteuert werden.' });
+        }
+    },
+
+    // Schaltet die LEDs sofort aus (z.B. beim Verlassen der Seite)
+    turnOffLED: async ({ params, locals }) => {
+        if (!locals.systemId || !ObjectId.isValid(params.id)) return { success: false };
+        try {
+            return await turnOffArticle(locals.systemId, params.id, locals.user.id);
+        } catch (err) {
+            return { success: false };
+        }
+    },
+
     updateStock: async ({ request, locals }) => { 
         // 1. System-ID zwingend aus locals laden
         const systemId = locals.systemId;

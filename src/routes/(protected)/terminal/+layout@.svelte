@@ -1,5 +1,23 @@
 <script>
+    import { beforeNavigate, afterNavigate } from '$app/navigation';
+
     let hardwareConnected = true; 
+
+    // Im Terminal scrollt nicht das Fenster, sondern dieser Bereich – SvelteKit setzt ihn
+    // beim Seitenwechsel nicht zurück. Deshalb: neue Seite immer oben öffnen,
+    // beim Zurückgehen zur Liste die vorherige Position wiederherstellen.
+    let contentEl;
+    const scrollPositions = new Map();
+
+    beforeNavigate(({ from }) => {
+        if (contentEl && from?.url) scrollPositions.set(from.url.pathname, contentEl.scrollTop);
+    });
+
+    afterNavigate(({ from, to, type }) => {
+        if (!contentEl || !to?.url) return;
+        const backToSearch = to.url.pathname === '/terminal/search' && from?.url.pathname.startsWith('/terminal/search/');
+        contentEl.scrollTop = (type === 'popstate' || backToSearch) ? (scrollPositions.get(to.url.pathname) ?? 0) : 0;
+    });
 </script>
 
 <div class="terminal-viewport">
@@ -27,7 +45,7 @@
         </div>
     </header>
 
-    <main class="terminal-content">
+    <main class="terminal-content" bind:this={contentEl}>
         <slot />
     </main>
 </div>
