@@ -9,8 +9,13 @@ const AI_CALLS_PER_HOUR = 60;
 
 export async function POST({ request, locals }) {
     try {
-        const { html, expectedAttributes } = await request.json();
+        const { html, expectedAttributes, images: rawImages } = await request.json();
 
+        // Bild-Kandidaten vom Lesezeichen (nur http/https, begrenzt)
+        const images = (Array.isArray(rawImages) ? rawImages : [])
+            .filter(i => typeof i?.url === 'string' && /^https?:\/\//i.test(i.url))
+            .slice(0, 24)
+            .map(i => ({ url: i.url.slice(0, 2000), alt: String(i.alt || '').slice(0, 80) }));
 
         if (!html || typeof html !== 'string') {
             return json({ error: 'Keine Daten empfangen.' }, { status: 400 });
@@ -47,6 +52,9 @@ Erwartetes JSON-Format:
     "finalImageUrl": "" 
 }
 
+Bild-Kandidaten (URL – Alt-Text):
+${images.length ? images.map(i => `- ${i.url} – ${i.alt || 'ohne Alt-Text'}`).join('\n') : 'keine'}
+
 Extrahierte Shop-Daten:
 ${html}
         `;
@@ -63,6 +71,8 @@ REGELN:
 4. GTIN/EAN: Suche nach GTIN oder Herstellernummern.
 5. ZAHLEN: Bei "ui_type": "number" IMMER nur die nackte Zahl antworten (keine Einheiten!).
 6. LIEFERANT: Name des Online-Shops (aus dem Text ableiten).
+7. QUELLEN: Wenn "PRODUKTDATEN (JSON-LD)" vorhanden sind, haben sie Vorrang (name, description, gtin13/gtin/mpn/sku, offers.price, brand). Technische Werte bevorzugt aus "TABELLEN".
+8. BILD: Wähle aus den Bild-Kandidaten das beste Hauptproduktbild (das Produkt selbst, möglichst groß und freigestellt – keine Logos, Icons, Banner, Zahlungsarten oder Zubehör anderer Produkte). Gib dessen URL exakt so in "finalImageUrl" zurück. Gibt es keinen passenden Kandidaten, lass das Feld leer.
 GIB AUSSCHLIESSLICH DAS JSON ZURÜCK! Keine Begrüßung, keine Erklärungen.`,
                 responseMimeType: "application/json",
                 temperature: 0.1
@@ -78,6 +88,10 @@ GIB AUSSCHLIESSLICH DAS JSON ZURÜCK! Keine Begrüßung, keine Erklärungen.`,
         
         const extractedData = JSON.parse(match[0]);
 
+        // Nur Bilder akzeptieren, die tatsächlich von der Seite stammen
+        if (!images.some(i => i.url === extractedData.finalImageUrl)) {
+            extractedData.finalImageUrl = '';
+        }
         return json(extractedData);
 
     } catch (error) {

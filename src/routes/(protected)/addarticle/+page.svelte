@@ -3,6 +3,7 @@
     import { browser } from "$app/environment";
     import { enhance } from "$app/forms";
     import SearchableSelect from "$lib/components/SearchableSelect.svelte";
+    import { prepareOnWhite, rotateBlob } from "$lib/imageTools.js";
     import { page } from "$app/stores";
     import { goto } from "$app/navigation"; 
 
@@ -20,8 +21,15 @@
 
     // --- State Management ---
     // Priorität: Kopie -> Bookmarklet -> Leer
+    // Altes Lesezeichen schickt Rohtext ("DESC: ... | JSON: ..."): nur den Beschreibungsteil übernehmen
+    function initialDescriptionFromBookmarklet(raw) {
+        if (!raw) return "";
+        const match = raw.match(/^DESC:\s*(.*?)\s*(\||$)/);
+        return match ? match[1] : "";
+    }
+
     let title = copiedArticle?.title ? `${copiedArticle.title} (Kopie)` : (bookmarkletData?.title || "");
-    let description = copiedArticle?.description || bookmarkletData?.desc || "";
+    let description = copiedArticle?.description || initialDescriptionFromBookmarklet(bookmarkletData?.desc);
     let orderLink = copiedArticle?.orderLink || bookmarkletData?.url || "";
     
     let supplier = copiedArticle?.supplier || "";
@@ -41,6 +49,50 @@
 
     let rawImportText = bookmarkletData?.desc || ""; 
     let importedImageUrl = bookmarkletData?.img || ""; 
+
+    // --- Bild-Kandidaten von der Shop-Seite ---
+    let imageCandidates = importedImageUrl ? [{ url: importedImageUrl, alt: "" }] : [];
+    let brokenCandidates = new Set();
+    $: visibleCandidates = imageCandidates.filter(i => !brokenCandidates.has(i.url));
+    let selectedImageUrl = "";
+    // Nur falls ein Bild nicht über den Proxy geladen werden konnte, wird der externe Link gespeichert
+    let externalFallbackUrl = "";
+
+    // Neues Lesezeichen (v2): Daten kommen per postMessage aus dem Shop-Fenster
+    let importReceived = false;
+    function handleImportMessage(event) {
+        const payload = event.data;
+        if (!payload || payload.type !== "sortify-import" || typeof payload.text !== "string") return;
+
+        // Nur vom Shop akzeptieren, dessen Seite übergeben wurde
+        let shopOrigin = "";
+        try { shopOrigin = new URL(bookmarkletData?.url).origin; } catch {}
+        if (!shopOrigin || event.origin !== shopOrigin) return;
+
+        event.source?.postMessage({ type: "sortify-import-ack" }, event.origin);
+        if (importReceived) return;
+        importReceived = true;
+
+        rawImportText = payload.text.slice(0, 60000);
+        if (!description && typeof payload.description === "string") description = payload.description.slice(0, 1000);
+
+        const candidates = (Array.isArray(payload.images) ? payload.images : [])
+            .filter(i => typeof i?.url === "string" && /^https?:\/\//i.test(i.url))
+            .slice(0, 24)
+            .map(i => ({ url: i.url, alt: String(i.alt || "").slice(0, 80) }));
+        if (candidates.length > 0) imageCandidates = candidates;
+    }
+
+    // Vorschaubild direkt vom Shop laden; bei Hotlink-Schutz über den eigenen Proxy, sonst ausblenden
+    function handleThumbError(event, url) {
+        const img = event.currentTarget;
+        if (!img.dataset.proxied) {
+            img.dataset.proxied = "1";
+            img.src = `/api/fetch-image?url=${encodeURIComponent(url)}`;
+        } else {
+            brokenCandidates = new Set([...brokenCandidates, url]);
+        }
+    }
     let attributeValues = copiedArticle?.attributes ? { ...copiedArticle.attributes } : {};
 
     let selectedMainCategoryId = copiedArticle?.mainCategoryId || "";
@@ -88,6 +140,8 @@
         : [];
 
     onMount(async () => {
+        if (isFromBookmarklet) window.addEventListener("message", handleImportMessage);
+
         if (copiedArticle && copiedArticle.subcategoryId) {
             await tick();
             selectedSubcategoryId = copiedArticle.subcategoryId;
@@ -130,6 +184,7 @@
                 body: JSON.stringify({
                     html: rawImportText || importUrl,
                     url: orderLink,
+                    images: visibleCandidates,
                     expectedAttributes: activeAttributes.map((a) => ({
                         id: a._id,
                         name: a.label,
@@ -157,8 +212,9 @@
                     attributeValues = { ...attributeValues, ...result.specs };
                 }
 
+                // Die KI wählt das beste Hauptproduktbild aus den gefundenen Bildern
                 const aiImageToLoad = result.finalImageUrl;
-                if (aiImageToLoad && aiImageToLoad !== importedImageUrl) {
+                if (aiImageToLoad && aiImageToLoad !== selectedImageUrl) {
                     try {
                         await loadExternalImage(aiImageToLoad);
                     } catch (e) {
@@ -202,26 +258,20 @@
     let cropperInstance = null;
     let croppedFileBlob = null;
 
-    // 🔥 FIX: CropperJS sicherer Start
     async function handleImageSelect(event) {
         const file = event.target.files[0];
         if (!file) return;
-        if (imagePreview) URL.revokeObjectURL(imagePreview);
-        imagePreview = URL.createObjectURL(file);
-        isCropping = true;
-        
-        await tick();
-        
-        setTimeout(() => {
-            if (!cropperImageEl) return;
-            if (cropperInstance) cropperInstance.destroy();
-            cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
-        }, 50);
+        selectedImageUrl = "";
+        externalFallbackUrl = "";
+        await processImageBlob(file);
     }
 
     // 🔥 Robuster Proxy-Aufruf
     async function loadExternalImage(imageUrl) {
         if (!imageUrl) return;
+        selectedImageUrl = imageUrl;
+        externalFallbackUrl = "";
+        croppedFileBlob = null;
         try {
             if (imageUrl.startsWith("data:image") || imageUrl.startsWith("blob:")) {
                 const response = await fetch(imageUrl);
@@ -243,14 +293,22 @@
             }
         } catch (error) {
             console.error("Bild blockiert (Seite bleibt stabil):", error);
+            if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
+            isCropping = false;
             imagePreview = imageUrl; 
+            externalFallbackUrl = imageUrl;
         }
     }
 
-    // 🔥 FIX: CropperJS sicherer Start
+    // Original des aktuellen Bildes (für verlustfreies Drehen vor der Aufbereitung)
+    let sourceBlob = null;
+    let isRotating = false;
+
     async function processImageBlob(blob) {
-        if (imagePreview) URL.revokeObjectURL(imagePreview);
-        imagePreview = URL.createObjectURL(blob);
+        sourceBlob = blob;
+        const prepared = await prepareOnWhite(blob);
+        if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+        imagePreview = URL.createObjectURL(prepared);
         isCropping = true;
         
         await tick();
@@ -258,30 +316,53 @@
         setTimeout(() => {
             if (!cropperImageEl) return;
             if (cropperInstance) cropperInstance.destroy();
-            cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
+            // Startet mit dem ganzen (bereits 4:3 aufbereiteten) Bild – Ausschnitt kann verkleinert werden
+            cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 1, autoCropArea: 1, background: false, zoomable: false });
         }, 50);
     }
 
-    function applyCrop() {
+    // Bild um 90° drehen: das Original drehen und neu auf die weisse 4:3-Fläche legen
+    async function rotateImage(degrees) {
+        if (!sourceBlob || isRotating) return;
+        isRotating = true;
+        try {
+            await processImageBlob(await rotateBlob(sourceBlob, degrees));
+        } finally {
+            isRotating = false;
+        }
+    }
+
+    // Aktuellen Ausschnitt als JPEG erzeugen (Flächen ausserhalb des Bildes werden weiss)
+    function cropToBlob() {
+        return new Promise((resolve) => {
+            if (!cropperInstance) return resolve(null);
+            const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 900, fillColor: "#ffffff" });
+            canvas.toBlob(resolve, "image/jpeg", 0.85);
+        });
+    }
+
+    async function applyCrop() {
         if (!cropperInstance) return;
-        const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 900 }); 
-        canvas.toBlob((blob) => {
-            croppedFileBlob = blob;
-            if (imagePreview) URL.revokeObjectURL(imagePreview);
-            imagePreview = URL.createObjectURL(blob);
-            cropperInstance.destroy(); cropperInstance = null; isCropping = false;
-        }, "image/jpeg", 0.85);
+        const blob = await cropToBlob();
+        if (!blob) return;
+        croppedFileBlob = blob;
+        if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+        imagePreview = URL.createObjectURL(blob);
+        cropperInstance.destroy(); cropperInstance = null; isCropping = false;
     }
 
     function cancelCrop() {
         if (cropperInstance) cropperInstance.destroy();
-        isCropping = false; imagePreview = null; croppedFileBlob = null;
+        cropperInstance = null;
+        isCropping = false; imagePreview = null; croppedFileBlob = null; sourceBlob = null;
+        selectedImageUrl = ""; externalFallbackUrl = "";
         if (fileInputElement) fileInputElement.value = "";
     }
 
     onDestroy(() => {
-        if (imagePreview) URL.revokeObjectURL(imagePreview);
+        if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
         if (cropperInstance) cropperInstance.destroy();
+        if (browser) window.removeEventListener("message", handleImportMessage);
     });
 </script>
 
@@ -324,7 +405,7 @@
         class="article-form"
         enctype="multipart/form-data"
         novalidate
-        use:enhance={({ formData, cancel }) => {
+        use:enhance={async ({ formData, cancel }) => {
             formErrors = {};
             let hasError = false;
 
@@ -344,6 +425,8 @@
                 return;
             }
 
+            // Ist der Zuschnitt noch offen, den aktuellen Ausschnitt automatisch übernehmen
+            if (isCropping && cropperInstance) croppedFileBlob = await cropToBlob();
             if (croppedFileBlob) formData.set("image", croppedFileBlob, "article.jpg");
 
             return async ({ result, update }) => {
@@ -357,7 +440,7 @@
     >
         <div class="form-section">
             <h2>1. Kategorisierung festlegen</h2>
-            
+
             {#if mainCategoryOptions.length === 0}
                 <div class="alert error" style="margin-bottom: 0;">
                     <strong>Keine Kategorien verfügbar!</strong> Bitte legen Sie zuerst in den Einstellungen eine Hauptkategorie inkl. Unterkategorie an, um Artikel speichern zu können.
@@ -479,10 +562,29 @@
             </div>
 
             <!-- 🔥 Verstecktes Feld, um die Bild-URL vom Bookmarklet an den Server zu senden -->
-            <input type="hidden" name="externalImageUrl" value={importedImageUrl} />
+            <input type="hidden" name="externalImageUrl" value={croppedFileBlob ? "" : externalFallbackUrl} />
 
             <div class="image-area">
                 <span class="label-text">Artikelbild (4:3)</span>
+
+                {#if visibleCandidates.length > 1}
+                    <div class="candidate-gallery">
+                        <span class="candidate-hint">{visibleCandidates.length} Bilder auf der Webseite gefunden – zum Übernehmen anklicken</span>
+                        <div class="candidate-grid">
+                            {#each visibleCandidates as candidate (candidate.url)}
+                                <button
+                                    type="button"
+                                    class="candidate"
+                                    class:selected={candidate.url === selectedImageUrl}
+                                    title={candidate.alt || "Bild übernehmen"}
+                                    on:click={() => loadExternalImage(candidate.url)}
+                                >
+                                    <img src={candidate.url} alt={candidate.alt} loading="lazy" referrerpolicy="no-referrer" on:error={(e) => handleThumbError(e, candidate.url)} />
+                                </button>
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
 
                 {#if !isCropping && !imagePreview}
                     <div class="file-upload-wrapper" style="margin-top: 0.5rem;">
@@ -495,7 +597,10 @@
                         <div class="image-workspace" style="margin-bottom: 1rem;">
                             <img bind:this={cropperImageEl} src={imagePreview} alt="Zuschneiden" />
                         </div>
-                        <div class="cropper-actions" style="display: flex; gap: 1rem; justify-content: flex-end;">
+                        <div class="cropper-actions" style="display: flex; gap: 1rem; justify-content: flex-end; flex-wrap: wrap;">
+                            <button type="button" class="btn-rotate" on:click={() => rotateImage(-90)} disabled={isRotating} title="Bild nach links drehen">⟲ Links drehen</button>
+                            <button type="button" class="btn-rotate" on:click={() => rotateImage(90)} disabled={isRotating} title="Bild nach rechts drehen">⟳ Rechts drehen</button>
+                            <span style="flex: 1;"></span>
                             <button type="button" class="btn-cancel" on:click={cancelCrop}>Abbrechen</button>
                             <button type="button" class="btn-apply" on:click={applyCrop}>Speichern</button>
                         </div>
@@ -754,4 +859,21 @@
     .alert { padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; text-align: center; font-weight: 600; }
     .success { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
     .error { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+
+    /* Bildauswahl aus dem Lesezeichen-Import */
+    .candidate-gallery { margin-top: 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+    .candidate-hint { font-size: 0.85rem; color: #64748b; }
+    .candidate-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 0.5rem; }
+    .candidate {
+        aspect-ratio: 1; background: #ffffff; border: 2px solid #e2e8f0; border-radius: 8px; padding: 0.3rem;
+        cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .candidate:hover { border-color: #93c5fd; }
+    .candidate.selected { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25); }
+    .candidate img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+    /* Bild drehen */
+    .btn-rotate { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; cursor: pointer; }
+    .btn-rotate:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
+    .btn-rotate:disabled { opacity: 0.6; cursor: wait; }
 </style>

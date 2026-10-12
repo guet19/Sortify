@@ -1,9 +1,87 @@
 <script>
     import { page } from '$app/stores';
 
-    // DEIN NEUER CODE: Optimiert für die Erkennung von Beschreibungen, JSON-LD Produktdaten und Fließtext.
-    // Durch Backticks (Template-Literals) bleibt der Code übersichtlich und nutzt dynamisch deine Domain.
-    $: bookmarkletCode = `javascript:(function(){var title=document.title;var url=window.location.href;var imgMeta=document.querySelector('meta[property="og:image"]')||document.querySelector('meta[name="twitter:image"]');var imgUrl=imgMeta?imgMeta.content:'';if(!imgUrl){var firstImg=document.querySelector('img:not(header img, footer img, .icon img)');if(firstImg)imgUrl=firstImg.src;}var payload='';var descMeta=document.querySelector('meta[name="description"]')||document.querySelector('meta[property="og:description"]');if(descMeta)payload+='DESC: '+descMeta.content+' | ';var scripts=document.querySelectorAll('script[type="application/ld+json"]');scripts.forEach(function(s){if(s.innerText.includes('"Product"')){payload+='JSON: '+s.innerText+' | ';}});if(payload.length<200){payload+='TEXT: '+document.body.innerText;}payload=payload.replace(/\\s+/g,' ').trim().substring(0,1200);var target='${$page.url.origin}/addarticle?title='+encodeURIComponent(title)+'&url='+encodeURIComponent(url)+'&img='+encodeURIComponent(imgUrl)+'&desc='+encodeURIComponent(payload);window.open(target,'_blank');})();`;
+    // Läuft als Lesezeichen auf der Shop-Seite: sammelt Produktdaten und alle großen Produktbilder
+    // und übergibt sie per postMessage an das geöffnete Sortify-Fenster (keine Längenbegrenzung wie bei URLs).
+    // Wichtig: Die Funktion darf nichts von außerhalb verwenden, da sie als Text ins Lesezeichen kopiert wird.
+    function sortifyImport(origin) {
+        var d = document;
+        var clean = function (s, n) { return String(s || '').replace(/\s+/g, ' ').trim().slice(0, n); };
+        var meta = function (sel) { var m = d.querySelector(sel); return m ? m.content : ''; };
+        var abs = function (u) { try { return new URL(u, location.href).href; } catch (e) { return ''; } };
+
+        // 1. Strukturierte Produktdaten (JSON-LD), auch verschachtelt in @graph
+        var products = [];
+        d.querySelectorAll('script[type="application/ld+json"]').forEach(function (s) {
+            try {
+                (function walk(o) {
+                    if (!o || typeof o !== 'object') return;
+                    if (Array.isArray(o)) return o.forEach(walk);
+                    var t = o['@type'];
+                    if (t === 'Product' || (Array.isArray(t) && t.indexOf('Product') >= 0)) products.push(o);
+                    if (o['@graph']) walk(o['@graph']);
+                })(JSON.parse(s.textContent));
+            } catch (e) {}
+        });
+
+        // 2. Bild-Kandidaten: Produktdaten, Vorschaubild und alle großen Bilder der Seite
+        var images = [], seen = {};
+        var add = function (u, alt) {
+            if (!u) return;
+            u = abs(u);
+            if (!u || seen[u] || !/^https?:/.test(u) || /\.svg(\?|$)/i.test(u)) return;
+            seen[u] = 1;
+            images.push({ url: u, alt: clean(alt, 80) });
+        };
+        products.forEach(function (p) {
+            [].concat(p.image || []).forEach(function (i) { add(typeof i === 'string' ? i : i && (i.url || i.contentUrl)); });
+        });
+        add(meta('meta[property="og:image"]'));
+        add(meta('meta[name="twitter:image"]'));
+        d.querySelectorAll('img').forEach(function (i) {
+            var zoom = i.getAttribute('data-zoom-image') || i.getAttribute('data-large') || i.getAttribute('data-zoom') || i.getAttribute('data-src-large');
+            if (zoom) add(zoom, i.alt);
+            var w = i.naturalWidth || i.width, h = i.naturalHeight || i.height;
+            if (w >= 250 && h >= 250) add(i.currentSrc || i.src, i.alt);
+        });
+        images = images.slice(0, 24);
+
+        // 3. Texte: Datentabellen (technische Daten) und Hauptinhalt der Seite
+        var tables = [];
+        d.querySelectorAll('table, dl').forEach(function (t) {
+            var x = clean(t.innerText, 6000);
+            if (x.length > 20) tables.push(x);
+        });
+        var main = d.querySelector('main, [itemtype*="Product"], #content') || d.body;
+        var description = clean(meta('meta[name="description"]') || meta('meta[property="og:description"]'), 500);
+        var text = [
+            'TITEL: ' + d.title,
+            'URL: ' + location.href,
+            'BESCHREIBUNG: ' + description,
+            products.length ? 'PRODUKTDATEN (JSON-LD): ' + clean(JSON.stringify(products), 15000) : '',
+            tables.length ? 'TABELLEN: ' + clean(tables.join(' || '), 8000) : '',
+            'SEITENTEXT: ' + clean(main.innerText, 12000)
+        ].join('\n');
+
+        var payload = { type: 'sortify-import', version: 2, title: d.title, url: location.href, description: description, text: text, images: images };
+        // Kurze Basisdaten zusätzlich in der URL (falls die Übergabe z.B. wegen Login nicht klappt)
+        var target = origin + '/addarticle?import=2&title=' + encodeURIComponent(d.title) + '&url=' + encodeURIComponent(location.href) + '&img=' + encodeURIComponent(images[0] ? images[0].url : '');
+        var w = window.open(target, '_blank');
+        if (!w) { alert('Bitte erlaube Pop-ups für diese Seite, damit Sortify geöffnet werden kann.'); return; }
+
+        // Daten so lange senden, bis Sortify den Empfang bestätigt (max. 2 Minuten, z.B. falls erst ein Login nötig ist)
+        var done = false, tries = 0;
+        window.addEventListener('message', function (e) {
+            if (e.origin === origin && e.data && e.data.type === 'sortify-import-ack') done = true;
+        });
+        var timer = setInterval(function () {
+            if (done || ++tries > 240) return clearInterval(timer);
+            try { w.postMessage(payload, origin); } catch (e) {}
+        }, 500);
+    }
+
+    // URL-kodiert, damit Zeichen wie % im Lesezeichen nicht verfälscht werden
+    $: bookmarkletCode = 'javascript:' + encodeURIComponent(`(${sortifyImport.toString()})(${JSON.stringify($page.url.origin)})`);
     
     function handleClick(event) {
         event.preventDefault(); 
@@ -32,6 +110,10 @@
         >
             ➕ Add to Sortify 
         </a>
+
+        <p class="gif-hint update-hint">
+            <strong>Neue Version:</strong> Falls Sie das Lesezeichen schon früher installiert haben, löschen Sie es bitte und ziehen Sie den Button erneut in die Leiste – erst dann werden mehrere Bilder und mehr Produktdaten übernommen.
+        </p>
 
         <p class="gif-hint">
             (Tipp: Stelle sicher, dass deine Lesezeichenleiste eingeblendet ist. Bei den meisten Browsern geht das mit <strong>Strg + Umschalt + B</strong> oder <strong>Cmd + Shift + B</strong> auf dem Mac).
@@ -69,7 +151,7 @@
 
         <div class="step">
             <h3>4. Bildverarbeitung (Automatisch)</h3>
-            <p>Parallel zur Textanalyse lädt das System das beste erkannte Produktbild der Ursprungsseite herunter. Das Bild wird direkt in unseren integrierten Editor geladen. Dort wird es automatisch in das optimale 4:3-Format für Ihre Datenbank gebracht, wobei Sie jederzeit die Möglichkeit haben, den Bildausschnitt noch manuell anzupassen (zuschneiden).</p>
+            <p>Das Lesezeichen sammelt alle großen Produktbilder der Seite. Im Formular sehen Sie diese als Vorschau und können mit einem Klick das passende Bild wählen – die KI schlägt das beste Hauptproduktbild bereits vor. Jedes Bild wird automatisch auf eine weiße 4:3-Fläche gelegt (transparente Hintergründe werden weiß), sodass das ganze Produkt sichtbar ist. Den Ausschnitt können Sie danach noch anpassen.</p>
         </div>
 
         <div class="step">
@@ -154,6 +236,7 @@
         cursor: grabbing; 
     }
     
+    .update-hint { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; padding: 0.75rem 1rem; border-radius: 8px; }
     .gif-hint {
         margin-top: 30px;
         font-size: 0.9rem;

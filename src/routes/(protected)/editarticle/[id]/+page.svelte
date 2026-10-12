@@ -7,6 +7,7 @@
 
     import "cropperjs/dist/cropper.css";
     import Cropper from "cropperjs";
+    import { prepareOnWhite, rotateBlob } from "$lib/imageTools.js";
 
     export let data;
     export let form;
@@ -75,20 +76,42 @@
     let cropperInstance = null;
     let croppedFileBlob = null;
 
+    // Original des aktuellen Bildes (für verlustfreies Drehen vor der Aufbereitung)
+    let sourceBlob = null;
+    let isRotating = false;
+
     async function handleImageSelect(event) {
         const file = event.target.files[0];
         if (!file) return;
+        await processImageBlob(file);
+    }
+
+    // Bild auf weisse 4:3-Fläche legen und im Zuschnitt-Editor öffnen
+    async function processImageBlob(blob) {
+        sourceBlob = blob;
+        const prepared = await prepareOnWhite(blob);
         if (imagePreview) URL.revokeObjectURL(imagePreview);
-        imagePreview = URL.createObjectURL(file);
+        imagePreview = URL.createObjectURL(prepared);
         isCropping = true;
         await tick();
         if (cropperInstance) cropperInstance.destroy();
-        cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 2, background: false, zoomable: false });
+        cropperInstance = new Cropper(cropperImageEl, { aspectRatio: 4 / 3, viewMode: 1, autoCropArea: 1, background: false, zoomable: false });
+    }
+
+    // Bild um 90° drehen: das Original drehen und neu aufbereiten
+    async function rotateImage(degrees) {
+        if (!sourceBlob || isRotating) return;
+        isRotating = true;
+        try {
+            await processImageBlob(await rotateBlob(sourceBlob, degrees));
+        } finally {
+            isRotating = false;
+        }
     }
 
     function applyCrop() {
         if (!cropperInstance) return;
-        const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 900 }); 
+        const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 900, fillColor: "#ffffff" }); 
         canvas.toBlob((blob) => {
             croppedFileBlob = blob;
             if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -100,7 +123,7 @@
 
     function cancelCrop() {
         if (cropperInstance) cropperInstance.destroy();
-        isCropping = false; imagePreview = null; croppedFileBlob = null;
+        isCropping = false; imagePreview = null; croppedFileBlob = null; sourceBlob = null;
         if (fileInputElement) fileInputElement.value = "";
     }
 
@@ -253,6 +276,10 @@
                     <div class="crop-editor-box">
                         <div class="crop-area">
                             <img bind:this={cropperImageEl} src={imagePreview} alt="Zuschneiden" />
+                        </div>
+                        <div class="cropper-actions rotate-actions">
+                            <button type="button" class="btn-image-action" on:click={() => rotateImage(-90)} disabled={isRotating} title="Bild nach links drehen">⟲ Links drehen</button>
+                            <button type="button" class="btn-image-action" on:click={() => rotateImage(90)} disabled={isRotating} title="Bild nach rechts drehen">⟳ Rechts drehen</button>
                         </div>
                         <div class="cropper-actions">
                             <button type="button" class="btn-image-action cancel" on:click={cancelCrop}>Abbrechen</button>
@@ -463,6 +490,7 @@
     .crop-area { width: 100%; max-width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; max-height: 400px; }
     .crop-area img { display: block; max-width: 100%; height: auto; }
     .cropper-actions { display: flex; justify-content: space-between; gap: 1rem; }
+    .rotate-actions { justify-content: center; }
 
     /* Rechte Seite (Infos Editierbar) */
     .info-section { flex: 1.5; display: flex; flex-direction: column; gap: 2rem; }
