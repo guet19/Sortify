@@ -34,8 +34,11 @@ export async function load({ locals }) {
     }
 
     // 2. Mitarbeiter und Rollen aus der Datenbank laden
-    const members = await db.getUsersBySystem(systemId);
-    const roles = await db.getSystemRoles(systemId); 
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [members, roles] = await Promise.all([
+        db.getUsersBySystem(systemId),
+        db.getSystemRoles(systemId)
+    ]);
 
     // 3. Mitarbeiter serialisieren
     const serializedMembers = members.map(m => {

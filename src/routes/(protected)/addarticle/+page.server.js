@@ -27,8 +27,11 @@ export async function load({ locals, url }) {
 
     try {
         // 2. Kategorien und Attribute für genau dieses Lager laden
-        const categories = await db.getCategories(systemId);
-        const attributes = await db.getFilterAttributes(systemId);
+        // Unabhängige Abfragen parallel statt nacheinander
+        const [categories, attributes] = await Promise.all([
+            db.getCategories(systemId),
+            db.getFilterAttributes(systemId)
+        ]);
 
         // Kopier-Logik
         const copyId = url.searchParams.get('copy');

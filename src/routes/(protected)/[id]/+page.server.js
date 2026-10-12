@@ -33,8 +33,11 @@ export async function load({ params, locals }) {
     }
 
     // 5. Metadaten für das aktuelle Lager laden
-    const categories = await db.getCategories(systemId);
-    const attributes = await db.getFilterAttributes(systemId);
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [categories, attributes] = await Promise.all([
+        db.getCategories(systemId),
+        db.getFilterAttributes(systemId)
+    ]);
 
     // 6. JSON-Parsen für das POJO-Problem von SvelteKit
     return {

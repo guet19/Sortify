@@ -11,9 +11,12 @@ export async function load({ locals }) { // NEU: locals statt cookies
     }
 
     // 2. Die System-ID wird an die Datenbank übergeben, um nur die Daten dieses Lagers zu laden
-    const categories = await db.getCategories(systemId);
-    const articles = await db.getArticles(systemId);
-    const attributes = await db.getFilterAttributes(systemId); 
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [categories, articles, attributes] = await Promise.all([
+        db.getCategories(systemId),
+        db.getArticles(systemId),
+        db.getFilterAttributes(systemId)
+    ]);
     
     // 3. POJO-Fix für die fehlerfreie Übergabe an das SvelteKit-Frontend
     return {

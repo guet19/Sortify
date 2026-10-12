@@ -13,21 +13,35 @@
         errorMessage = "";
 
         try {
+            // 1. Auftrag anlegen (Server antwortet sofort mit der ID)
             const res = await fetch('/api/scale', { method: 'POST' });
             const data = await res.json();
+            if (!data.success) throw new Error(data.error || 'Waagen-Auftrag fehlgeschlagen.');
 
-            if (data.success) {
-                liveWeight = data.weight;
-            } else {
-                errorMessage = data.error;
-                stopLiveMode();
-            }
+            // 2. Auf das Ergebnis vom Terminal warten
+            const weight = await waitForWeight(data.requestId);
+            if (isLive && weight !== null) liveWeight = weight;
         } catch (err) {
-            errorMessage = "Verbindungsabbruch zum Server.";
+            errorMessage = err.message || "Verbindungsabbruch zum Server.";
             stopLiveMode();
         } finally {
             isFetching = false;
         }
+    }
+
+    // Fragt den Auftrag kurz hintereinander ab, bis der Pi ein Gewicht geliefert hat (max. 6 Sekunden)
+    async function waitForWeight(requestId) {
+        const deadline = Date.now() + 6000;
+        while (Date.now() < deadline) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (!isLive) return null;
+
+            const res = await fetch(`/api/scale/${requestId}`);
+            if (!res.ok) continue;
+            const doc = await res.json();
+            if (doc.status === 'done') return doc.weight;
+        }
+        throw new Error("Timeout: Das Terminal antwortet nicht.");
     }
 
     function toggleLiveMode() {

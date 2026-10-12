@@ -1,8 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
-
-// Globaler Timer für die LED, damit wir ihn sicher abbrechen können!
-let globalLedTimeout = null;
+import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
 
 export async function load({ locals }) { 
     const systemId = locals.systemId;
@@ -32,8 +30,11 @@ export const actions = {
         }
 
         try {
-            const article = await db.getArticleByBarcode(systemId, barcode);
-            const drawer = await db.getDrawerByBarcode(systemId, barcode);
+            // Unabhängige Abfragen parallel statt nacheinander
+            const [article, drawer] = await Promise.all([
+                db.getArticleByBarcode(systemId, barcode),
+                db.getDrawerByBarcode(systemId, barcode)
+            ]);
 
             if (!article || !drawer) {
                 return { success: false, error: 'unknown_barcode' };
@@ -88,17 +89,11 @@ export const actions = {
             // Bestand buchen
             await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock);
             
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
             await db.triggerLedByBarcode(systemId, barcode, userColor);
             
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch (e) {}
-                globalLedTimeout = null;
-            }, 10000);
+            scheduleLedsOff(systemId, 10000);
 
             return { success: true, step: 'done' };
         } catch (err) {
@@ -124,17 +119,11 @@ export const actions = {
         try {
             await db.logArticleAction(systemId, articleId, 'return');
             
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
             await db.triggerLedByBarcode(systemId, barcode, userColor);
             
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch (e) {}
-                globalLedTimeout = null;
-            }, 10000);
+            scheduleLedsOff(systemId, 10000);
 
             return { success: true, step: 'done' };
         } catch (err) {
@@ -157,17 +146,11 @@ export const actions = {
             await db.updateArticleStockFromWeights(systemId, articleId, barcode, 0);
             await db.removeBarcodes(systemId, articleId, barcode);
 
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
             await db.triggerLedByBarcode(systemId, barcode, userColor);
             
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
-                globalLedTimeout = null;
-            }, 10000);
+            scheduleLedsOff(systemId, 10000);
 
             return { success: true, step: 'done', unlinked: true };
         } catch (err) {
@@ -186,18 +169,12 @@ export const actions = {
         const barcode = data.get('barcode');
         
         try {
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
 
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
             await db.triggerLedByBarcode(systemId, barcode, userColor);
             
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
-                globalLedTimeout = null;
-            }, 10000);
+            scheduleLedsOff(systemId, 10000);
 
             return { success: true };
         } catch (err) {

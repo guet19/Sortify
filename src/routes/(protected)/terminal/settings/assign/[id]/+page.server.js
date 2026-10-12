@@ -1,16 +1,17 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
-
-// 🔥 Globaler Speicher für den LED-Timeout, damit wir ihn abbrechen können
-let globalLedTimeout = null;
+import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
 
 export async function load({ locals, params }) { 
     const systemId = locals.systemId;
     if (!systemId) throw redirect(303, '/login');
 
     const articleId = params.id;
-    const categories = await db.getCategories(systemId).catch(() => []);
-    const attributes = await db.getFilterAttributes(systemId).catch(() => []); 
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [categories, attributes] = await Promise.all([
+        db.getCategories(systemId).catch(() => []),
+        db.getFilterAttributes(systemId).catch(() => [])
+    ]);
     
     let article = await db.getArticleById(systemId, articleId).catch(() => null);
     if (!article) throw redirect(303, '/terminal/settings/assign');
@@ -33,10 +34,7 @@ export const actions = {
         const customColor = data.get('color') || '#0000FF';
 
         try {
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
 
             // 🔥 Zuerst alle bestehenden Lichter ausschalten!
             await db.createHardwareCommand(systemId, [0]);
@@ -47,10 +45,7 @@ export const actions = {
                 await db.triggerEmptyLedsBlue(systemId, customColor);
             }
 
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
-                globalLedTimeout = null;
-            }, 15000);
+            scheduleLedsOff(systemId, 15000);
 
             return { success: true };
         } catch (err) {
@@ -90,10 +85,7 @@ export const actions = {
                 return { success: false, error: 'not_in_shelves' };
             }
 
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
             
             // 🔥 Schalte alle vorherigen "leeren" Fächer restlos aus
             await db.createHardwareCommand(systemId, [0]);
@@ -108,10 +100,7 @@ export const actions = {
             }
 
             // Verlängerter Timer (30s)
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
-                globalLedTimeout = null;
-            }, 30000);
+            scheduleLedsOff(systemId, 30000);
 
             return { success: true, barcode };
         } catch (err) {
@@ -172,10 +161,7 @@ export const actions = {
         const customColor = data.get('color') || locals.color || '#0000FF';
         
         try {
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
 
             // Alle alten Lichter ausmachen
             await db.createHardwareCommand(systemId, [0]);
@@ -184,10 +170,7 @@ export const actions = {
             // 🔥 Farbe als String übergeben, statt "true"
             await db.triggerLedByBarcode(systemId, barcode, customColor);
             
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
-                globalLedTimeout = null;
-            }, 10000);
+            scheduleLedsOff(systemId, 10000);
 
             return { success: true };
         } catch (err) {
@@ -209,10 +192,7 @@ export const actions = {
         try {
             await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock);
             
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
 
             // Lichter aus
             await db.createHardwareCommand(systemId, [0]);
@@ -221,10 +201,7 @@ export const actions = {
             // Fach in der User-Farbe (für den erfolgreichen Abschluss) aufleuchten lassen
             await db.triggerLedByBarcode(systemId, barcode, userColor);
             
-            globalLedTimeout = setTimeout(async () => {
-                try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
-                globalLedTimeout = null;
-            }, 10000);
+            scheduleLedsOff(systemId, 10000);
 
             return { success: true };
         } catch (err) {
@@ -250,10 +227,7 @@ export const actions = {
                 }
             }
 
-            if (globalLedTimeout) {
-                clearTimeout(globalLedTimeout);
-                globalLedTimeout = null;
-            }
+            cancelLedsOff(systemId);
             try { await db.createHardwareCommand(systemId, [0]); } catch(e){}
 
             return { success: true };

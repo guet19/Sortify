@@ -1025,6 +1025,7 @@ async function createScaleRequest(systemId, barcode) {
 }
 
 async function getScaleRequest(requestId) {
+    if (!ObjectId.isValid(requestId)) return null;
     const db = await getDb();
     return await db.collection('scale_requests').findOne({ 
         _id: new ObjectId(requestId) 
@@ -1259,17 +1260,17 @@ export async function triggerEmptyLedsBlue(systemId, color = '#0000FF') {
             }
         });
 
-        const articles = await db.collection('articles').find({ systemId: new ObjectId(systemId) }).toArray();
+        // Nur die belegten Barcodes laden statt aller Artikel (alte und neue Datenformate)
+        const articleFilter = { systemId: new ObjectId(systemId) };
+        const [barcodeEntries, legacyBarcodes] = await Promise.all([
+            db.collection('articles').distinct('assigned_barcodes', articleFilter),
+            // Altes Einzelfeld zählt (wie bisher) nur, wenn es noch kein Barcode-Array gibt
+            db.collection('articles').distinct('assigned_barcode', { ...articleFilter, assigned_barcodes: { $not: { $type: 'array' } } })
+        ]);
         let assignedBarcodes = new Set();
-        articles.forEach(article => {
-            if (Array.isArray(article.assigned_barcodes)) {
-                article.assigned_barcodes.forEach(b => {
-                    const code = typeof b === 'object' ? b.barcode : b;
-                    if (code) assignedBarcodes.add(code);
-                });
-            } else if (article.assigned_barcode) {
-                assignedBarcodes.add(article.assigned_barcode);
-            }
+        [...barcodeEntries, ...legacyBarcodes].forEach(b => {
+            const code = b && typeof b === 'object' ? b.barcode : b;
+            if (code) assignedBarcodes.add(code);
         });
 
         let emptyDrawerIds = [];
@@ -1776,46 +1777,24 @@ async function updateUserSystemColor(systemId, userId, newColor) {
     );
 }
 
-// Oben in der Datei, falls noch nicht vorhanden:
-// import { ObjectId } from 'mongodb';
-
-export async function requestScaleWeight(systemId) {
-    // Greife auf deine bestehende Datenbank-Verbindung zu
-    const db = await getDb(); // Nutze hier den Namen deiner internen DB-Funktion
+// Live-Waage: Auftrag für den Raspberry Pi anlegen und SOFORT die ID zurückgeben.
+// Den Status fragt der Browser über /api/scale/[id] ab – so blockiert keine Server-Funktion mehrere Sekunden.
+export async function createLiveScaleRequest(systemId) {
+    const db = await getDb();
     const collection = db.collection('scale_requests');
 
-    // 1. Alten Müll aufräumen, damit sich nichts verhakt
+    // Alte, unbeantwortete Aufträge aufräumen, damit sich nichts verhakt
     await collection.deleteMany({ 
         systemId: new ObjectId(systemId), 
         status: { $in: ["pending", "processing"] } 
     });
 
-    // 2. Neuen Auftrag für den Raspberry Pi erstellen
     const result = await collection.insertOne({
         systemId: new ObjectId(systemId),
         status: "pending",
         createdAt: new Date()
     });
-
-    const requestId = result.insertedId;
-
-    // 3. Warten auf die Antwort vom Pi (Maximal 6 Sekunden)
-    // Wir prüfen alle 250 Millisekunden, ob der Pi fertig ist
-    for (let i = 0; i < 24; i++) {
-        await new Promise(resolve => setTimeout(resolve, 250));
-        
-        const doc = await collection.findOne({ _id: requestId });
-        
-        if (doc && doc.status === "done") {
-            // Wenn fertig: Dokument wieder löschen (um die DB sauber zu halten) und Wert zurückgeben
-            await collection.deleteOne({ _id: requestId });
-            return doc.weight;
-        }
-    }
-    
-    // Wenn nach 6 Sekunden nichts kam: Abbruch
-    await collection.deleteOne({ _id: requestId });
-    throw new Error("Timeout: Das Terminal antwortet nicht.");
+    return result.insertedId.toString();
 }
 
 // Sendet den Kalibrierungs-Befehl und wartet, bis der Pi "done" meldet
@@ -1962,7 +1941,7 @@ export default {
     createSystemRole,
     deleteSystemRole,
     updateUserSystemColor,
-    requestScaleWeight,
+    createLiveScaleRequest,
     sendCalibrationCommand,
     triggerLedsByBarcodeArray
 };

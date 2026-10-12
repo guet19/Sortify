@@ -13,9 +13,12 @@ export async function load({ locals }) {
     }
 
     // 3. Daten für das spezifische System laden
-    const categories = await db.getCategories(locals.systemId);
-    const articles = await db.getArticles(locals.systemId);
-    const attributes = await db.getFilterAttributes(locals.systemId); 
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [categories, articles, attributes] = await Promise.all([
+        db.getCategories(locals.systemId),
+        db.getArticles(locals.systemId),
+        db.getFilterAttributes(locals.systemId)
+    ]);
     
     // 4. WICHTIG: POJO-Fix anwenden, um Serialisierungsfehler im Frontend zu verhindern
     return {

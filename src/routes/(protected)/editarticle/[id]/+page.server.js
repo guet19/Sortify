@@ -30,8 +30,11 @@ export async function load({ params, locals }) { // NEU: locals statt cookies
         throw error(404, { message: 'Dieser Artikel wurde nicht gefunden oder gehört nicht zu diesem Lager.' });
     }
 
-    const categories = await db.getCategories(systemId);
-    const attributes = await db.getFilterAttributes(systemId);
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [categories, attributes] = await Promise.all([
+        db.getCategories(systemId),
+        db.getFilterAttributes(systemId)
+    ]);
 
     // POJO Fix zur Sicherheit beibehalten, besonders wegen der "attributes" Map und Datumswerten
     return {

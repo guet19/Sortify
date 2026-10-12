@@ -9,9 +9,12 @@ export async function load({ locals }) { // NEU: locals statt cookies
     if (!systemId) throw redirect(303, '/login');
 
     // 2. Abfragen streng an das Lager (systemId) binden
-    const categories = await db.getCategories(systemId).catch(() => []);
-    const articles = await db.getArticles(systemId).catch(() => []);
-    const attributes = await db.getFilterAttributes(systemId).catch(() => []); 
+    // Unabhängige Abfragen parallel statt nacheinander
+    const [categories, articles, attributes] = await Promise.all([
+        db.getCategories(systemId).catch(() => []),
+        db.getArticles(systemId).catch(() => []),
+        db.getFilterAttributes(systemId).catch(() => [])
+    ]);
     
     // 3. POJO-Fix für die sichere Datenübergabe
     return {
