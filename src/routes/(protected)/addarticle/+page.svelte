@@ -3,6 +3,7 @@
     import { browser } from "$app/environment";
     import { enhance } from "$app/forms";
     import SearchableSelect from "$lib/components/SearchableSelect.svelte";
+    import AiModelBadge from "$lib/components/AiModelBadge.svelte";
     import { prepareOnWhite, rotateBlob } from "$lib/imageTools.js";
     import { page } from "$app/stores";
     import { goto, invalidateAll } from "$app/navigation"; 
@@ -86,6 +87,26 @@
         requestCategorySuggestion();
     }
 
+    // --- Verwendetes KI-Modell (wechselt automatisch, wenn Kontingente erschöpft sind) ---
+    let currentAiModel = null;     // Modell, das als nächstes verwendet würde
+    let aiStatusLoaded = false;
+    let lastExtractModel = null;   // Modell der letzten Artikel-Analyse
+    let categorySuggestionModel = null;
+
+    async function loadAiStatus() {
+        try {
+            const res = await fetch("/api/ai-status");
+            if (res.ok) currentAiModel = (await res.json()).aiModel;
+        } catch {}
+        aiStatusLoaded = true;
+    }
+
+    // Jede KI-Antwort aktualisiert die Anzeige des aktuellen Modells
+    function rememberAiModel(model) {
+        if (model) currentAiModel = model;
+        return model || null;
+    }
+
     // --- KI-Vorschlag für Haupt- & Unterkategorie (nur bestehende Kategorien) ---
     let categorySuggestionState = ""; // "" | "loading" | "done" | "none"
     let suggestedCategory = null;
@@ -103,10 +124,12 @@
         try {
             const res = await fetch("/api/suggest-category", {
                 method: "POST",
+                signal: AbortSignal.timeout(60000), // nie endlos warten
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ text })
             });
             const result = await res.json();
+            categorySuggestionModel = rememberAiModel(result.aiModel);
             // Nur übernehmen, wenn in der Zwischenzeit nicht selbst gewählt wurde
             if (res.ok && result.suggestion && !selectedMainCategoryId) {
                 selectedMainCategoryId = result.suggestion.mainCategoryId;
@@ -145,6 +168,7 @@
             const articleText = (rawImportText || [title, bookmarkletData?.url].filter(Boolean).join("\n")).slice(0, 18000);
             const res = await fetch("/api/ai-category-wizard", {
                 method: "POST",
+                signal: AbortSignal.timeout(60000), // nie endlos warten
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ articleText, avoid })
             });
@@ -152,6 +176,7 @@
             if (!res.ok) throw new Error(result.error || "Fehler bei der KI-Analyse.");
 
             structure = result;
+            rememberAiModel(result.aiModel);
             structMainMode = result.mainCategory.isNew ? "new" : "existing";
             structMainId = result.mainCategory.id || "";
             structNewMainName = result.mainCategory.suggestedName || "";
@@ -269,6 +294,7 @@
 
     onMount(async () => {
         if (isFromBookmarklet) {
+            loadAiStatus();
             window.addEventListener("message", handleImportMessage);
             if ($page.url.searchParams.get("import") === "2") {
                 // Neues Lesezeichen: auf die Daten warten, notfalls nur mit Titel & URL vorschlagen
@@ -317,6 +343,7 @@
         try {
             const res = await fetch("/api/extract-article", {
                 method: "POST",
+                signal: AbortSignal.timeout(60000), // nie endlos warten
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     html: rawImportText || importUrl,
@@ -334,6 +361,7 @@
 
             const result = await res.json();
             if (res.ok) {
+                lastExtractModel = rememberAiModel(result.aiModel);
                 if (result.title) title = result.title;
                 if (result.description) description = result.description;
                 if (result.supplier) supplier = result.supplier;
@@ -358,6 +386,8 @@
                         console.warn("KI Bild konnte nicht geladen werden", e);
                     }
                 }
+            } else if (browser) {
+                alert(result.error || "Fehler bei der KI-Analyse.");
             }
         } catch (error) {
             console.error("KI Fehler:", error);
@@ -518,6 +548,9 @@
     <div class="overlay-modal">
         <div class="warning-icon">⚠️</div>
         <p class="modal-text">KI kann Fehler machen, bitte überprüfen Sie die zugewiesenen Informationen!</p>
+        {#if lastExtractModel}
+            <div style="margin-bottom: 1rem;"><AiModelBadge model={lastExtractModel} prefix="Analysiert mit" /></div>
+        {/if}
         <button type="button" class="btn-confirm-warning" on:click={() => showAIWarning = false}>Bestätigen</button>
     </div>
 {/if}
@@ -585,6 +618,7 @@
             {:else if isSuggestionActive}
                 <div class="ai-category-status done no-match">
                     <span>✨ Kategorie von der KI vorgeschlagen – bitte kurz prüfen.</span>
+                    {#if categorySuggestionModel}<AiModelBadge model={categorySuggestionModel} />{/if}
                     {#if data.canManageCategories && !structure}
                         <!-- Nicht einverstanden? Andere/neue Kategorie per KI planen lassen -->
                         <button type="button" class="btn-structure btn-structure-secondary" disabled={structureState === "loading"}
@@ -611,6 +645,7 @@
             {#if structure}
                 <div class="struct-panel">
                     <div class="struct-title">✨ KI-Empfehlung für die Kategorie</div>
+                    {#if structure.aiModel}<div style="margin: -0.4rem 0 1rem 0;"><AiModelBadge model={structure.aiModel} /></div>{/if}
 
                     <div class="struct-grid">
                         <div class="struct-box">
@@ -749,6 +784,11 @@
         {#if showAIPrompt}
             <div class="ai-prompt-box">
                 <h3>Möchten Sie mit Hilfe der Webseitdaten automatisch ein Produkt anlegen?</h3>
+                {#if currentAiModel}
+                    <div class="ai-model-row"><AiModelBadge model={currentAiModel} prefix="Verwendet" /></div>
+                {:else if aiStatusLoaded}
+                    <div class="ai-model-row ai-model-exhausted">⚠️ Die Tageskontingente aller KI-Modelle sind aufgebraucht (Reset um 09:00 Uhr).</div>
+                {/if}
                 <div class="ai-prompt-actions">
                     <button type="button" class="btn-ai-yes" on:click={acceptAI}>Ja</button>
                     <button type="button" class="btn-ai-no" on:click={declineAI}>Produktdaten manuell ausfüllen</button>
@@ -1178,6 +1218,10 @@
         .struct-grid { grid-template-columns: 1fr; }
         .struct-actions > button { flex: 1; }
     }
+
+    /* Anzeige des verwendeten KI-Modells */
+    .ai-model-row { margin: 0.25rem 0 1rem 0; display: flex; justify-content: center; }
+    .ai-model-exhausted { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.85rem; font-weight: 600; }
 
     /* Bild drehen */
     .btn-rotate { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; cursor: pointer; }

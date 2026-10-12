@@ -1,6 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { GoogleGenAI } from '@google/genai';
-import { env } from '$env/dynamic/private';
+import { generateJson, aiErrorMessage } from '$lib/server/gemini.js';
 import db from '$lib/server/db.js';
 
 const MAX_INPUT_CHARS = 8000;
@@ -32,13 +31,11 @@ export async function POST({ request, locals }) {
             subcategories: c.subcategories.map(s => ({ id: s.id, name: s.name }))
         }));
 
-        if (!env.GEMINI_API_KEY) {
-            return json({ error: 'API-Schlüssel fehlt auf dem Server.' }, { status: 500 });
-        }
-
-        const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+        // Einfache Zuordnung -> schnelle Lite-Modelle zuerst
+        const { data: answer, model: aiModel } = await generateJson({
+            prefer: 'fast',
+            timeoutMs: 15_000,
+            deadlineMs: 30_000,
             contents: `Verfügbare Kategorien (nur diese sind erlaubt):
 ${JSON.stringify(categoryList)}
 
@@ -50,24 +47,19 @@ Wähle die am besten passende Hauptkategorie und eine Unterkategorie, die zu GEN
 Verwende ausschliesslich IDs aus der Liste. Erfinde keine neuen Kategorien.
 "confidence" ist deine Sicherheit von 0 bis 1. Passt keine Kategorie wirklich, gib null-IDs und confidence 0 zurück.
 Antworte nur als JSON: {"mainCategoryId": "...", "subcategoryId": "...", "confidence": 0.0}`,
-                responseMimeType: 'application/json',
                 temperature: 0
             }
         });
-
-        const match = (result.text || '').match(/\{[\s\S]*\}/);
-        if (!match) return json({ suggestion: null });
-        const answer = JSON.parse(match[0]);
 
         // Nur gültige Kombinationen aus der eigenen Kategorienliste übernehmen
         const main = categories.find(c => c._id === answer.mainCategoryId);
         const sub = main?.subcategories.find(s => s.id === answer.subcategoryId);
         const confidence = Number(answer.confidence) || 0;
-        if (!main || !sub || confidence < MIN_CONFIDENCE) return json({ suggestion: null });
+        if (!main || !sub || confidence < MIN_CONFIDENCE) return json({ suggestion: null, aiModel });
 
-        return json({ suggestion: { mainCategoryId: main._id, subcategoryId: sub.id, confidence } });
+        return json({ suggestion: { mainCategoryId: main._id, subcategoryId: sub.id, confidence }, aiModel });
     } catch (error) {
         console.error("Fehler beim Kategorie-Vorschlag:", error);
-        return json({ error: 'Kategorie konnte nicht ermittelt werden.' }, { status: 500 });
+        return json({ error: aiErrorMessage(error, 'Kategorie konnte nicht ermittelt werden.') }, { status: 502 });
     }
 }

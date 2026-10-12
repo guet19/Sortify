@@ -14,6 +14,7 @@ const API_PERMISSIONS = {
     '/api/suggest-category': ['/addarticle'],
     '/api/ai-category-wizard': ['/einstellungen/category'],
     '/api/apply-category-structure': ['/einstellungen/category'],
+    '/api/ai-status': ['/addarticle', '/einstellungen/category'],
     '/api/pairing-status': ['/terminal/settings/pairing']
 };
 

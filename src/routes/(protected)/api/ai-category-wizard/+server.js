@@ -1,11 +1,8 @@
 import { json } from '@sveltejs/kit';
 import * as cheerio from 'cheerio';
-import { GoogleGenAI } from '@google/genai';
-import { env } from '$env/dynamic/private';
+import { generateJson, aiErrorMessage } from '$lib/server/gemini.js';
 import { safeFetch, readLimited } from '$lib/server/security.js';
 import db from '$lib/server/db.js';
-
-const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
 // Obergrenzen gegen Kostenmissbrauch der KI-API
 const MAX_INPUT_CHARS = 20_000;
@@ -119,21 +116,7 @@ export async function POST({ request, locals }) {
             }
         `;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-                responseMimeType: "application/json",
-                temperature: 0.2
-            }
-        });
-
-        const match = (response.text || '').match(/\{[\s\S]*\}/);
-        if (!match) {
-            console.error("❌ KI hat kein gültiges JSON-Objekt generiert! Rohdaten:", response.text);
-            throw new Error("KI hat kein gültiges JSON-Objekt zurückgegeben.");
-        }
-        const aiData = JSON.parse(match[0]);
+        const { data: aiData, model: aiModel } = await generateJson({ contents: prompt, config: { temperature: 0.2 } });
 
         // --- Antwort gegen die echten Daten prüfen und bereinigen ---
         const mainIn = aiData.mainCategory || {};
@@ -185,10 +168,10 @@ export async function POST({ request, locals }) {
         const brandAttr = attributes.find(a => normalize(a.label) === 'marke');
         if (brandAttr) existingAttributeIds.add(brandAttr._id);
 
-        return json({ mainCategory, subCategory, existingAttributeIds: [...existingAttributeIds], newAttributes });
+        return json({ mainCategory, subCategory, existingAttributeIds: [...existingAttributeIds], newAttributes, aiModel });
 
     } catch (error) {
-        console.error("❌ FATALER KI Fehler:", error);
-        return json({ error: 'Fehler bei der KI-Generierung' }, { status: 500 });
+        console.error("❌ KI-Fehler im Kategorie-Assistenten:", error);
+        return json({ error: aiErrorMessage(error) }, { status: 502 });
     }
 }

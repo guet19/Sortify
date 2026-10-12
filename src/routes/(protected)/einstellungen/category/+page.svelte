@@ -3,6 +3,7 @@
   import { onMount } from "svelte";
   import { browser } from "$app/environment";
   import { page } from "$app/stores"; 
+  import AiModelBadge from "$lib/components/AiModelBadge.svelte";
 
   let { data, form } = $props();
 
@@ -50,6 +51,8 @@
   let aiSelectedExistingAttributes = $state([]); // IDs
   let aiSelectedNewAttributes = $state([]); // Objekte
   let aiError = $state("");
+  // Aktuelles bzw. zuletzt verwendetes KI-Modell (wechselt automatisch bei erschöpftem Kontingent)
+  let currentAiModel = $state(null);
 
   // Ausführliche Shop-Daten vom Lesezeichen (v2); im Eingabefeld steht nur der Titel
   let aiImportText = $state("");
@@ -73,6 +76,7 @@
 
   onMount(() => {
     if (browser) {
+      fetch('/api/ai-status').then((r) => r.ok ? r.json() : null).then((d) => { if (d) currentAiModel = d.aiModel; }).catch(() => {});
 
       // 1. Restore Logik
       const savedMain = sessionStorage.getItem("restoreMainId");
@@ -127,6 +131,7 @@
       // Kategorien & Filter lädt der Server selbst aus der Datenbank
       const response = await fetch('/api/ai-category-wizard', {
         method: 'POST',
+        signal: AbortSignal.timeout(60000), // nie endlos warten
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ articleText })
       });
@@ -138,6 +143,7 @@
         return;
       }
       aiResult = result;
+      if (result.aiModel) currentAiModel = result.aiModel;
 
       // 🔥 NEU: Optionen als editierbaren Komma-String vorbereiten
       if (aiResult.newAttributes) {
@@ -309,6 +315,9 @@
       <div class="card-header border-bottom p-4" style="background: linear-gradient(135deg, #f8fafc, #eff6ff);">
         <h3 class="h5 mb-1 text-primary fw-bold"><i class="bi bi-robot me-2"></i> KI Struktur-Assistent</h3>
         <p class="mb-0 small text-muted-custom">Gib einen Beispielartikel ein. Die KI plant für dich die Kategorien und schlägt passende Filter vor.</p>
+        {#if currentAiModel}
+          <div class="mt-2"><AiModelBadge model={currentAiModel} prefix={aiResult ? 'Geplant mit' : 'Verwendet'} /></div>
+        {/if}
         
         <div class="input-group shadow-sm mt-3">
 <input type="text" class="form-control light-input py-3" placeholder="Artikel-Name oder Lieferanten-Link (https://...) einfügen" bind:value={aiArticleInput} onkeydown={(e) => e.key === "Enter" && generateStructure()}/>        <button class="btn btn-primary fw-bold px-4" onclick={generateStructure} disabled={isAiLoading || !aiArticleInput}>

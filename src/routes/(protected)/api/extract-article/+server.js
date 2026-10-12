@@ -1,6 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { GoogleGenAI } from '@google/genai';
-import { env } from '$env/dynamic/private';
+import { generateJson, aiErrorMessage } from '$lib/server/gemini.js';
 import db from '$lib/server/db.js';
 
 // Obergrenzen gegen Kostenmissbrauch der KI-API
@@ -29,11 +28,6 @@ export async function POST({ request, locals }) {
             return json({ error: `KI-Limit erreicht. Bitte in ${limit.retryAfterMinutes} Minute(n) erneut versuchen.` }, { status: 429 });
         }
 
-        if (!env.GEMINI_API_KEY) {
-            return json({ error: 'API-Schlüssel fehlt auf dem Server.' }, { status: 500 });
-        }
-
-        const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
         const prompt = `
 Hier sind die erwarteten Attribute, die du extrahieren sollst:
@@ -59,8 +53,7 @@ Extrahierte Shop-Daten:
 ${html}
         `;
 
-        const result = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
+        const { data: extractedData, model: aiModel } = await generateJson({
             contents: prompt,
             config: {
                 systemInstruction: `Du bist ein technischer Daten-Extraktor. Extrahiere Produktdaten präzise im JSON-Format.
@@ -74,28 +67,18 @@ REGELN:
 7. QUELLEN: Wenn "PRODUKTDATEN (JSON-LD)" vorhanden sind, haben sie Vorrang (name, description, gtin13/gtin/mpn/sku, offers.price, brand). Technische Werte bevorzugt aus "TABELLEN".
 8. BILD: Wähle aus den Bild-Kandidaten das beste Hauptproduktbild (das Produkt selbst, möglichst groß und freigestellt – keine Logos, Icons, Banner, Zahlungsarten oder Zubehör anderer Produkte). Gib dessen URL exakt so in "finalImageUrl" zurück. Gibt es keinen passenden Kandidaten, lass das Feld leer.
 GIB AUSSCHLIESSLICH DAS JSON ZURÜCK! Keine Begrüßung, keine Erklärungen.`,
-                responseMimeType: "application/json",
                 temperature: 0.1
             }
         });
-
-        let aiResponseText = result.text;
-        
-        const match = aiResponseText.match(/\{[\s\S]*\}/);
-        if (!match) {
-            throw new Error("KI hat kein gültiges JSON-Objekt zurückgegeben.");
-        }
-        
-        const extractedData = JSON.parse(match[0]);
 
         // Nur Bilder akzeptieren, die tatsächlich von der Seite stammen
         if (!images.some(i => i.url === extractedData.finalImageUrl)) {
             extractedData.finalImageUrl = '';
         }
-        return json(extractedData);
+        return json({ ...extractedData, aiModel });
 
     } catch (error) {
         console.error("❌ FATALER FEHLER IM BACKEND:", error);
-        return json({ error: 'Fehler beim Analysieren der Artikeldaten' }, { status: 500 });
+        return json({ error: aiErrorMessage(error, 'Fehler beim Analysieren der Artikeldaten.') }, { status: 502 });
     }
 }
