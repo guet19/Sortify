@@ -5,6 +5,7 @@ import {
     CLOUDINARY_API_SECRET
 } from '$env/static/private';
 import { safeHttpUrl } from '$lib/server/security.js';
+import { cloudinaryPublicIdFor } from '$lib/cloudinaryId.js';
 
 cloudinary.config({
     cloud_name: CLOUDINARY_CLOUD_NAME,
@@ -73,22 +74,8 @@ export async function buildImageList(formData, { allowedKeep = [], allowExternal
 // BILDER BEI CLOUDINARY LÖSCHEN
 // ==========================================
 
-const UPLOAD_FOLDER = 'storify_uploads/';
-
 // Liefert die Cloudinary-ID eines Bildes – nur für Bilder aus unserem eigenen Konto und Upload-Ordner
-// (externe Shop-Bilder oder fremde Konten werden nie angefasst)
-export function cloudinaryPublicId(url) {
-    let parsed;
-    try { parsed = new URL(url); } catch { return null; }
-    if (parsed.hostname !== 'res.cloudinary.com') return null;
-
-    const [, cloud, resourceType, deliveryType, ...rest] = parsed.pathname.split('/');
-    if (cloud !== CLOUDINARY_CLOUD_NAME || resourceType !== 'image' || deliveryType !== 'upload') return null;
-
-    const parts = rest[0] && /^v\d+$/.test(rest[0]) ? rest.slice(1) : rest; // Versionsnummer überspringen
-    const publicId = decodeURIComponent(parts.join('/')).replace(/\.[a-z0-9]+$/i, '');
-    return publicId.startsWith(UPLOAD_FOLDER) ? publicId : null;
-}
+export const cloudinaryPublicId = (url) => cloudinaryPublicIdFor(url, CLOUDINARY_CLOUD_NAME);
 
 // Löscht Bilder bei Cloudinary, die von keinem Artikel mehr verwendet werden.
 // isInUse(url) prüft in der DB, ob ein (anderer) Artikel das Bild noch nutzt – z.B. nach dem Kopieren.

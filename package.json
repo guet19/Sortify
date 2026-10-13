@@ -9,6 +9,10 @@
 		"preview": "vite preview",
 		"test": "vitest run",
 		"test:watch": "vitest",
+		"db:indexes": "node --env-file=.env scripts/create-indexes.js",
+		"db:backup": "node --env-file=.env scripts/backup-db.js",
+		"db:migrate-barcodes": "node --env-file=.env scripts/migrate-barcodes.js",
+		"cloudinary:cleanup": "node --env-file=.env scripts/cleanup-cloudinary.js",
 		"prepare": "svelte-kit sync || echo ''"
 	},
 	"devDependencies": {
