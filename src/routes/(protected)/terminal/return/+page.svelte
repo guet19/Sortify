@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { onDestroy } from 'svelte';
 
@@ -127,10 +128,9 @@
 </script>
 
 <div class="terminal-page space-grotesk">
-    <div class="header">
-        <h1>Artikel Retournieren</h1>
-        <button class="btn-back" on:click={resetWorkflow}>Zurücksetzen</button>
-    </div>
+    <TerminalHeader title="Artikel retournieren" backHref="/terminal">
+        <button type="button" class="terminal-header-btn" on:click={resetWorkflow}>Zurücksetzen</button>
+    </TerminalHeader>
 
     <div class="workflow-container">
         
@@ -369,11 +369,8 @@
 </div>
 
 <style>
-    .terminal-page { max-width: 800px; margin: 0 auto; padding: 2rem; color: #f8fafc; text-align: center; }
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 3rem; }
-    h1 { color: #22c55e; margin: 0; }
-    .btn-back { background: transparent; border: 1px solid #475569; color: #94a3b8; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
-    .btn-back:hover { background: #334155; color: #f8fafc; }
+    .terminal-page { max-width: 900px; margin: 0 auto; color: #f8fafc; }
+    .workflow-container { text-align: center; }
     
     .card { 
         background: #1e293b; border: 2px solid #334155; border-radius: 16px; padding: 3rem; 
@@ -541,9 +538,6 @@
     /* ===== Smartphone ===== */
     @media (max-width: 640px) {
         .terminal-page { padding: 0; }
-        .header { margin-bottom: 1.25rem; gap: 0.75rem; }
-        h1 { font-size: 1.5rem; text-align: left; }
-        .btn-back { flex-shrink: 0; padding: 0.6rem 0.9rem; }
         .card { padding: 1.5rem 1.1rem; border-radius: 14px; }
         .emoji-hero { font-size: 3rem; }
         .step-title { font-size: 1.5rem; }

@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { invalidateAll, beforeNavigate } from '$app/navigation';
     import { onDestroy } from 'svelte';
@@ -185,10 +186,7 @@
 </script>
 
 <div class="terminal-page space-grotesk">
-    <div class="header">
-        <h1>Hardware Verwaltung</h1>
-        <p class="subtitle">Verwalte deine Sortimentskästen und lerne neue Fächer an.</p>
-    </div>
+    <TerminalHeader title="Fächer anlernen" subtitle="Verwalte deine Sortimentskästen und lerne neue Fächer an." backHref="/terminal/settings" />
 
     {#if currentView === 'dashboard'}
         <div class="dashboard-grid">
@@ -471,10 +469,7 @@
 
 <style>
     /* Generelles Layout */
-    .terminal-page { max-width: 1200px; margin: 0 auto; padding: 2rem; color: #f8fafc; }
-    .header { margin-bottom: 3rem; border-bottom: 1px solid #334155; padding-bottom: 1.5rem; }
-    .header h1 { color: #22c55e; margin: 0 0 0.5rem 0; font-size: 2.5rem; }
-    .subtitle { color: #94a3b8; font-size: 1.2rem; margin: 0; }
+    .terminal-page { max-width: 1400px; margin: 0 auto; color: #f8fafc; }
 
     /* Dashboard & Regale */
     .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 2rem; align-items: start; }
@@ -630,9 +625,6 @@
 
     /* ===== Smartphone ===== */
     @media (max-width: 640px) {
-        .header { margin-bottom: 1.25rem; padding-bottom: 1rem; }
-        .header h1 { font-size: 1.6rem; }
-        .subtitle { font-size: 1rem; }
         .dashboard-grid { grid-template-columns: 1fr; gap: 1rem; }
         .shelf-card { padding: 1rem; }
         .shelf-title h2 { font-size: 1.2rem; }

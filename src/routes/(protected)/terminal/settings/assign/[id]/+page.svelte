@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms'; 
     import { invalidateAll } from '$app/navigation'; 
     import { onDestroy } from 'svelte';
@@ -199,17 +200,11 @@
 </script>
 
 <div class="terminal-page space-grotesk">
-    <div class="header">
-        <div class="title-area">
-            <h1 class="page-title">{article?.title || 'Lade Artikel...'}</h1>
-            {#if article?.sku}
-                <span class="sku-badge">SKU: {article?.sku}</span>
-            {/if}
-        </div>
-        <a href="/terminal/settings/assign" class="btn-back">
-            <span class="icon">←</span> Zurück zur Übersicht
-        </a>
-    </div>
+    <TerminalHeader
+        title={article?.title || 'Lade Artikel...'}
+        subtitle={article?.sku ? `SKU: ${article.sku}` : 'Fächer und Gewichte verwalten'}
+        backHref="/terminal/settings/assign"
+    />
 
     <div class="article-layout">
         <div class="left-column">
@@ -987,7 +982,7 @@
         --shadow-glow-blue: 0 0 15px rgba(59, 130, 246, 0.3);
         --radius-md: 12px; --radius-lg: 16px; --radius-xl: 24px;
     }
-    .terminal-page { max-width: 1400px; margin: 0 auto; padding: 2rem; color: var(--text-main); }
+    .terminal-page { max-width: 1400px; margin: 0 auto; color: var(--text-main); }
     .mt-1 { margin-top: 0.5rem; } .mt-2 { margin-top: 1rem; } .mt-3 { margin-top: 1.5rem; }
     .mb-1 { margin-bottom: 0.5rem; } .mb-2 { margin-bottom: 1rem; } .mb-3 { margin-bottom: 1.5rem; }
     .p-4 { padding: 2rem; } .text-center { text-align: center; }
@@ -1003,12 +998,6 @@
     .btn-retrigger-led { background: rgba(59, 130, 246, 0.1); border: 1px dashed rgba(59, 130, 246, 0.4); color: var(--color-blue-light); padding: 0.5rem 0.8rem; border-radius: 8px; font-size: 0.95rem; font-weight: bold; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 0.4rem; }
     .btn-retrigger-led:hover { background: rgba(59, 130, 246, 0.2); border-style: solid; color: white; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2); }
     
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; }
-    .title-area { display: flex; flex-direction: column; gap: 0.5rem; }
-    .page-title { color: var(--color-green); margin: 0; font-size: 2.5rem; letter-spacing: -0.02em; }
-    .sku-badge { align-self: flex-start; background: var(--bg-card); border: 1px solid var(--border-highlight); color: var(--text-muted); padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.9rem; font-family: monospace; font-weight: bold; }
-    .btn-back { display: flex; align-items: center; gap: 0.5rem; background: var(--bg-card); color: white; padding: 0.8rem 1.2rem; border-radius: var(--radius-md); border: 1px solid var(--border-highlight); text-decoration: none; font-weight: 600; transition: all 0.2s; }
-    .btn-back:hover { background: var(--bg-card-hover); transform: translateY(-2px); }
     .article-layout { display: grid; grid-template-columns: 450px 1fr; gap: 3rem; align-items: start; }
     .left-column { display: flex; flex-direction: column; gap: 1.5rem; position: sticky; top: 2rem; }
     .info-section { display: flex; flex-direction: column; gap: 2rem; }
@@ -1129,10 +1118,6 @@
 
     /* ===== Smartphone ===== */
     @media (max-width: 640px) {
-        .terminal-page { padding: 0; }
-        .header { margin-bottom: 1.25rem; padding-bottom: 1rem; gap: 0.75rem; flex-wrap: wrap; }
-        .page-title { font-size: 1.6rem; overflow-wrap: anywhere; }
-        .btn-back { padding: 0.6rem 1rem; }
         .article-layout { gap: 1.25rem; }
         .left-column, .info-section { gap: 1rem; }
         .image-section { height: 220px; border-radius: 12px; }

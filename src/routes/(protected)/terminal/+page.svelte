@@ -1,5 +1,9 @@
+<script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
+</script>
+
 <div class="dashboard-container">
-    <h2>Hauptmenü</h2>
+    <TerminalHeader title="Hauptmenü" subtitle="Was möchtest du tun?" />
     
     <div class="action-grid">
         <!-- Karte 1: Artikel suchen -->
@@ -17,8 +21,7 @@
 </div>
 
 <style>
-    .dashboard-container { max-width: 1000px; margin: 0 auto; padding-top: 4rem; }
-    h2 { font-size: 2.5rem; margin-bottom: 3rem; font-weight: 300; color: #e2e8f0; text-align: center; }
+    .dashboard-container { max-width: 1000px; margin: 0 auto; }
 
     /* Grid für exakt 2 Spalten */
     .action-grid {
@@ -52,8 +55,6 @@
 
     /* ===== Smartphone: Karten untereinander, kompakt ===== */
     @media (max-width: 640px) {
-        .dashboard-container { padding-top: 1rem; }
-        h2 { font-size: 1.8rem; margin-bottom: 1.5rem; }
         .action-grid { grid-template-columns: 1fr; gap: 1rem; }
         .action-card { flex-direction: row; justify-content: flex-start; padding: 1.5rem; gap: 1.25rem; text-align: left; border-radius: 16px; }
         .icon { font-size: 2.75rem; margin-bottom: 0; }

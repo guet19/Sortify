@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { assignFilterStore } from '$lib/filterStore.js';
 
     export let data;
@@ -222,13 +223,7 @@
 </script>
 
 <div class="terminal-page space-grotesk">
-    <div class="header">
-        <h1>Artikel verknüpfen</h1>
-        <a href="/terminal/settings" class="btn-back">
-            <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Zurück
-        </a>
-    </div>
+    <TerminalHeader title="Artikel zuweisen" subtitle="Artikel mit Fächern im Regal verknüpfen" backHref="/terminal/settings" />
 
     <div class="top-bar">
         <div class="filter-left">
@@ -398,12 +393,9 @@
     :global(html), :global(body) { overflow-x: hidden; margin: 0; padding: 0; width: 100%; }
     * { box-sizing: border-box; }
 
-    .terminal-page { max-width: 1400px; margin: 0 auto; padding: 1rem 1.5rem; color: #f8fafc; }
+    .terminal-page { max-width: 1400px; margin: 0 auto; color: #f8fafc; }
     
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-    h1 { color: #22c55e; margin: 0; font-size: 2.2rem; }
     
-    .btn-back { display: flex; align-items: center; gap: 0.5rem; background: #1e293b; color: white; padding: 0.8rem 1.5rem; border-radius: 8px; border: 1px solid #334155; text-decoration: none; font-weight: 600; }
     
     .top-bar { background: #1e293b; padding: 1.5rem; border-radius: 12px; border: 1px solid #334155; margin-bottom: 2rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1.5rem; }
     .filter-left { display: flex; gap: 1rem; flex-wrap: wrap; flex: 1; align-items: flex-end;}
@@ -484,10 +476,6 @@
     /* ===== Smartphone ===== */
     .btn-toggle-filters { display: none; }
     @media (max-width: 768px) {
-        .terminal-page { padding: 0; }
-        .header { margin-bottom: 1rem; gap: 0.75rem; }
-        h1 { font-size: 1.6rem; }
-        .btn-back { padding: 0.6rem 1rem; flex-shrink: 0; }
         .top-bar { padding: 1rem; margin-bottom: 1rem; gap: 1rem; }
         .filter-right { max-width: none; }
 

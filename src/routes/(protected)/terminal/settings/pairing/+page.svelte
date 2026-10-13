@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { onDestroy } from 'svelte';
     export let form;
@@ -70,20 +71,14 @@
     });
 </script>
 
+<div class="pairing-page">
+<TerminalHeader title="Terminal koppeln" backHref="/terminal/settings" />
 <div class="pairing-container">
-    <div class="header-section">
-        <h1 class="space-grotesk">
-            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
-            </svg>
-            Terminal koppeln
-        </h1>
-        <p class="description">
-            Verbinde ein neues Raspberry Pi Terminal sicher mit deinem Sortify-System. 
-            Dieser Prozess garantiert, dass nur autorisierte Geräte Zugriff auf deine Datenbank erhalten. 
-            Folge einfach den Schritten hier und auf dem Display deines Terminals.
-        </p>
-    </div>
+    <p class="description">
+        Verbinde ein neues Raspberry Pi Terminal sicher mit deinem Sortify-System. 
+        Dieser Prozess garantiert, dass nur autorisierte Geräte Zugriff auf deine Datenbank erhalten. 
+        Folge einfach den Schritten hier und auf dem Display deines Terminals.
+    </p>
 
     <div class="grid-layout">
         <!-- LINKE SPALTE: Anleitung -->
@@ -205,30 +200,30 @@
         </div>
     </div>
 </div>
+</div>
 
 <style>
     /* Das CSS bleibt komplett identisch zu deiner Version! */
-    .pairing-container { max-width: 1000px; margin: 40px auto; padding: 40px; background-color: #112238; border: 1px solid #1e3a5f; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4); box-sizing: border-box; }
-    .header-section { margin-bottom: 40px; padding-bottom: 24px; border-bottom: 1px solid #1e3a5f; }
-    .header-section h1 { font-size: 28px; margin: 0 0 16px 0; display: flex; align-items: center; gap: 12px; }
-    .description { font-size: 16px; line-height: 1.6; margin: 0; max-width: 800px; opacity: 0.7; }
+    .pairing-page { max-width: 1000px; margin: 0 auto; }
+    .pairing-container { padding: 40px; background-color: #1e293b; border: 1px solid #334155; border-radius: 16px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.4); box-sizing: border-box; }
+    .description { font-size: 16px; line-height: 1.6; margin: 0 0 32px 0; padding-bottom: 24px; border-bottom: 1px solid #334155; color: #cbd5e1; }
     .grid-layout { display: grid; grid-template-columns: 1fr; gap: 40px; }
     @media (min-width: 768px) { .grid-layout { grid-template-columns: 1fr 1fr; } }
     .steps-column h2 { font-size: 20px; margin: 0 0 24px 0; color: white; }
     .step { display: flex; gap: 16px; align-items: flex-start; opacity: 0.4; transition: opacity 0.3s ease; }
     .step.active { opacity: 1; }
-    .step-number { width: 36px; height: 36px; border-radius: 50%; background-color: #1e3a5f; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; border: 2px solid #2a4b7a; }
+    .step-number { width: 36px; height: 36px; border-radius: 50%; background-color: #334155; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; border: 2px solid #475569; }
     .step.active .step-number { background-color: #22c55e; border-color: #4ade80; box-shadow: 0 0 15px rgba(34, 197, 94, 0.4); }
     .step-content h3 { margin: 0 0 6px 0; font-size: 16px; color: white; }
     .step-content p { margin: 0; font-size: 14px; line-height: 1.5; opacity: 0.7; }
-    .step-connector { height: 24px; border-left: 2px dashed #1e3a5f; margin-left: 17px; margin-top: 8px; margin-bottom: 8px; }
-    .action-column { background-color: #0B192C; padding: 32px; border-radius: 12px; border: 1px solid #1e3a5f; display: flex; flex-direction: column; justify-content: center; min-height: 350px; box-sizing: border-box; }
+    .step-connector { height: 24px; border-left: 2px dashed #334155; margin-left: 17px; margin-top: 8px; margin-bottom: 8px; }
+    .action-column { background-color: #0B192C; padding: 32px; border-radius: 12px; border: 1px solid #334155; display: flex; flex-direction: column; justify-content: center; min-height: 350px; box-sizing: border-box; }
     .action-header { text-align: center; margin-bottom: 24px; }
     .action-header h3 { margin: 0 0 8px 0; font-size: 20px; color: white; }
     .action-header p { margin: 0; font-size: 14px; opacity: 0.7; }
     .icon-circle { width: 48px; height: 48px; border-radius: 50%; background-color: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; }
     form { display: flex; flex-direction: column; gap: 16px; }
-    .code-input { width: 100%; padding: 16px; background-color: rgba(0, 0, 0, 0.3); border: 2px solid #1e3a5f; border-radius: 8px; color: white; font-family: monospace; font-size: 24px; text-align: center; text-transform: uppercase; letter-spacing: 0.2em; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
+    .code-input { width: 100%; padding: 16px; background-color: rgba(0, 0, 0, 0.3); border: 2px solid #334155; border-radius: 8px; color: white; font-family: monospace; font-size: 24px; text-align: center; text-transform: uppercase; letter-spacing: 0.2em; box-sizing: border-box; outline: none; transition: border-color 0.2s; }
     .code-input:focus { border-color: #22c55e; }
     .code-input-green { color: #22c55e; border-color: rgba(34, 197, 94, 0.5); }
     .error-msg { background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); color: #fca5a5; padding: 12px; border-radius: 8px; text-align: center; font-size: 14px; }
@@ -239,16 +234,14 @@
     .success-view h2 { margin: 0 0 12px 0; color: white; }
     .success-view p { margin: 0 0 32px 0; opacity: 0.7; }
     .action-buttons-row { display: flex; gap: 16px; justify-content: center; margin-top: 24px; }
-    .back-link { display: inline-flex; align-items: center; justify-content: center; background-color: #1e3a5f; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; transition: background-color 0.2s; }
-    .back-link:hover { background-color: #2a4b7a; }
+    .back-link { display: inline-flex; align-items: center; justify-content: center; background-color: #334155; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; transition: background-color 0.2s; }
+    .back-link:hover { background-color: #475569; }
     .remove-btn { display: inline-flex; align-items: center; justify-content: center; background-color: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.4); color: #ef4444; padding: 12px 24px; border-radius: 8px; cursor: pointer; transition: all 0.2s; font-size: 16px; }
     .remove-btn:hover { background-color: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.6); }
 
     /* ===== Smartphone ===== */
     @media (max-width: 640px) {
         .pairing-container { margin: 0; padding: 1.25rem; }
-        .header-section { margin-bottom: 1.5rem; padding-bottom: 1rem; }
-        .header-section h1 { font-size: 1.4rem; }
         .grid-layout { gap: 1.5rem; }
         .action-buttons-row { flex-direction: column; }
         .remove-btn { width: 100%; }

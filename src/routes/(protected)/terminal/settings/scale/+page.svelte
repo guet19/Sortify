@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { onDestroy } from 'svelte';
 
     let isLive = false;
@@ -67,6 +68,8 @@
     });
 </script>
 
+<div class="terminal-narrow">
+<TerminalHeader title="Waage testen" subtitle="Live-Gewicht der Terminal-Waage prüfen" backHref="/terminal/settings" />
 <div class="dashboard-wrapper">
     <div class="monitor-card">
         <!-- Header -->
@@ -78,7 +81,7 @@
                         <path d="M2 12h20"/>
                     </svg>
                 </div>
-                <h2 class="title">Waagen-Monitor</h2>
+                <h2 class="title">Live-Messung</h2>
             </div>
             {#if isLive}
                 <div class="live-badge">
@@ -123,25 +126,25 @@
         </div>
     </div>
 </div>
+</div>
 
 <style>
+    .terminal-narrow { max-width: 900px; margin: 0 auto; font-family: "Space Grotesk", system-ui, sans-serif; }
     /* Nimmt den Platz des übergeordneten Containers ein */
     .dashboard-wrapper {
         width: 100%;
         height: 100%;
-        min-height: 70vh; /* Mindestens 70% der Bildschirmhöhe */
         display: flex;
-        padding: 24px;
+        padding: 0;
         box-sizing: border-box;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
     /* Die Hauptkarte breitet sich komplett aus */
     .monitor-card {
-        background: #ffffff;
+        background: #1e293b;
         border-radius: 24px;
         box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
-        border: 1px solid #f1f5f9;
+        border: 1px solid #334155;
         padding: 40px;
         width: 100%;
         display: flex;
@@ -168,19 +171,19 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #f8fafc;
+        background: #0f172a;
         width: 48px;     /* Feste Breite */
         height: 48px;    /* Feste Höhe */
         flex-shrink: 0;  /* Wichtig: Darf nicht vom Text gequetscht werden */
         border-radius: 12px;
         color: #3b82f6;
-        border: 1px solid #e2e8f0;
+        border: 1px solid #334155;
     }
 
     .title {
         font-size: 1.75rem; /* Größerer Titel */
         font-weight: 800;
-        color: #0f172a;
+        color: #f8fafc;
         margin: 0;
     }
 
@@ -189,8 +192,8 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        background: #fee2e2;
-        color: #dc2626;
+        background: rgba(239, 68, 68, 0.15);
+        color: #fca5a5;
         padding: 8px 16px;
         border-radius: 9999px;
         font-size: 1rem;
@@ -213,8 +216,8 @@
 
     /* Digital Display Box - Nimmt den ganzen Restplatz ein */
     .digital-display {
-        background: #f8fafc;
-        border: 2px solid #e2e8f0;
+        background: #0f172a;
+        border: 2px solid #334155;
         border-radius: 20px;
         padding: 40px;
         flex-grow: 1; /* Lässt diese Box wachsen, bis sie den Bildschirm füllt */
@@ -228,15 +231,15 @@
     }
 
     .digital-display.is-active {
-        background: #eff6ff;
-        border-color: #bfdbfe;
+        background: rgba(59, 130, 246, 0.12);
+        border-color: #3b82f6;
         box-shadow: inset 0 2px 20px rgba(59, 130, 246, 0.08);
     }
 
     .display-label {
         font-size: 1.25rem;
         font-weight: 600;
-        color: #64748b;
+        color: #94a3b8;
         margin-bottom: 16px;
         text-transform: uppercase;
         letter-spacing: 0.1em;
@@ -250,13 +253,13 @@
     .weight-value {
         font-size: 8rem; /* Massive Schriftgröße */
         font-weight: 800;
-        color: #0f172a;
+        color: #f8fafc;
         line-height: 1;
         font-variant-numeric: tabular-nums;
     }
 
     .digital-display.is-active .weight-value {
-        color: #1d4ed8;
+        color: #60a5fa;
     }
 
     .unit {
@@ -275,9 +278,9 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #b91c1c;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        color: #fca5a5;
         padding: 16px 24px;
         border-radius: 16px;
         font-size: 1.125rem;

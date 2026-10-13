@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { invalidateAll } from '$app/navigation';
     import { onDestroy } from 'svelte';
@@ -171,13 +172,7 @@
 </script>
 
 <div class="terminal-page space-grotesk">
-    <div class="header">
-        <div class="title-area">
-            <h1>Inventarpflege</h1>
-            <p class="subtitle">Artikel mit unkontrollierten Bestandsbewegungen</p>
-        </div>
-        <a href="/terminal/settings" class="btn-back">Zurück zu Settings</a>
-    </div>
+    <TerminalHeader title="Inventarpflege" subtitle="Artikel mit unkontrollierten Bestandsbewegungen" backHref="/terminal/settings" />
 
     <!-- FILTER BEREICH -->
     <div class="filter-bar">
@@ -425,14 +420,9 @@
         --color-blue: #3b82f6; --color-green: #22c55e; --color-red: #ef4444; 
     }
 
-    .terminal-page { max-width: 1400px; margin: 0 auto; padding: 2rem; color: #f8fafc; }
+    .terminal-page { max-width: 1400px; margin: 0 auto; color: #f8fafc; }
     
-    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem; }
-    h1 { color: var(--color-green); margin: 0 0 0.5rem 0; font-size: 2.5rem; }
-    .subtitle { color: #94a3b8; margin: 0; font-size: 1.1rem; }
     
-    .btn-back { background: var(--bg-card); color: white; padding: 0.8rem 1.2rem; border-radius: 12px; border: 1px solid #475569; text-decoration: none; font-weight: bold; transition: all 0.2s; }
-    .btn-back:hover { background: #334155; }
 
     /* --- Filter Bar --- */
     .filter-bar { display: flex; justify-content: space-between; align-items: center; background: var(--bg-card); padding: 1.5rem; border-radius: 16px; border: 1px solid var(--border-color); margin-bottom: 2rem; }
@@ -521,9 +511,6 @@
 
     /* ===== Smartphone ===== */
     @media (max-width: 640px) {
-        .header { flex-direction: column; gap: 1rem; margin-bottom: 1.25rem; padding-bottom: 1rem; }
-        h1 { font-size: 1.6rem; }
-        .subtitle { font-size: 0.95rem; }
         .filter-bar { flex-direction: column; align-items: stretch; gap: 0.75rem; padding: 1rem; margin-bottom: 1.25rem; }
         .filter-group { flex-direction: column; align-items: stretch; gap: 0.5rem; }
         .modern-select { width: 100%; font-size: 1rem; }

@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { page } from "$app/stores";
     import { canAccessPath } from "$lib/permissions.js";
 
@@ -15,15 +16,8 @@
 </script>
 
 <div class="settings-container">
-    <div class="header-area">
-        <h2>Einstellungen & Setup</h2>
-        <!-- Der Zurück-Button führt direkt zum Touch-Dashboard -->
-        <a href="/terminal" class="back-btn">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather feather-arrow-left"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            Zurück zum Menü
-        </a>
-    </div>
-    
+    <TerminalHeader title="Einstellungen & Setup" backHref="/terminal" />
+
     <div class="action-grid">
         
         {#if canSee('/terminal/settings/assign')}
@@ -40,7 +34,7 @@
         {#if canSee('/terminal/settings/scale')}
             <!-- Karte 1: Artikel zuweisen -->
             <a href="/terminal/settings/scale" class="action-card">
-                <div class="icon">🔗</div>
+                <div class="icon">⚖️</div>
                 <div class="card-content">
                     <h3>Waage testen</h3>
                     <p>Die Waage mit Messungen überprüfen.</p>
@@ -51,7 +45,7 @@
         {#if canSee('/terminal/settings/calibration')}
             <!-- Karte 1: Artikel zuweisen -->
             <a href="/terminal/settings/calibration" class="action-card">
-                <div class="icon">🔗</div>
+                <div class="icon">🎯</div>
                 <div class="card-content">
                     <h3>Waage kalibrieren</h3>
             
@@ -62,7 +56,7 @@
         {#if canSee('/terminal/settings/shelf')}
             <!-- Karte 2: Hardware Anlernen -->
             <a href="/terminal/settings/shelf" class="action-card">
-                <div class="icon">💡</div>
+                <div class="icon">🗄️</div>
                 <div class="card-content">
                     <h3>Fächer anlernen</h3>
                     <p>Hardware-Setup, LED-Test und Kartierung der Werkstatt-Fächer.</p>
@@ -73,9 +67,9 @@
         {#if canSee('/terminal/settings/pairing')}
             <!-- Karte 2: Hardware Anlernen -->
             <a href="/terminal/settings/pairing" class="action-card">
-                <div class="icon">💡</div>
+                <div class="icon">📡</div>
                 <div class="card-content">
-                    <h3>Hardware koppeln</h3>
+                    <h3>Terminal koppeln</h3>
                     <p>Terminal-Hardware mit dem System koppeln.</p>
                 </div>
             </a>
@@ -84,7 +78,7 @@
         {#if canSee('/terminal/settings/maintenance')}
             <!-- Karte 3: Inventarpflege -->
             <a href="/terminal/settings/maintenance" class="action-card">
-                <div class="icon">💡</div>
+                <div class="icon">📋</div>
                 <div class="card-content">
                     <h3>Inventarpflege</h3>
                     <p>Aktualisierung der Bestände</p>
@@ -111,44 +105,8 @@
     .settings-container { 
         max-width: 1000px; 
         margin: 0 auto; 
-        padding-top: 2rem; 
     }
     
-    .header-area {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 3rem;
-        padding-bottom: 1rem;
-        border-bottom: 1px solid #334155;
-    }
-
-    h2 { 
-        font-size: 2.2rem; 
-        margin: 0; 
-        font-weight: 300; 
-        color: #e2e8f0; 
-    }
-
-    .back-btn {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        background-color: #334155;
-        color: #f8fafc;
-        padding: 0.8rem 1.5rem;
-        border-radius: 12px;
-        text-decoration: none;
-        font-size: 1.1rem;
-        font-weight: 500;
-        border: 1px solid #475569;
-        transition: all 0.2s ease;
-    }
-    .back-btn:hover { 
-        background-color: #475569; 
-        border-color: #64748b;
-    }
-
     .action-grid {
         display: flex;
         flex-direction: column;
@@ -216,10 +174,6 @@
 
     /* ===== Smartphone ===== */
     @media (max-width: 640px) {
-        .settings-container { padding-top: 0; }
-        .header-area { margin-bottom: 1.25rem; gap: 0.75rem; }
-        h2 { font-size: 1.5rem; }
-        .back-btn { padding: 0.6rem 0.9rem; font-size: 0.95rem; flex-shrink: 0; }
         .action-grid { gap: 0.75rem; }
         .action-card { padding: 1rem; gap: 1rem; border-radius: 14px; }
         .action-card:hover { transform: none; }

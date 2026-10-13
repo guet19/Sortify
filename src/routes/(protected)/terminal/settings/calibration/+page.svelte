@@ -1,4 +1,5 @@
 <script>
+    import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     let currentStep = 1; // 1 = Tara, 2 = Gewicht, 3 = Fertig
     let knownWeight = 100;
     let isProcessing = false;
@@ -60,6 +61,8 @@
     }
 </script>
 
+<div class="terminal-narrow">
+<TerminalHeader title="Waage kalibrieren" subtitle="In drei Schritten zur genauen Waage" backHref="/terminal/settings" />
 <div class="dashboard-wrapper">
     <div class="wizard-card">
         
@@ -70,7 +73,7 @@
                         <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/>
                     </svg>
                 </div>
-                <h2 class="title">Waage kalibrieren</h2>
+                <h2 class="title">Kalibrierungs-Assistent</h2>
             </div>
             <div class="step-indicator">
                 Schritt {currentStep} von 3
@@ -134,23 +137,23 @@
         </div>
     </div>
 </div>
+</div>
 
 <style>
+    .terminal-narrow { max-width: 900px; margin: 0 auto; font-family: "Space Grotesk", system-ui, sans-serif; }
     .dashboard-wrapper {
         width: 100%;
         height: 100%;
-        min-height: 70vh;
         display: flex;
-        padding: 24px;
+        padding: 0;
         box-sizing: border-box;
-        font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     }
 
     .wizard-card {
-        background: #ffffff;
+        background: #1e293b;
         border-radius: 24px;
         box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.08);
-        border: 1px solid #f1f5f9;
+        border: 1px solid #334155;
         padding: 40px;
         width: 100%;
         max-width: 700px;
@@ -165,7 +168,7 @@
         justify-content: space-between;
         margin-bottom: 32px;
         padding-bottom: 24px;
-        border-bottom: 2px solid #f1f5f9;
+        border-bottom: 2px solid #334155;
     }
 
     .header-left {
@@ -178,27 +181,27 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #f8fafc;
+        background: #0f172a;
         width: 48px;
         height: 48px;
         flex-shrink: 0;
         border-radius: 12px;
         color: #3b82f6;
-        border: 1px solid #e2e8f0;
+        border: 1px solid #334155;
     }
 
     .title {
         font-size: 1.75rem;
         font-weight: 800;
-        color: #0f172a;
+        color: #f8fafc;
         margin: 0;
     }
 
     .step-indicator {
         font-size: 1rem;
         font-weight: 700;
-        color: #64748b;
-        background: #f1f5f9;
+        color: #94a3b8;
+        background: #0f172a;
         padding: 8px 16px;
         border-radius: 999px;
     }
@@ -218,19 +221,19 @@
     .step-title {
         font-size: 1.5rem;
         font-weight: 700;
-        color: #0f172a;
+        color: #f8fafc;
         margin-bottom: 12px;
     }
 
     .step-desc {
         font-size: 1.125rem;
-        color: #64748b;
+        color: #94a3b8;
         line-height: 1.6;
     }
 
     .input-group {
-        background: #f8fafc;
-        border: 2px solid #e2e8f0;
+        background: #0f172a;
+        border: 2px solid #334155;
         border-radius: 16px;
         padding: 32px;
         text-align: center;
@@ -241,7 +244,7 @@
         display: block;
         font-size: 1rem;
         font-weight: 600;
-        color: #64748b;
+        color: #94a3b8;
         margin-bottom: 16px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
@@ -256,13 +259,13 @@
     .weight-input {
         font-size: 2rem;
         font-weight: 800;
-        color: #0f172a;
+        color: #f8fafc;
         background: transparent;
         border: none;
         width: 200px;
         text-align: right;
         outline: none;
-        border-bottom: 4px solid #bfdbfe;
+        border-bottom: 4px solid #3b82f6;
         padding-bottom: 8px;
         font-variant-numeric: tabular-nums;
     }
@@ -316,8 +319,8 @@
     }
 
     .btn-secondary {
-        background: #f1f5f9;
-        color: #475569;
+        background: #0f172a;
+        color: #cbd5e1;
     }
 
     .btn-secondary:hover:not(:disabled) {
@@ -328,9 +331,9 @@
         display: flex;
         align-items: center;
         gap: 12px;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        color: #b91c1c;
+        background: rgba(239, 68, 68, 0.12);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+        color: #fca5a5;
         padding: 16px 24px;
         border-radius: 12px;
         font-size: 1rem;
@@ -356,7 +359,8 @@
         .wizard-card { padding: 1.25rem; border-radius: 16px; }
         .header { margin-bottom: 1.25rem; padding-bottom: 1rem; gap: 0.75rem; }
         .title { font-size: 1.25rem; }
-        .step-indicator { flex-shrink: 0; white-space: nowrap; }
+        .header { flex-wrap: wrap; }
+        .step-indicator { flex-shrink: 0; white-space: nowrap; margin-left: auto; }
         .step-title { font-size: 1.25rem; }
         .step-desc { font-size: 0.95rem; }
         .weight-input { width: 100%; max-width: 200px; }
