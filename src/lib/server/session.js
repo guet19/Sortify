@@ -12,8 +12,9 @@ export const cookieOptions = (maxAge) => ({
 });
 
 // Echte Session starten: Zufalls-Token ins Cookie, Hash in die DB
-export async function startUserSession(cookies, user) {
-    const { token, tokenHash } = await db.createSession(user._id.toString(), 'session', SESSION_MAX_AGE);
+// device: { userAgent, ip } für die Geräteliste im Profil
+export async function startUserSession(cookies, user, device = {}) {
+    const { token, tokenHash } = await db.createSession(user._id.toString(), 'session', SESSION_MAX_AGE, device);
 
     // Session Log (Fallback auf Username, falls keine Mail existiert)
     await db.createSessionLog(tokenHash, user._id, user.email || user.username);

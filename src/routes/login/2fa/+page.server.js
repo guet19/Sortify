@@ -71,7 +71,7 @@ export const actions = {
         await endPending2fa(cookies);
         await db.deleteLoginAttempt(getClientAddress());
 
-        const systems = await startUserSession(cookies, user);
+        const systems = await startUserSession(cookies, user, { userAgent: request.headers.get('user-agent'), ip: getClientAddress() });
 
         // Passwort-Zwang prüfen
         if (user.mustChangePassword) {

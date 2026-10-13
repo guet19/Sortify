@@ -98,7 +98,7 @@ export const actions = {
         await db.deleteLoginAttempt(ip);
 
         // 6. SESSION + MULTI-SYSTEM-LOGIK (Cookies setzen VOR dem Redirect!)
-        const systems = await startUserSession(cookies, user);
+        const systems = await startUserSession(cookies, user, { userAgent: request.headers.get('user-agent'), ip: getClientAddress() });
 
         // 7. FINALE REDIRECT-WEICHE
         const redirectTo = safeRedirect(url.searchParams.get('redirectTo'));

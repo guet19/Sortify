@@ -6,6 +6,7 @@ import bcrypt from 'bcryptjs';
 import { sendEmailChangeVerification, sendPasswordChangeVerification } from '$lib/server/email.js'; 
 import { env } from '$env/dynamic/private';
 import { passwordError, BCRYPT_ROUNDS } from '$lib/server/security.js';
+import { describeUserAgent } from '$lib/userAgent.js';
 
 export async function load({ locals }) {
     const userId = locals.user?.id;
@@ -48,7 +49,18 @@ export async function load({ locals }) {
         qrCodeUrl = await QRCode.toDataURL(secretData.otpauth_url);
     }
 
+    // Angemeldete Geräte (aktuelles Gerät zuerst markiert)
+    const sessions = (await db.listUserSessions(userId)).map(s => ({
+        id: s._id.toString(),
+        device: describeUserAgent(s.userAgent),
+        ip: s.ip || '',
+        createdAt: s.createdAt?.toISOString() || null,
+        lastSeenAt: (s.lastSeenAt || s.createdAt)?.toISOString() || null,
+        current: s._id.toString() === locals.sessionId
+    })).sort((a, b) => Number(b.current) - Number(a.current));
+
     return {
+        sessions,
         profileData: {
             firstName: user.firstName || "",
             lastName: user.lastName || "",
@@ -233,6 +245,24 @@ export const actions = {
         }
     },
     
+    // Ein einzelnes Gerät abmelden
+    logoutDevice: async ({ request, locals }) => {
+        const userId = locals.user?.id;
+        if (!userId) return fail(401, { error: "Nicht autorisiert." });
+        const sessionId = (await request.formData()).get('sessionId')?.toString();
+        if (sessionId === locals.sessionId) return fail(400, { error: 'Dieses Gerät meldest du über „Abmelden“ ab.' });
+        await db.deleteUserSessionById(userId, sessionId);
+        return { success: true, message: 'Das Gerät wurde abgemeldet.' };
+    },
+
+    // Alle Geräte außer dem aktuellen abmelden
+    logoutOtherDevices: async ({ locals }) => {
+        const userId = locals.user?.id;
+        if (!userId) return fail(401, { error: "Nicht autorisiert." });
+        await db.deleteUserSessions(userId, locals.sessionToken);
+        return { success: true, message: 'Alle anderen Geräte wurden abgemeldet.' };
+    },
+
     cancelPasswordChange: async ({ cookies }) => {
         await db.deleteSession(cookies.get('session'));
         cookies.delete('session', { path: '/' });

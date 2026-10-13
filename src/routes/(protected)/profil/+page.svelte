@@ -237,6 +237,38 @@
             </form>
         {/if}
     </div>
+
+    <div class="profile-card mt-4">
+        <div class="two-factor-header">
+            <h2 class="h3-style">Angemeldete Geräte</h2>
+            {#if data.sessions.length > 1}
+                <form method="POST" action="?/logoutOtherDevices" use:enhance>
+                    <button type="submit" class="btn-devices-logout">Alle anderen abmelden</button>
+                </form>
+            {/if}
+        </div>
+        <p class="text-muted">Unbekanntes Gerät dabei? Melde es ab und ändere dein Passwort.</p>
+        <ul class="device-list">
+            {#each data.sessions as session (session.id)}
+                <li class="device-row" class:current={session.current}>
+                    <div>
+                        <strong>{session.device}</strong>
+                        {#if session.current}<span class="badge badge-success">Dieses Gerät</span>{/if}
+                        <div class="device-meta">
+                            Zuletzt aktiv: {session.lastSeenAt ? new Date(session.lastSeenAt).toLocaleString('de-CH') : '–'}
+                            {#if session.ip} · IP {session.ip}{/if}
+                        </div>
+                    </div>
+                    {#if !session.current}
+                        <form method="POST" action="?/logoutDevice" use:enhance>
+                            <input type="hidden" name="sessionId" value={session.id} />
+                            <button type="submit" class="btn-device-logout">Abmelden</button>
+                        </form>
+                    {/if}
+                </li>
+            {/each}
+        </ul>
+    </div>
 </div>
 
 {#if showEmailModal}
@@ -410,4 +442,13 @@
         from { opacity: 0; transform: translateY(10px) scale(0.98); }
         to { opacity: 1; transform: translateY(0) scale(1); }
     }
+
+    /* Angemeldete Geräte */
+    .device-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+    .device-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.8rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; flex-wrap: wrap; }
+    .device-row.current { border-color: #bbf7d0; background: #f0fdf4; }
+    .device-row strong { color: #1e293b; margin-right: 0.5rem; }
+    .device-meta { font-size: 0.82rem; color: #64748b; margin-top: 0.2rem; }
+    .btn-device-logout, .btn-devices-logout { background: #fff; border: 1px solid #fecaca; color: #b91c1c; border-radius: 6px; padding: 0.4rem 0.9rem; font-weight: 600; cursor: pointer; font-size: 0.85rem; }
+    .btn-device-logout:hover, .btn-devices-logout:hover { background: #fef2f2; }
 </style>

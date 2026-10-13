@@ -587,7 +587,7 @@ async function rateLimit(key, max, windowMs) {
 // type 'session'    = echte Anmeldung
 // type 'pending2fa' = Passwort korrekt, 2FA-Code steht noch aus
 
-async function createSession(userId, type = 'session', maxAgeSeconds = 60 * 60 * 24 * 7) {
+async function createSession(userId, type = 'session', maxAgeSeconds = 60 * 60 * 24 * 7, device = {}) {
     const db = await getDb();
     const token = generateToken();
     const tokenHash = hashToken(token);
@@ -596,7 +596,11 @@ async function createSession(userId, type = 'session', maxAgeSeconds = 60 * 60 *
         userId: new ObjectId(userId),
         type,
         attempts: 0,
+        // Für die Geräteliste im Profil
+        userAgent: String(device.userAgent || '').slice(0, 300),
+        ip: String(device.ip || '').slice(0, 64),
         createdAt: new Date(),
+        lastSeenAt: new Date(),
         expiresAt: new Date(Date.now() + maxAgeSeconds * 1000)
     });
     return { token, tokenHash };
@@ -632,6 +636,31 @@ async function deleteSession(token) {
     if (!token) return;
     const db = await getDb();
     await db.collection('sessions').deleteOne({ tokenHash: hashToken(token) });
+}
+
+// "Zuletzt aktiv" höchstens alle 10 Minuten speichern (kein Schreibzugriff bei jedem Seitenaufruf)
+async function touchSession(session) {
+    if (session.lastSeenAt && Date.now() - new Date(session.lastSeenAt).getTime() < 10 * 60 * 1000) return;
+    const db = await getDb();
+    await db.collection('sessions').updateOne({ _id: session._id }, { $set: { lastSeenAt: new Date() } });
+}
+
+// Angemeldete Geräte eines Nutzers (für das Profil)
+async function listUserSessions(userId) {
+    const db = await getDb();
+    const sessions = await db.collection('sessions')
+        .find({ userId: new ObjectId(userId), type: 'session', expiresAt: { $gt: new Date() } },
+              { projection: { tokenHash: 1, userAgent: 1, ip: 1, createdAt: 1, lastSeenAt: 1 } })
+        .sort({ lastSeenAt: -1 })
+        .toArray();
+    return sessions;
+}
+
+// Ein einzelnes Gerät abmelden (nur eigene Sessions)
+async function deleteUserSessionById(userId, sessionId) {
+    if (!ObjectId.isValid(sessionId)) return;
+    const db = await getDb();
+    await db.collection('sessions').deleteOne({ _id: new ObjectId(sessionId), userId: new ObjectId(userId) });
 }
 
 // Meldet einen Nutzer überall ab (z.B. nach Passwortänderung)
@@ -1981,6 +2010,9 @@ export default {
     incrementSessionAttempts,
     deleteSession,
     deleteUserSessions,
+    touchSession,
+    listUserSessions,
+    deleteUserSessionById,
     savePasswordResetToken,
     getUserByResetToken,
     resetUserPassword,

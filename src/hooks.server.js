@@ -38,6 +38,8 @@ async function authHandle({ event, resolve }) {
             event.cookies.delete('systemId', { path: '/' });
         } else {
             event.locals.sessionToken = sessionToken;
+            event.locals.sessionId = session._id.toString();
+            db.touchSession(session).catch(() => {});
             // Mitgliedschaften für Lager-Dropdown & Lagerverwaltung (spart erneutes Laden des Users)
             event.locals.userSystems = user.systems || [];
         }
