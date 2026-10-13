@@ -70,7 +70,7 @@ async function createSubcategory(systemId, mainCategoryId, subName) {
     try {
         const db = await getDb();
         const collection = db.collection("categories");
-        const subId = "sub_" + Date.now(); 
+        const subId = "sub_" + Date.now() + "_" + crypto.randomBytes(3).toString("hex");
         const result = await collection.updateOne(
             { _id: new ObjectId(mainCategoryId), systemId: new ObjectId(systemId) },
             { $push: { subcategories: { id: subId, name: subName, allowed_attributes: [] } } }

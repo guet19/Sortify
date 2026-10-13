@@ -1,6 +1,9 @@
 <script>
     import { imageUrl } from '$lib/imageUrl.js';
     import { inventoryStats } from '$lib/reorder.js';
+    import { toCsv } from '$lib/csv.js';
+    import { articlesToRows } from '$lib/articleCsv.js';
+    import { canAccessPath } from '$lib/permissions.js';
     // Artikelübersicht – genutzt von der Inventar-Startseite (/) und der Terminal-Suche (/terminal/search).
     // Im Terminal-Modus: nur eingelagerte Artikel, keine Verwaltungsfunktionen.
     import { page } from '$app/stores';
@@ -42,6 +45,17 @@
     // Kennzahlen für die Startseite (nur Web-Ansicht)
     const stats = terminal ? null : inventoryStats(articles);
     const chf = (v) => v.toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    $: canImport = !terminal && canAccessPath('/einstellungen/import', $page.data.allowedRoutes || []);
+
+    // Alle Artikel inkl. Kategorien und Fächern als CSV (Excel-tauglich)
+    function exportCsv() {
+        const csv = toCsv(articlesToRows(articles, categories));
+        const a = Object.assign(document.createElement('a'), {
+            href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })),
+            download: `Sortify_Artikel_${new Date().toISOString().slice(0, 10)}.csv`
+        });
+        document.body.appendChild(a); a.click(); a.remove();
+    }
     // Getrennte Filter-Speicher, damit sich Web und Terminal nicht gegenseitig verstellen
     const filterStorageKey = terminal ? 'Sortify_TerminalFilters' : 'Sortify_ArticleFilters';
 
@@ -370,7 +384,15 @@
             <a href="/terminal" class="btn-primary btn-back">← Zurück</a>
         {:else}
             <h1>Artikelübersicht</h1>
-            <a href="/addarticle" class="btn-primary">+ Neuer Artikel</a>
+            <div class="header-actions">
+                {#if articles.length > 0}
+                    <button type="button" class="btn-outline" on:click={exportCsv} title="Alle Artikel als CSV exportieren">⬇ CSV-Export</button>
+                {/if}
+                {#if canImport}
+                    <a href="/einstellungen/import" class="btn-outline">⬆ CSV-Import</a>
+                {/if}
+                <a href="/addarticle" class="btn-primary">+ Neuer Artikel</a>
+            </div>
         {/if}
     </div>
 
@@ -951,4 +973,8 @@
     .tc-item:hover { color: #2563eb; }
     .tc-rank { background: #e2e8f0; color: #475569; border-radius: 999px; width: 1.4rem; height: 1.4rem; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
     .tc-used { color: #dc2626; font-weight: 700; font-size: 0.82rem; }
+
+    .header-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .btn-outline { background: transparent; color: #e2e8f0; border: 1px solid #475569; padding: 0.55rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; cursor: pointer; font-family: inherit; font-size: 0.95rem; }
+    .btn-outline:hover { background: rgba(255,255,255,0.06); border-color: #94a3b8; color: #fff; }
 </style>

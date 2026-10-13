@@ -9,6 +9,7 @@ const AVAILABLE_ROUTES = [
     { path: '/addarticle', name: 'Artikel hinzufügen' },
     { path: '/editarticle', name: 'Artikel bearbeiten' },
     { path: '/nachbestellen', name: 'Nachbestell-Liste' },
+    { path: '/einstellungen/import', name: 'CSV-Import' },
     
     // Einstellungen
     { path: '/einstellungen/authorization', name: 'Berechtigungsverwaltung' },
