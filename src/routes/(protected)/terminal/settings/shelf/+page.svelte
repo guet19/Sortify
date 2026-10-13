@@ -1,4 +1,5 @@
 <script>
+    import CameraScan from '$lib/components/CameraScan.svelte';
     import { downloadLabelsPdf } from '$lib/labels.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
@@ -315,6 +316,7 @@
                 >
                 <button type="submit" class="btn-hidden">Scan</button>
             </form>
+            <CameraScan input={scanInputRef} label="📷 Fach mit Kamera scannen" />
 
             <div class="scanned-list">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">

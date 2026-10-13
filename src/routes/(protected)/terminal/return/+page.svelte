@@ -1,4 +1,5 @@
 <script>
+    import CameraScan from '$lib/components/CameraScan.svelte';
     import { imageUrl } from '$lib/imageUrl.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
@@ -198,6 +199,7 @@
                     >
                     <button type="submit" class="manual-submit">Barcode prüfen</button>
                 </form>
+                <CameraScan input={scanInputRef} />
             </div>
 
         {:else if currentStep === 'instruction'}
