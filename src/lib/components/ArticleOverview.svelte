@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     // Artikelübersicht – genutzt von der Inventar-Startseite (/) und der Terminal-Suche (/terminal/search).
     // Im Terminal-Modus: nur eingelagerte Artikel, keine Verwaltungsfunktionen.
     import { page } from '$app/stores';
@@ -441,7 +442,7 @@
                     <div class="card">
                         <div class="card-image">
                             {#if article.imagePath}
-                                <img src={article.imagePath} alt={article.title} />
+                                <img src={imageUrl(article.imagePath, 400)} alt={article.title} loading="lazy" />
                             {:else}
                                 <div class="no-image">Kein Bild</div>
                             {/if}

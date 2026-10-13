@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms'; 
     import { invalidateAll } from '$app/navigation'; 
@@ -210,7 +211,7 @@
         <div class="left-column">
             <div class="image-section">
                 {#if article?.imagePath}
-                    <img src={article?.imagePath} alt={article?.title} class="main-image" >
+                    <img src={imageUrl(article?.imagePath, 1000)} alt={article?.title} class="main-image" >
                 {:else}
                     <div class="no-image-placeholder">
                         <span class="icon">📷</span>
@@ -858,7 +859,7 @@
                     <div class="conflict-article-card">
                         <div class="conflict-image">
                             {#if conflictingArticle.imagePath}
-                                <img src={conflictingArticle.imagePath} alt={conflictingArticle.title} >
+                                <img src={imageUrl(conflictingArticle.imagePath, 200)} alt={conflictingArticle.title} >
                             {:else}
                                 <div class="no-image-mini">Kein Bild</div>
                             {/if}

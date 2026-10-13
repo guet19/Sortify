@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { assignFilterStore } from '$lib/filterStore.js';
 
@@ -334,7 +335,7 @@
                     <div class="card">
                         <div class="card-image">
                             {#if article.imagePath}
-                                <img src={article.imagePath} alt={article.title} >
+                                <img src={imageUrl(article.imagePath, 400)} alt={article.title} loading="lazy" >
                             {:else}
                                 <div class="no-image">Kein Bild</div>
                             {/if}

@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     // Bildleiste für Artikel: Reihenfolge festlegen (erstes Bild = Hauptbild) und Bilder entfernen
     import { MAX_ARTICLE_IMAGES } from '$lib/imageTools.js';
 
@@ -20,7 +21,7 @@
     <div class="image-list">
         {#each items as item, index (item.id)}
             <div class="image-tile" class:is-main={index === 0}>
-                <img src={item.preview} alt="Artikelbild {index + 1}" />
+                <img src={item.kind === 'file' ? item.preview : imageUrl(item.preview, 300)} alt="Artikelbild {index + 1}" />
                 {#if index === 0}
                     <span class="badge-main">Hauptbild</span>
                 {:else}

@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     // Artikel-Detailansicht – genutzt von /[id] (Web) und /terminal/search/[id] (Terminal).
     // Im Terminal-Modus ohne Kopieren, Bearbeiten und Bestandsänderung.
     import { enhance } from "$app/forms";
@@ -105,7 +106,7 @@
         <div class="media-column">
             <div class="image-section">
                 {#if images.length > 0}
-                    <img src={images[activeImage]} alt={article.title} class="main-image" />
+                    <img src={imageUrl(images[activeImage], 1000)} alt={article.title} class="main-image" />
                 {:else}
                     <div class="no-image-placeholder">
                         <span>Kein Artikelbild vorhanden</span>
@@ -117,7 +118,7 @@
                 <div class="thumb-strip">
                     {#each images as url, index}
                         <button type="button" class="thumb" class:active={index === activeImage} on:click={() => (activeImage = index)} aria-label="Bild {index + 1} anzeigen">
-                            <img src={url} alt="" />
+                            <img src={imageUrl(url, 160)} alt="" loading="lazy" />
                         </button>
                     {/each}
                 </div>

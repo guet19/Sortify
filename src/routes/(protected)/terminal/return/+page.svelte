@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { onDestroy } from 'svelte';
@@ -207,7 +208,7 @@
                     
                     <div class="image-showcase">
                         {#if article?.imagePath}
-                            <img src={article.imagePath} alt={article.title} />
+                            <img src={imageUrl(article.imagePath, 400)} alt={article.title} />
                         {:else}
                             <div class="no-image-mini">
                                 <span style="font-size: 2rem;">📷</span>
@@ -256,7 +257,7 @@
                 <div class="article-profile-panel-mini">
                     <div class="image-showcase-mini">
                         {#if article?.imagePath}
-                            <img src={article.imagePath} alt={article.title} />
+                            <img src={imageUrl(article.imagePath, 400)} alt={article.title} />
                         {:else}
                             <span style="font-size: 1.5rem; color: #94a3b8;">📷</span>
                         {/if}

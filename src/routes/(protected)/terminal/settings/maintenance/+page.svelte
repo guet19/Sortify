@@ -1,4 +1,5 @@
 <script>
+    import { imageUrl } from '$lib/imageUrl.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { invalidateAll } from '$app/navigation';
@@ -205,7 +206,7 @@
                 <div class="article-card">
                     <div class="card-header">
                         <div class="img-wrapper">
-                            {#if article.imagePath}<img src={article.imagePath} alt={article.title}>{:else}<span class="no-img">📷</span>{/if}
+                            {#if article.imagePath}<img src={imageUrl(article.imagePath, 160)} alt={article.title} loading="lazy">{:else}<span class="no-img">📷</span>{/if}
                         </div>
                         <div class="title-info">
                             <h3>{article.title}</h3>
