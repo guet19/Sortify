@@ -9,21 +9,22 @@ import { generateToken, hashToken, generateNumericCode, escapeRegex, BCRYPT_ROUN
 // ==========================================
 // 0. SERVERLESS CONNECTION POOLING
 // ==========================================
-let client;
-let clientPromise;
-
-if (!global._mongoClientPromise) {
-    // ÄNDERUNG: Hier greifen wir auf env.DB_URI zu
-    client = new MongoClient(env.DB_URI);
-    global._mongoClientPromise = client.connect();
+// Die Verbindung entsteht erst beim ersten Zugriff (nicht schon beim Import):
+// So braucht der Build keine Datenbank, und warme Serverless-Instanzen teilen sich eine Verbindung.
+function getClientPromise() {
+    if (!global._mongoClientPromise) {
+        if (!env.DB_URI) throw new Error('DB_URI ist nicht gesetzt.');
+        global._mongoClientPromise = new MongoClient(env.DB_URI).connect().catch((err) => {
+            global._mongoClientPromise = null; // beim nächsten Aufruf neu versuchen
+            throw err;
+        });
+    }
+    return global._mongoClientPromise;
 }
-clientPromise = global._mongoClientPromise;
 
 // Hilfsfunktion: Holt die gecachte Verbindung
 async function getDb() {
-    const connectedClient = await clientPromise;
-    // Hinweis: Dein Cluster in Atlas heisst "Storify", deshalb bleibt das hier so, 
-    // auch wenn das Projekt Sortify heisst. Das passt!
+    const connectedClient = await getClientPromise();
     return connectedClient.db("Sortify_Prod"); 
 }
 

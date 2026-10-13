@@ -1,0 +1,32 @@
+# Prüft bei jedem Push und Pull Request, ob die Tests laufen und die App baut.
+name: CI
+
+on:
+  push:
+    branches: [main, claude_trial]
+  pull_request:
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # Nur Platzhalter für den Build – echte Zugangsdaten braucht der Build nicht
+          CLOUDINARY_CLOUD_NAME: ci
+          CLOUDINARY_API_KEY: ci
+          CLOUDINARY_API_SECRET: ci
