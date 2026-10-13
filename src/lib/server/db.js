@@ -1348,6 +1348,58 @@ async function createSystem(userId, name, color = '#3b82f6') {
     return result.insertedId.toString();
 }
 
+// Wird ein Bild noch von irgendeinem Artikel verwendet? (z.B. nach dem Kopieren eines Artikels)
+async function isImageInUse(url) {
+    const db = await getDb();
+    const used = await db.collection('articles').findOne({ $or: [{ images: url }, { imagePath: url }] }, { projection: { _id: 1 } });
+    return !!used;
+}
+
+// Alle Bild-URLs der Artikel eines Lagers (für das Aufräumen bei Cloudinary)
+async function getSystemImageUrls(systemId) {
+    const db = await getDb();
+    const articles = await db.collection('articles')
+        .find({ systemId: new ObjectId(systemId) }, { projection: { images: 1, imagePath: 1 } })
+        .toArray();
+    return articles.flatMap(a => [...(Array.isArray(a.images) ? a.images : []), a.imagePath]).filter(Boolean);
+}
+
+// Löscht ein Lager mit allen zugehörigen Daten.
+// Mitglieder verlieren den Zugriff; lokale Konten (ohne E-Mail), die nur zu diesem Lager gehören, werden gelöscht.
+async function deleteSystemCompletely(systemId) {
+    const db = await getDb();
+    const id = new ObjectId(systemId);
+    const bySystem = { systemId: id };
+
+    await Promise.all([
+        db.collection('articles').deleteMany(bySystem),
+        db.collection('categories').deleteMany(bySystem),
+        db.collection('filter_attributes').deleteMany(bySystem),
+        db.collection('shelves').deleteMany(bySystem),
+        db.collection('hardware_commands').deleteMany(bySystem),
+        db.collection('scale_requests').deleteMany(bySystem),
+        db.collection('invitations').deleteMany(bySystem),
+        // Kopplungen speichern die System-ID als Text
+        db.collection('device_pairings').deleteMany({ systemId: systemId.toString() })
+    ]);
+
+    // Lokale Konten nur dieses Lagers komplett entfernen (inkl. ihrer Sessions)
+    const localUsers = await db.collection('users').find({
+        'systems.systemId': id,
+        $or: [{ email: null }, { email: { $exists: false } }],
+        systems: { $size: 1 }
+    }, { projection: { _id: 1 } }).toArray();
+    if (localUsers.length > 0) {
+        const ids = localUsers.map(u => u._id);
+        await db.collection('sessions').deleteMany({ userId: { $in: ids } });
+        await db.collection('users').deleteMany({ _id: { $in: ids } });
+    }
+
+    // Alle übrigen Mitglieder verlieren den Zugriff
+    await db.collection('users').updateMany({ 'systems.systemId': id }, { $pull: { systems: { systemId: id } } });
+    await db.collection('systems').deleteOne({ _id: id });
+}
+
 // Mehrere Lager in EINER Abfrage laden (statt einer Abfrage pro Lager)
 async function getSystemsByIds(ids) {
     const validIds = ids.filter(id => ObjectId.isValid(id)).map(id => new ObjectId(id));
@@ -1954,6 +2006,9 @@ export default {
     triggerSingleLedBlue,
     getSystemById,
     getSystemsByIds,
+    isImageInUse,
+    getSystemImageUrls,
+    deleteSystemCompletely,
     createSystem,
     countSystemsCreatedBy,
     createSystemInvitation,

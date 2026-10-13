@@ -1,11 +1,17 @@
 import { fail, redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { cookieOptions } from '$lib/server/session.js';
+import { deleteUnusedImages } from '$lib/server/articleImages.js';
 
 // Jeder Nutzer darf höchstens so viele eigene Lager anlegen
 export const MAX_OWN_SYSTEMS = 3;
 
 const DEFAULT_ROLE_NAMES = { admin: 'Administrator', user: 'Benutzer' };
+
+function canDeleteSystem(system, userId, role) {
+    if (!system) return false;
+    return system.createdBy ? system.createdBy === userId : role === 'admin';
+}
 
 // Alle Lager eines Nutzers inkl. Name und Rollenbezeichnung (für Menü, Auswahl und Lagerverwaltung)
 export async function getUserSystems(userSystems = []) {
@@ -20,7 +26,9 @@ export async function getUserSystems(userSystems = []) {
             name: system?.name || 'Unbekanntes Lager',
             role: membership.role,
             roleName: customRole?.name || DEFAULT_ROLE_NAMES[membership.role] || membership.role,
-            isOwner: !!system?.createdBy && system.createdBy === membership.userId
+            isOwner: !!system?.createdBy && system.createdBy === membership.userId,
+            // Löschen darf nur der Ersteller; bei alten Lagern ohne gespeicherten Ersteller die Admins
+            canDelete: canDeleteSystem(system, membership.userId, membership.role)
         };
     });
 }
@@ -59,4 +67,35 @@ export async function createSystemAction({ request, cookies, locals }) {
     // Neues Lager direkt aktivieren
     cookies.set('systemId', systemId, cookieOptions(60 * 60 * 24 * 7));
     throw redirect(303, '/');
+}
+
+// Form-Action "Lager löschen": nur Ersteller, Bestätigung durch Eintippen des Lagernamens.
+// Löscht alle Daten des Lagers und die zugehörigen Artikelbilder bei Cloudinary.
+export async function deleteSystemAction({ request, cookies, locals }) {
+    if (!locals.user) throw redirect(303, '/login');
+
+    const data = await request.formData();
+    const systemId = data.get('systemId')?.toString() || '';
+    const confirmName = data.get('confirmName')?.toString().trim() || '';
+
+    const membership = (locals.userSystems || []).find(s => s.systemId === systemId);
+    if (!membership) return fail(403, { deleteError: 'Kein Zugriff auf dieses Lager.', systemId });
+
+    const [system] = await db.getSystemsByIds([systemId]);
+    if (!system) return fail(404, { deleteError: 'Lager nicht gefunden.', systemId });
+    if (!canDeleteSystem(system, locals.user.id, membership.role)) {
+        return fail(403, { deleteError: 'Nur der Ersteller des Lagers darf es löschen.', systemId });
+    }
+    if (confirmName !== system.name) {
+        return fail(400, { deleteError: 'Der eingegebene Name stimmt nicht mit dem Lagernamen überein.', systemId });
+    }
+
+    const imageUrls = await db.getSystemImageUrls(systemId);
+    await db.deleteSystemCompletely(systemId);
+    await deleteUnusedImages(imageUrls, db.isImageInUse);
+
+    // War es das aktive Lager, muss ein anderes gewählt werden
+    if (cookies.get('systemId') === systemId) cookies.delete('systemId', { path: '/' });
+
+    return { deleted: system.name };
 }

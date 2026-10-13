@@ -2,7 +2,7 @@ import db from '$lib/server/db.js';
 import { error, redirect, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
-import { buildImageList, getArticleImages } from '$lib/server/articleImages.js';
+import { buildImageList, getArticleImages, deleteUnusedImages } from '$lib/server/articleImages.js';
 
 export async function load({ params, locals }) { // NEU: locals statt cookies
     const systemId = locals.systemId;
@@ -96,6 +96,11 @@ export const actions = {
         // --- UPDATE IN DATENBANK ---
         try {
             await db.updateArticle(systemId, articleId, updateData);
+
+            // Entfernte Bilder bei Cloudinary löschen (sofern kein anderer Artikel sie nutzt)
+            const removedImages = getArticleImages(oldArticle).filter(url => !updateData.images.includes(url));
+            await deleteUnusedImages(removedImages, db.isImageInUse);
+
             return { success: true };
         } catch (err) {
             console.error("Datenbank Update-Fehler:", err);
@@ -116,6 +121,8 @@ export const actions = {
 
         try {
             await db.deleteArticle(systemId, articleId); 
+            // Bilder des Artikels bei Cloudinary löschen (sofern kein anderer Artikel sie nutzt)
+            await deleteUnusedImages(getArticleImages(oldArticle), db.isImageInUse);
         } catch (err) {
             console.error("Fehler beim Löschen des Artikels:", err);
             return fail(500, { error: "Fehler beim Löschen." });

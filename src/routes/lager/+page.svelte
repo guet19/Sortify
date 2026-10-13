@@ -4,6 +4,15 @@
     export let form;
 
     $: isFull = !data.canCreate;
+
+    // Lager löschen: Bestätigung durch Eintippen des Namens
+    let confirmDeleteId = form?.deleteError ? form.systemId : null;
+    let confirmName = '';
+    let isDeleting = false;
+    function openDelete(id) {
+        confirmDeleteId = confirmDeleteId === id ? null : id;
+        confirmName = '';
+    }
 </script>
 
 <svelte:head>
@@ -16,6 +25,10 @@
         <span class="page-subtitle">Alle Lager, auf die du Zugriff hast, und deine Rolle darin.</span>
     </div>
 
+    {#if form?.deleted}
+        <div class="success-message"><i class="bi bi-check-circle-fill"></i> Das Lager „{form.deleted}" wurde mit allen Daten gelöscht.</div>
+    {/if}
+
     <div class="lager-grid">
         <!-- Liste aller Lager -->
         <section class="card-box">
@@ -27,6 +40,7 @@
                 <ul class="system-list">
                     {#each data.systems as system (system.id)}
                         <li class="system-row" class:is-active={system.id === data.activeSystemId}>
+                          <div class="system-main">
                             <div class="system-info">
                                 <span class="system-name">{system.name}</span>
                                 <div class="badges">
@@ -35,13 +49,47 @@
                                 </div>
                             </div>
 
-                            {#if system.id === data.activeSystemId}
-                                <span class="badge-active"><i class="bi bi-check-circle-fill"></i> Aktiv</span>
-                            {:else}
-                                <!-- Normaler POST, damit alle Daten des neuen Lagers frisch geladen werden -->
-                                <form method="POST" action="/select-system?/select">
+                            <div class="row-actions">
+                              {#if system.id === data.activeSystemId}
+                                  <span class="badge-active"><i class="bi bi-check-circle-fill"></i> Aktiv</span>
+                              {:else}
+                                  <!-- Normaler POST, damit alle Daten des neuen Lagers frisch geladen werden -->
+                                  <form method="POST" action="/select-system?/select">
+                                      <input type="hidden" name="systemId" value={system.id} />
+                                      <button type="submit" class="btn-switch">Wechseln</button>
+                                  </form>
+                              {/if}
+                              {#if system.canDelete}
+                                  <button type="button" class="btn-delete" title="Lager löschen" aria-label="Lager löschen" on:click={() => openDelete(system.id)}>
+                                      <i class="bi bi-trash3"></i>
+                                  </button>
+                              {/if}
+                            </div>
+                          </div>
+
+                            {#if confirmDeleteId === system.id}
+                                <form method="POST" action="?/deleteSystem" class="delete-confirm" use:enhance={() => {
+                                    isDeleting = true;
+                                    return async ({ update }) => { await update(); isDeleting = false; confirmName = ''; };
+                                }}>
+                                    <strong>Lager endgültig löschen?</strong>
+                                    <p>
+                                        Gelöscht werden alle Artikel inkl. Bilder, Kategorien, Filter, Regale, Rollen,
+                                        Hardware-Daten und Terminal-Kopplungen. Alle Mitglieder verlieren den Zugriff.
+                                        Dies kann nicht rückgängig gemacht werden.
+                                    </p>
+                                    <label for="confirm-{system.id}">Zur Bestätigung den Lagernamen <em>{system.name}</em> eingeben:</label>
+                                    <input id="confirm-{system.id}" name="confirmName" type="text" autocomplete="off" bind:value={confirmName} />
                                     <input type="hidden" name="systemId" value={system.id} />
-                                    <button type="submit" class="btn-switch">Wechseln</button>
+                                    {#if form?.deleteError && form?.systemId === system.id}
+                                        <div class="error-message">{form.deleteError}</div>
+                                    {/if}
+                                    <div class="delete-actions">
+                                        <button type="button" class="btn-cancel-delete" on:click={() => openDelete(system.id)}>Abbrechen</button>
+                                        <button type="submit" class="btn-confirm-delete" disabled={confirmName.trim() !== system.name || isDeleting}>
+                                            {isDeleting ? 'Wird gelöscht…' : 'Endgültig löschen'}
+                                        </button>
+                                    </div>
                                 </form>
                             {/if}
                         </li>
@@ -102,9 +150,11 @@
 
     .system-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.75rem; }
     .system-row {
-        display: flex; justify-content: space-between; align-items: center; gap: 1rem;
+        display: flex; flex-direction: column; gap: 0.75rem;
         padding: 1rem 1.25rem; border: 2px solid #e2e8f0; border-radius: 10px; background: #f8fafc;
     }
+    .system-main { display: flex; justify-content: space-between; align-items: center; gap: 1rem; }
+    .row-actions { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
     .system-row.is-active { border-color: #22c55e; background: #f0fdf4; }
 
     .system-info { display: flex; flex-direction: column; gap: 0.4rem; min-width: 0; }
@@ -143,4 +193,22 @@
     }
     .btn-create:hover:not(:disabled) { background: #16a34a; }
     .btn-create:disabled { background: #cbd5e1; color: #64748b; cursor: not-allowed; }
+
+    /* Lager löschen */
+    .btn-delete {
+        background: #ffffff; border: 2px solid #fecaca; color: #dc2626; border-radius: 8px;
+        width: 38px; height: 38px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0;
+    }
+    .btn-delete:hover { background: #fef2f2; border-color: #f87171; }
+    .delete-confirm { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+    .delete-confirm strong { color: #b91c1c; }
+    .delete-confirm p { margin: 0; color: #7f1d1d; font-size: 0.88rem; font-weight: 400; line-height: 1.5; }
+    .delete-confirm label { color: #334155; font-size: 0.88rem; }
+    .delete-confirm input[type="text"] { padding: 0.6rem 0.8rem; border: 2px solid #fecaca; border-radius: 8px; font-family: inherit; font-size: 0.95rem; }
+    .delete-confirm input[type="text"]:focus { outline: none; border-color: #f87171; }
+    .delete-actions { display: flex; justify-content: flex-end; gap: 0.6rem; flex-wrap: wrap; }
+    .btn-cancel-delete { background: #ffffff; border: 1px solid #cbd5e1; color: #334155; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .btn-confirm-delete { background: #dc2626; border: none; color: #ffffff; border-radius: 8px; padding: 0.5rem 1rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-confirm-delete:disabled { background: #fca5a5; cursor: not-allowed; }
+    .success-message { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1.5rem; font-weight: 600; }
 </style>

@@ -68,3 +68,52 @@ export async function buildImageList(formData, { allowedKeep = [], allowExternal
     }
     return [...new Set(images)];
 }
+
+// ==========================================
+// BILDER BEI CLOUDINARY LÖSCHEN
+// ==========================================
+
+const UPLOAD_FOLDER = 'storify_uploads/';
+
+// Liefert die Cloudinary-ID eines Bildes – nur für Bilder aus unserem eigenen Konto und Upload-Ordner
+// (externe Shop-Bilder oder fremde Konten werden nie angefasst)
+export function cloudinaryPublicId(url) {
+    let parsed;
+    try { parsed = new URL(url); } catch { return null; }
+    if (parsed.hostname !== 'res.cloudinary.com') return null;
+
+    const [, cloud, resourceType, deliveryType, ...rest] = parsed.pathname.split('/');
+    if (cloud !== CLOUDINARY_CLOUD_NAME || resourceType !== 'image' || deliveryType !== 'upload') return null;
+
+    const parts = rest[0] && /^v\d+$/.test(rest[0]) ? rest.slice(1) : rest; // Versionsnummer überspringen
+    const publicId = decodeURIComponent(parts.join('/')).replace(/\.[a-z0-9]+$/i, '');
+    return publicId.startsWith(UPLOAD_FOLDER) ? publicId : null;
+}
+
+// Löscht Bilder bei Cloudinary, die von keinem Artikel mehr verwendet werden.
+// isInUse(url) prüft in der DB, ob ein (anderer) Artikel das Bild noch nutzt – z.B. nach dem Kopieren.
+// Fehler werden nur protokolliert: Das Löschen in Sortify soll daran nie scheitern.
+export async function deleteUnusedImages(urls, isInUse) {
+    const candidates = [...new Set(urls || [])];
+    const publicIds = [];
+    for (const url of candidates) {
+        const publicId = cloudinaryPublicId(url);
+        if (!publicId) continue;
+        try {
+            if (await isInUse(url)) continue;
+            publicIds.push(publicId);
+        } catch (err) {
+            console.warn('Bildnutzung konnte nicht geprüft werden, Bild bleibt erhalten:', url, err.message);
+        }
+    }
+
+    // Cloudinary löscht höchstens 100 Bilder pro Aufruf
+    for (let i = 0; i < publicIds.length; i += 100) {
+        try {
+            await cloudinary.api.delete_resources(publicIds.slice(i, i + 100), { resource_type: 'image', type: 'upload' });
+        } catch (err) {
+            console.error('Bilder konnten bei Cloudinary nicht gelöscht werden:', err?.message || err);
+        }
+    }
+    return publicIds.length;
+}

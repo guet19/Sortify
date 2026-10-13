@@ -44,7 +44,10 @@ const INDEXES = {
     ],
     articles: [
         [{ systemId: 1, createdAt: -1 }, { name: 'systemId_createdAt' }],
-        [{ systemId: 1, 'assigned_barcodes.barcode': 1 }, { name: 'systemId_barcode' }]
+        [{ systemId: 1, 'assigned_barcodes.barcode': 1 }, { name: 'systemId_barcode' }],
+        // Prüfung, ob ein Bild noch verwendet wird (vor dem Löschen bei Cloudinary)
+        [{ images: 1 }, { name: 'images' }],
+        [{ imagePath: 1 }, { name: 'imagePath' }]
     ],
     shelves: [
         [{ systemId: 1, start_index: 1 }, { name: 'systemId_startIndex' }],

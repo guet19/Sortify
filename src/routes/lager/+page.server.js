@@ -1,5 +1,5 @@
 import { redirect } from '@sveltejs/kit';
-import { getSystemsOverview, createSystemAction } from '$lib/server/systems.js';
+import { getSystemsOverview, createSystemAction, deleteSystemAction } from '$lib/server/systems.js';
 
 export async function load({ locals }) {
     if (!locals.user) throw redirect(303, '/login?redirectTo=%2Flager');
@@ -13,5 +13,8 @@ export async function load({ locals }) {
 
 export const actions = {
     // Eigenes, neues Lager anlegen – der Ersteller wird Administrator
-    createSystem: createSystemAction
+    createSystem: createSystemAction,
+
+    // Lager endgültig löschen (nur Ersteller, mit Namensbestätigung)
+    deleteSystem: deleteSystemAction
 };
