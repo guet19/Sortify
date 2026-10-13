@@ -2,19 +2,7 @@ import db from '$lib/server/db.js';
 import { error, redirect, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
-import { v2 as cloudinary } from 'cloudinary';
-import { 
-    CLOUDINARY_CLOUD_NAME, 
-    CLOUDINARY_API_KEY, 
-    CLOUDINARY_API_SECRET 
-} from '$env/static/private';
-
-// Cloudinary konfigurieren
-cloudinary.config({
-    cloud_name: CLOUDINARY_CLOUD_NAME,
-    api_key: CLOUDINARY_API_KEY,
-    api_secret: CLOUDINARY_API_SECRET
-});
+import { buildImageList, getArticleImages } from '$lib/server/articleImages.js';
 
 export async function load({ params, locals }) { // NEU: locals statt cookies
     const systemId = locals.systemId;
@@ -96,37 +84,14 @@ export const actions = {
         }
         updateData.attributes = attributesMap;
 
-        // --- BILDVERARBEITUNG (Cloudinary) ---
-        let finalImagePath = oldArticle.imagePath; // Standardmäßig das alte Bild behalten
-        
-        const removeExistingImage = formData.get("removeExistingImage") === "true";
-        const newImageFile = formData.get("image");
-
-        // 1. Wenn Nutzer das Bild explizit löscht
-        if (removeExistingImage) {
-            finalImagePath = null;
+        // --- BILDER ---
+        // Behalten werden nur Bilder, die schon zu diesem Artikel gehören; neue Zuschnitte werden hochgeladen
+        try {
+            updateData.images = await buildImageList(formData, { allowedKeep: getArticleImages(oldArticle) });
+        } catch (imageError) {
+            return fail(400, { error: imageError.message });
         }
-
-        // 2. Wenn ein neues Bild hochgeladen wird (Stream zu Cloudinary)
-        if (newImageFile && newImageFile instanceof Blob && newImageFile.size > 0) {
-            const arrayBuffer = await newImageFile.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-            
-            const uploadResult = await new Promise((resolve, reject) => {
-                const uploadStream = cloudinary.uploader.upload_stream(
-                    { folder: 'storify_uploads', allowed_formats: ['jpg', 'png', 'webp'] },
-                    (error, result) => {
-                        if (error) return reject(error);
-                        resolve(result);
-                    }
-                );
-                uploadStream.end(buffer);
-            });
-            
-            finalImagePath = uploadResult.secure_url;
-        }
-
-        updateData.imagePath = finalImagePath;
+        updateData.imagePath = updateData.images[0] || null;
 
         // --- UPDATE IN DATENBANK ---
         try {

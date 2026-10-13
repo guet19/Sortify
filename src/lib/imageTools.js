@@ -61,3 +61,37 @@ export async function rotateBlob(blob, degrees) {
         URL.revokeObjectURL(objectUrl);
     }
 }
+
+// ==========================================
+// MEHRERE BILDER PRO ARTIKEL
+// ==========================================
+
+export const MAX_ARTICLE_IMAGES = 8;
+let imageCounter = 0;
+
+// Eintrag der Bildleiste:
+//   kind 'file' = neu zugeschnittenes Bild (blob), 'keep' = vorhandenes Artikelbild, 'url' = externer Link
+export function imageItem(kind, { blob = null, url = '', sourceUrl = '' } = {}) {
+    return { id: ++imageCounter, kind, blob, url, sourceUrl, preview: blob ? URL.createObjectURL(blob) : url };
+}
+
+// Alle Bilder eines Artikels (neues Format: images[], altes Format: nur imagePath)
+export function articleImageUrls(article) {
+    if (Array.isArray(article?.images) && article.images.length > 0) return article.images;
+    return article?.imagePath ? [article.imagePath] : [];
+}
+
+// Hängt die Bilder in der gewählten Reihenfolge an das Formular (erstes Bild = Hauptbild)
+export function appendImagesToFormData(formData, items) {
+    const order = [];
+    let fileIndex = 0;
+    for (const item of items) {
+        if (item.kind === 'file') {
+            formData.append('imageFiles', item.blob, `bild-${fileIndex + 1}.jpg`);
+            order.push({ type: 'file', index: fileIndex++ });
+        } else {
+            order.push({ type: item.kind, url: item.url });
+        }
+    }
+    formData.set('imageOrder', JSON.stringify(order));
+}

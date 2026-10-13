@@ -7,7 +7,8 @@
 
     import "cropperjs/dist/cropper.css";
     import Cropper from "cropperjs";
-    import { prepareOnWhite, rotateBlob } from "$lib/imageTools.js";
+    import { prepareOnWhite, rotateBlob, imageItem, articleImageUrls, appendImagesToFormData, MAX_ARTICLE_IMAGES } from "$lib/imageTools.js";
+    import ArticleImageList from "$lib/components/ArticleImageList.svelte";
 
     export let data;
     export let form;
@@ -65,16 +66,15 @@
         ? attributes.filter((attr) => selectedSubcategory.allowed_attributes.includes(attr._id)).sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
         : [];
 
-    // --- Bild Management ---
-    let existingImagePath = article.imagePath || null;
-    let removeExistingImage = false; 
-    
+    // --- Bild Management: mehrere Bilder, das erste ist das Hauptbild ---
+    let galleryItems = articleImageUrls(article).map((url) => imageItem("keep", { url }));
+    $: canAddImage = galleryItems.length < MAX_ARTICLE_IMAGES;
+
     let fileInputElement;
-    let imagePreview = null;
+    let imagePreview = null;          // Bild im Zuschnitt-Editor
     let isCropping = false;
     let cropperImageEl;
     let cropperInstance = null;
-    let croppedFileBlob = null;
 
     // Original des aktuellen Bildes (für verlustfreies Drehen vor der Aufbereitung)
     let sourceBlob = null;
@@ -82,7 +82,7 @@
 
     async function handleImageSelect(event) {
         const file = event.target.files[0];
-        if (!file) return;
+        if (!file || !canAddImage) return;
         await processImageBlob(file);
     }
 
@@ -109,31 +109,31 @@
         }
     }
 
+    // Zuschnitt übernehmen: das Bild kommt in die Bildleiste
     function applyCrop() {
-        if (!cropperInstance) return;
-        const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 900, fillColor: "#ffffff" }); 
-        canvas.toBlob((blob) => {
-            croppedFileBlob = blob;
-            if (imagePreview) URL.revokeObjectURL(imagePreview);
-            imagePreview = URL.createObjectURL(blob);
-            cropperInstance.destroy(); cropperInstance = null; isCropping = false;
-            removeExistingImage = true; 
-        }, "image/jpeg", 0.85);
+        return new Promise((resolve) => {
+            if (!cropperInstance) return resolve();
+            const canvas = cropperInstance.getCroppedCanvas({ width: 1200, height: 900, fillColor: "#ffffff" });
+            canvas.toBlob((blob) => {
+                if (blob) galleryItems = [...galleryItems, imageItem("file", { blob })];
+                closeCropper();
+                resolve();
+            }, "image/jpeg", 0.85);
+        });
     }
 
-    function cancelCrop() {
+    // Zuschnitt schliessen, ohne das Bild zu übernehmen
+    function closeCropper() {
         if (cropperInstance) cropperInstance.destroy();
-        isCropping = false; imagePreview = null; croppedFileBlob = null; sourceBlob = null;
+        cropperInstance = null;
+        if (imagePreview) URL.revokeObjectURL(imagePreview);
+        isCropping = false; imagePreview = null; sourceBlob = null;
         if (fileInputElement) fileInputElement.value = "";
-    }
-
-    function deleteExistingImage() {
-        existingImagePath = null;
-        removeExistingImage = true;
     }
 
     onDestroy(() => {
         if (imagePreview) URL.revokeObjectURL(imagePreview);
+        galleryItems.forEach((i) => { if (i.kind === "file") URL.revokeObjectURL(i.preview); });
         if (cropperInstance) cropperInstance.destroy();
     });
 
@@ -167,7 +167,7 @@
         id="editForm"
         enctype="multipart/form-data"
         novalidate
-        use:enhance={({ formData, cancel }) => {
+        use:enhance={async ({ formData, cancel }) => {
             formErrors = {};
             let hasError = false;
 
@@ -189,8 +189,9 @@
             }
 
             formData.append("articleId", article._id);
-            if (removeExistingImage) formData.append("removeExistingImage", "true");
-            if (croppedFileBlob) formData.set("image", croppedFileBlob, "article.jpg");
+            // Offenen Zuschnitt automatisch übernehmen, dann alle Bilder in Reihenfolge anhängen
+            if (isCropping && cropperInstance) await applyCrop();
+            appendImagesToFormData(formData, galleryItems);
 
             for (const [key, value] of Object.entries(attributeValues)) {
                 if (Array.isArray(value)) {
@@ -256,23 +257,7 @@
         <div class="article-layout">
             
             <div class="image-section">
-                {#if existingImagePath && !imagePreview && !isCropping}
-                    <div class="image-workspace">
-                        <img src={existingImagePath} alt="Aktuelles Artikelbild" class="main-image" />
-                        <button type="button" class="btn-image-action delete" on:click={deleteExistingImage}>Bild entfernen</button>
-                    </div>
-                {:else if !existingImagePath && !isCropping && !imagePreview}
-                    <div class="upload-placeholder">
-                        <svg viewBox="0 0 24 24" width="48" height="48" stroke="#94a3b8" stroke-width="1.5" fill="none">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
-                            <circle cx="8.5" cy="8.5" r="1.5"></circle>
-                            <polyline points="21 15 16 10 5 21"></polyline>
-                        </svg>
-                        <span>Neues Artikelbild (4:3) hochladen</span>
-                        <input type="file" id="image" accept="image/*" class="file-input-hidden" bind:this={fileInputElement} on:change={handleImageSelect} />
-                        <button type="button" class="btn-image-action" on:click={() => fileInputElement.click()}>Durchsuchen</button>
-                    </div>
-                {:else if isCropping}
+                {#if isCropping}
                     <div class="crop-editor-box">
                         <div class="crop-area">
                             <img bind:this={cropperImageEl} src={imagePreview} alt="Zuschneiden" />
@@ -282,14 +267,31 @@
                             <button type="button" class="btn-image-action" on:click={() => rotateImage(90)} disabled={isRotating} title="Bild nach rechts drehen">⟳ Rechts drehen</button>
                         </div>
                         <div class="cropper-actions">
-                            <button type="button" class="btn-image-action cancel" on:click={cancelCrop}>Abbrechen</button>
-                            <button type="button" class="btn-image-action save" on:click={applyCrop}>Zuschnitt speichern</button>
+                            <button type="button" class="btn-image-action cancel" on:click={closeCropper}>Abbrechen</button>
+                            <button type="button" class="btn-image-action save" on:click={applyCrop}>Bild übernehmen</button>
                         </div>
                     </div>
-                {:else if imagePreview && !isCropping}
-                    <div class="image-workspace">
-                        <img src={imagePreview} alt="Vorschau" class="main-image" />
-                        <button type="button" class="btn-image-action delete" on:click={cancelCrop}>Bild verwerfen</button>
+                {:else}
+                    <div class="images-workspace">
+                        <ArticleImageList bind:items={galleryItems} />
+                        {#if canAddImage}
+                            <div class="upload-placeholder" class:compact={galleryItems.length > 0}>
+                                {#if galleryItems.length === 0}
+                                    <svg viewBox="0 0 24 24" width="48" height="48" stroke="#94a3b8" stroke-width="1.5" fill="none">
+                                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                        <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                                        <polyline points="21 15 16 10 5 21"></polyline>
+                                    </svg>
+                                    <span>Artikelbild (4:3) hochladen</span>
+                                {/if}
+                                <input type="file" id="image" accept="image/*" class="file-input-hidden" bind:this={fileInputElement} on:change={handleImageSelect} />
+                                <button type="button" class="btn-image-action" on:click={() => fileInputElement.click()}>
+                                    {galleryItems.length ? "+ Weiteres Bild hinzufügen" : "Durchsuchen"}
+                                </button>
+                            </div>
+                        {:else}
+                            <div class="image-limit-hint">Maximal {MAX_ARTICLE_IMAGES} Bilder pro Artikel erreicht.</div>
+                        {/if}
                     </div>
                 {/if}
             </div>
@@ -475,16 +477,15 @@
     }
     
     .upload-placeholder { display: flex; flex-direction: column; align-items: center; gap: 1rem; color: #64748b; text-align: center; }
+    .upload-placeholder.compact { margin-top: 1rem; }
+    .images-workspace { width: 100%; }
+    .image-limit-hint { margin-top: 1rem; font-size: 0.85rem; color: #64748b; text-align: center; }
     .file-input-hidden { display: none; }
     .btn-image-action { background: #f8fafc; color: #334155; border: 1px solid #cbd5e1; padding: 0.6rem 1.2rem; border-radius: 6px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
     .btn-image-action:hover { background: #e2e8f0; border-color: #94a3b8; }
-    .btn-image-action.delete { background: #fee2e2; color: #b91c1c; border-color: #fecaca; margin-top: 1rem; width: 100%;}
-    .btn-image-action.delete:hover { background: #fecaca; }
     .btn-image-action.save { background: #22c55e; color: white; border-color: #22c55e; }
     .btn-image-action.save:hover { background: #16a34a; }
 
-    .image-workspace { width: 100%; display: flex; flex-direction: column; align-items: center; }
-    .main-image { max-width: 100%; max-height: 400px; object-fit: contain; border-radius: 6px; mix-blend-mode: multiply; }
     
     .crop-editor-box { width: 100%; display: flex; flex-direction: column; gap: 1rem; overflow: hidden; }
     .crop-area { width: 100%; max-width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden; max-height: 400px; }

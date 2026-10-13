@@ -9,6 +9,12 @@
     export let terminal = false;
     const { article, categories, attributes } = data;
 
+    // Alle Artikelbilder (erstes = Hauptbild); per Vorschaubild umschalten
+    const images = Array.isArray(article.images) && article.images.length > 0
+        ? article.images
+        : (article.imagePath ? [article.imagePath] : []);
+    let activeImage = 0;
+
     // --- 1. Kategorienamen auflösen ---
     const mainCategory = categories.find(c => c._id === article.mainCategoryId);
     const mainCategoryName = mainCategory ? mainCategory.name : 'Unbekannte Kategorie';
@@ -98,14 +104,24 @@
         
         <div class="media-column">
             <div class="image-section">
-                {#if article.imagePath}
-                    <img src={article.imagePath} alt={article.title} class="main-image" />
+                {#if images.length > 0}
+                    <img src={images[activeImage]} alt={article.title} class="main-image" />
                 {:else}
                     <div class="no-image-placeholder">
                         <span>Kein Artikelbild vorhanden</span>
                     </div>
                 {/if}
             </div>
+
+            {#if images.length > 1}
+                <div class="thumb-strip">
+                    {#each images as url, index}
+                        <button type="button" class="thumb" class:active={index === activeImage} on:click={() => (activeImage = index)} aria-label="Bild {index + 1} anzeigen">
+                            <img src={url} alt="" />
+                        </button>
+                    {/each}
+                </div>
+            {/if}
 
             <!-- Artikel im Regal aufleuchten lassen -->
             {#if isStored}
@@ -397,6 +413,16 @@
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
     .main-image { max-width: 100%; max-height: 500px; object-fit: contain; mix-blend-mode: multiply; }
+
+    /* Vorschaubilder bei mehreren Artikelbildern */
+    .thumb-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 0.5rem; }
+    .thumb {
+        aspect-ratio: 4 / 3; background: #ffffff; border: 2px solid #334155; border-radius: 6px; padding: 0.2rem;
+        cursor: pointer; display: flex; align-items: center; justify-content: center; overflow: hidden; transition: border-color 0.15s;
+    }
+    .thumb:hover { border-color: #93c5fd; }
+    .thumb.active { border-color: #22c55e; }
+    .thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
     .no-image-placeholder { color: #94a3b8; font-size: 1.1rem; font-style: italic; }
 
     /* Rechte Seite (Infos) */

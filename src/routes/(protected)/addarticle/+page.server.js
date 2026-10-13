@@ -3,19 +3,7 @@ import db from '$lib/server/db.js'; // WICHTIG: Als Default-Import ohne geschwei
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
 import { canAccessPath } from '$lib/permissions.js';
-import { v2 as cloudinary } from 'cloudinary';
-import { 
-    CLOUDINARY_CLOUD_NAME, 
-    CLOUDINARY_API_KEY, 
-    CLOUDINARY_API_SECRET 
-} from '$env/static/private';
-
-// Cloudinary Konfiguration
-cloudinary.config({
-    cloud_name: CLOUDINARY_CLOUD_NAME,
-    api_key: CLOUDINARY_API_KEY,
-    api_secret: CLOUDINARY_API_SECRET
-});
+import { buildImageList } from '$lib/server/articleImages.js';
 
 // 🔥 WICHTIG: Hier "url" hinzugefügt, um den ?copy= Parameter und das Bookmarklet lesen zu können
 export async function load({ locals, url }) { 
@@ -89,9 +77,6 @@ export const actions = {
         const mainCategoryId = data.get('mainCategoryId');
         const istBestandRaw = data.get('istBestand');
         
-        const imageFile = data.get('image'); 
-        const externalImageUrl = safeHttpUrl(data.get('externalImageUrl')); // Link vom Bookmarklet (nur http/https)
-
         if (!title || !mainCategoryId || istBestandRaw === null || istBestandRaw === '') {
             return fail(400, { error: "Titel, Hauptkategorie und Ist-Bestand sind erforderlich." });
         }
@@ -107,29 +92,12 @@ export const actions = {
             const sollBestand = data.get('sollBestand') ? parseInt(data.get('sollBestand'), 10) : null;
             const mindestBestand = data.get('mindestBestand') ? parseInt(data.get('mindestBestand'), 10) : null;
 
-            // 🔥 Standardmäßig nutzen wir den Link vom Bookmarklet (falls vorhanden)
-            let imagePath = externalImageUrl || null;
-
-            // Stream-Upload zu Cloudinary (überschreibt imagePath, wenn eine Datei hochgeladen wurde)
-            if (imageFile && imageFile instanceof Blob && imageFile.size > 0) {
-                const arrayBuffer = await imageFile.arrayBuffer();
-                const buffer = Buffer.from(arrayBuffer);
-                
-                const uploadResult = await new Promise((resolve, reject) => {
-                    const uploadStream = cloudinary.uploader.upload_stream(
-                        { 
-                            folder: 'storify_uploads',
-                            allowed_formats: ['jpg', 'png', 'webp'] 
-                        },
-                        (error, result) => {
-                            if (error) return reject(error);
-                            resolve(result);
-                        }
-                    );
-                    uploadStream.end(buffer);
-                });
-
-                imagePath = uploadResult.secure_url;
+            // Bilder: neue Zuschnitte werden hochgeladen, externe Links (Kopie/Import) übernommen
+            let images;
+            try {
+                images = await buildImageList(data, { allowExternal: true });
+            } catch (imageError) {
+                return fail(400, { error: imageError.message });
             }
 
             const itemAttributes = {};
@@ -152,7 +120,8 @@ export const actions = {
                 supplier: data.get('supplier'),
                 price: parseFloat(data.get('price') || "0"),
                 orderLink: safeHttpUrl(data.get('orderLink')),
-                imagePath, // Hier liegt jetzt entweder der Shop-Link oder der Cloudinary-Link drin
+                images,                        // alle Bilder, das erste ist das Hauptbild
+                imagePath: images[0] || null,  // Hauptbild (für Listen und ältere Ansichten)
                 attributes: itemAttributes,
                 createdAt: new Date(),
                 updatedAt: new Date()

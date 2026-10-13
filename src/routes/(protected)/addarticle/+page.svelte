@@ -4,7 +4,8 @@
     import { enhance } from "$app/forms";
     import SearchableSelect from "$lib/components/SearchableSelect.svelte";
     import AiModelBadge from "$lib/components/AiModelBadge.svelte";
-    import { prepareOnWhite, rotateBlob } from "$lib/imageTools.js";
+    import { prepareOnWhite, rotateBlob, imageItem, articleImageUrls, appendImagesToFormData, MAX_ARTICLE_IMAGES } from "$lib/imageTools.js";
+    import ArticleImageList from "$lib/components/ArticleImageList.svelte";
     import { page } from "$app/stores";
     import { goto, invalidateAll } from "$app/navigation"; 
 
@@ -56,9 +57,13 @@
     let imageCandidates = importedImageUrl ? [{ url: importedImageUrl, alt: "" }] : [];
     let brokenCandidates = new Set();
     $: visibleCandidates = imageCandidates.filter(i => !brokenCandidates.has(i.url));
-    let selectedImageUrl = "";
-    // Nur falls ein Bild nicht über den Proxy geladen werden konnte, wird der externe Link gespeichert
-    let externalFallbackUrl = "";
+    let selectedImageUrl = "";        // Bild, das gerade im Zuschnitt ist
+
+    // --- Mehrere Bilder pro Artikel (erstes Bild = Hauptbild) ---
+    let galleryItems = [];
+    $: canAddImage = galleryItems.length < MAX_ARTICLE_IMAGES;
+    // Bereits übernommene Shop-Bilder in der Auswahl markieren
+    $: addedImageUrls = new Set(galleryItems.map((i) => i.sourceUrl || i.url).filter(Boolean));
 
     // Neues Lesezeichen (v2): Daten kommen per postMessage aus dem Shop-Fenster
     let importReceived = false;
@@ -310,7 +315,12 @@
             selectedSubcategoryId = copiedArticle.subcategoryId;
         }
 
-        const imageToLoad = copiedArticle?.imagePath || importedImageUrl;
+        // Kopierter Artikel: alle Bilder unverändert übernehmen
+        if (copiedArticle) {
+            galleryItems = articleImageUrls(copiedArticle).map((url) => imageItem("url", { url }));
+        }
+
+        const imageToLoad = copiedArticle ? "" : importedImageUrl;
         if (imageToLoad) {
             try {
                 await loadExternalImage(imageToLoad);
@@ -379,7 +389,7 @@
 
                 // Die KI wählt das beste Hauptproduktbild aus den gefundenen Bildern
                 const aiImageToLoad = result.finalImageUrl;
-                if (aiImageToLoad && aiImageToLoad !== selectedImageUrl) {
+                if (aiImageToLoad && aiImageToLoad !== selectedImageUrl && !addedImageUrls.has(aiImageToLoad)) {
                     try {
                         await loadExternalImage(aiImageToLoad);
                     } catch (e) {
@@ -419,26 +429,22 @@
     }
 
     let fileInputElement;
-    let imagePreview = null;
+    let imagePreview = null;          // Bild im Zuschnitt-Editor
     let isCropping = false;
     let cropperImageEl;
     let cropperInstance = null;
-    let croppedFileBlob = null;
 
     async function handleImageSelect(event) {
         const file = event.target.files[0];
-        if (!file) return;
+        if (!file || !canAddImage) return;
         selectedImageUrl = "";
-        externalFallbackUrl = "";
         await processImageBlob(file);
     }
 
     // 🔥 Robuster Proxy-Aufruf
     async function loadExternalImage(imageUrl) {
-        if (!imageUrl) return;
+        if (!imageUrl || !canAddImage) return;
         selectedImageUrl = imageUrl;
-        externalFallbackUrl = "";
-        croppedFileBlob = null;
         try {
             if (imageUrl.startsWith("data:image") || imageUrl.startsWith("blob:")) {
                 const response = await fetch(imageUrl);
@@ -460,10 +466,9 @@
             }
         } catch (error) {
             console.error("Bild blockiert (Seite bleibt stabil):", error);
-            if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
-            isCropping = false;
-            imagePreview = imageUrl; 
-            externalFallbackUrl = imageUrl;
+            // Nicht ladbar (z.B. Hotlink-Schutz): den Link direkt als Bild übernehmen
+            closeCropper();
+            galleryItems = [...galleryItems, imageItem("url", { url: imageUrl, sourceUrl: imageUrl })];
         }
     }
 
@@ -508,26 +513,28 @@
         });
     }
 
+    // Zuschnitt übernehmen: das Bild kommt in die Bildleiste
     async function applyCrop() {
         if (!cropperInstance) return;
         const blob = await cropToBlob();
         if (!blob) return;
-        croppedFileBlob = blob;
-        if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
-        imagePreview = URL.createObjectURL(blob);
-        cropperInstance.destroy(); cropperInstance = null; isCropping = false;
+        galleryItems = [...galleryItems, imageItem("file", { blob, sourceUrl: selectedImageUrl })];
+        closeCropper();
     }
 
-    function cancelCrop() {
+    // Zuschnitt schliessen, ohne das Bild zu übernehmen
+    function closeCropper() {
         if (cropperInstance) cropperInstance.destroy();
         cropperInstance = null;
-        isCropping = false; imagePreview = null; croppedFileBlob = null; sourceBlob = null;
-        selectedImageUrl = ""; externalFallbackUrl = "";
+        if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+        isCropping = false; imagePreview = null; sourceBlob = null;
+        selectedImageUrl = "";
         if (fileInputElement) fileInputElement.value = "";
     }
 
     onDestroy(() => {
         if (imagePreview && imagePreview.startsWith("blob:")) URL.revokeObjectURL(imagePreview);
+        galleryItems.forEach((i) => { if (i.kind === "file") URL.revokeObjectURL(i.preview); });
         if (cropperInstance) cropperInstance.destroy();
         if (browser) window.removeEventListener("message", handleImportMessage);
     });
@@ -596,8 +603,8 @@
             }
 
             // Ist der Zuschnitt noch offen, den aktuellen Ausschnitt automatisch übernehmen
-            if (isCropping && cropperInstance) croppedFileBlob = await cropToBlob();
-            if (croppedFileBlob) formData.set("image", croppedFileBlob, "article.jpg");
+            if (isCropping && cropperInstance) await applyCrop();
+            appendImagesToFormData(formData, galleryItems);
 
             return async ({ result, update }) => {
                 if (result.type === "success") {
@@ -863,10 +870,11 @@
             </div>
 
             <!-- 🔥 Verstecktes Feld, um die Bild-URL vom Bookmarklet an den Server zu senden -->
-            <input type="hidden" name="externalImageUrl" value={croppedFileBlob ? "" : externalFallbackUrl} />
 
             <div class="image-area">
-                <span class="label-text">Artikelbild (4:3)</span>
+                <span class="label-text">Artikelbilder (4:3) – das erste Bild ist das Hauptbild</span>
+
+                <ArticleImageList bind:items={galleryItems} />
 
                 {#if visibleCandidates.length > 1}
                     <div class="candidate-gallery">
@@ -877,7 +885,9 @@
                                     type="button"
                                     class="candidate"
                                     class:selected={candidate.url === selectedImageUrl}
-                                    title={candidate.alt || "Bild übernehmen"}
+                                    class:added={addedImageUrls.has(candidate.url)}
+                                    title={addedImageUrls.has(candidate.url) ? "Bereits übernommen" : (candidate.alt || "Bild übernehmen")}
+                                    disabled={!canAddImage}
                                     on:click={() => loadExternalImage(candidate.url)}
                                 >
                                     <img src={candidate.url} alt={candidate.alt} loading="lazy" referrerpolicy="no-referrer" on:error={(e) => handleThumbError(e, candidate.url)} />
@@ -887,10 +897,13 @@
                     </div>
                 {/if}
 
-                {#if !isCropping && !imagePreview}
-                    <div class="file-upload-wrapper" style="margin-top: 0.5rem;">
+                {#if !isCropping && canAddImage}
+                    <div class="file-upload-wrapper" style="margin-top: 0.75rem;">
+                        <label for="image" class="label-text" style="font-size: 0.85rem;">{galleryItems.length ? "Weiteres Bild hinzufügen" : "Bild hochladen"}</label>
                         <input type="file" id="image" accept="image/*" bind:this={fileInputElement} on:change={handleImageSelect} />
                     </div>
+                {:else if !isCropping}
+                    <div class="image-limit-hint">Maximal {MAX_ARTICLE_IMAGES} Bilder pro Artikel erreicht.</div>
                 {/if}
 
                 {#if isCropping}
@@ -902,18 +915,13 @@
                             <button type="button" class="btn-rotate" on:click={() => rotateImage(-90)} disabled={isRotating} title="Bild nach links drehen">⟲ Links drehen</button>
                             <button type="button" class="btn-rotate" on:click={() => rotateImage(90)} disabled={isRotating} title="Bild nach rechts drehen">⟳ Rechts drehen</button>
                             <span style="flex: 1;"></span>
-                            <button type="button" class="btn-cancel" on:click={cancelCrop}>Abbrechen</button>
-                            <button type="button" class="btn-apply" on:click={applyCrop}>Speichern</button>
+                            <button type="button" class="btn-cancel" on:click={closeCropper}>Abbrechen</button>
+                            <button type="button" class="btn-apply" on:click={applyCrop}>Bild übernehmen</button>
                         </div>
                     </div>
                 {/if}
 
-                {#if imagePreview && !isCropping}
-                    <div class="preview-wrap" style="margin-top: 1rem;">
-                        <img src={imagePreview} alt="Vorschau" class="final-preview" />
-                        <button type="button" class="btn-remove" on:click={cancelCrop}>Bild löschen</button>
-                    </div>
-                {/if}
+
             </div>
         </div>
 
@@ -1132,10 +1140,7 @@
     .btn-cancel { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 600; transition: all 0.2s;}
     .btn-cancel:hover { background: #e2e8f0; }
     
-    .final-preview { max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #e2e8f0; }
     
-    .btn-remove { display: block; margin-top: 0.5rem; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.2s;}
-    .btn-remove:hover { background: #fecaca; }
     
     .btn-submit { 
         background: #3b82f6; 
@@ -1227,4 +1232,9 @@
     .btn-rotate { background: #ffffff; color: #334155; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; cursor: pointer; }
     .btn-rotate:hover:not(:disabled) { background: #f1f5f9; border-color: #94a3b8; }
     .btn-rotate:disabled { opacity: 0.6; cursor: wait; }
+
+    /* Mehrere Bilder */
+    .candidate.added { border-color: #22c55e; opacity: 0.55; }
+    .candidate:disabled { cursor: not-allowed; }
+    .image-limit-hint { margin-top: 0.75rem; font-size: 0.85rem; color: #64748b; }
 </style>
