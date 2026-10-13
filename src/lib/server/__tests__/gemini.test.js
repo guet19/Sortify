@@ -76,3 +76,18 @@ describe('Modellwechsel', () => {
         expect(aiErrorMessage({ status: 503, message: 'overloaded' })).toMatch(/überlastet/);
     });
 });
+
+describe('Zweitversuch mit schnellen Modellen', () => {
+    it('nur bei Zeitüberschreitung und wenn nicht schon schnell', async () => {
+        const { canRetryFast } = await import('../gemini.js');
+        const timeout = new Error('timeout');
+        expect(canRetryFast(timeout, 'best')).toBe(true);
+        expect(canRetryFast(timeout, 'fast')).toBe(false);
+        expect(canRetryFast(new Error('invalid_json'), 'best')).toBe(false);
+    });
+
+    it('beachtet das Zeitbudget der Server-Funktion', async () => {
+        const { aiTimeBudgetMs } = await import('../gemini.js');
+        expect(aiTimeBudgetMs()).toBeGreaterThan(0);
+    });
+});

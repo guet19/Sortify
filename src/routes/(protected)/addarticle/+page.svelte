@@ -155,6 +155,8 @@
     let structure = null;          // Antwort des KI-Assistenten
     let structureState = "";       // "" | "loading" | "ready" | "saving"
     let structureError = "";
+    let structureRetryFast = false; // Zweitversuch mit schnellen Modellen anbieten
+    let lastStructureAvoid = null;
     let structMainMode = "existing", structMainId = "", structNewMainName = "";
     let structSubMode = "existing", structSubId = "", structNewSubName = "";
     let structExistingAttrs = [];  // IDs bestehender Filter
@@ -166,19 +168,24 @@
     $: if (structMainMode === "new") structSubMode = "new";
 
     // avoid: vom Nutzer abgelehnte Zuordnung { mainCategoryId, subcategoryId }
-    async function requestCategoryStructure(avoid = null) {
+    async function requestCategoryStructure(avoid = null, fast = false) {
         structureState = "loading";
         structureError = "";
+        structureRetryFast = false;
+        lastStructureAvoid = avoid;
         try {
             const articleText = (rawImportText || [title, bookmarkletData?.url].filter(Boolean).join("\n")).slice(0, 18000);
             const res = await fetch("/api/ai-category-wizard", {
                 method: "POST",
                 signal: AbortSignal.timeout(60000), // nie endlos warten
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ articleText, avoid })
+                body: JSON.stringify({ articleText, avoid, fast })
             });
             const result = await res.json();
-            if (!res.ok) throw new Error(result.error || "Fehler bei der KI-Analyse.");
+            if (!res.ok) {
+                structureRetryFast = Boolean(result.canRetryFast);
+                throw new Error(result.error || "Fehler bei der KI-Analyse.");
+            }
 
             structure = result;
             rememberAiModel(result.aiModel);
@@ -192,7 +199,12 @@
             structNewAttrs = result.newAttributes.map((a) => ({ ...a, selected: true, optionsString: (a.options || []).join(", ") }));
             structureState = "ready";
         } catch (err) {
-            structureError = err.message || "Fehler bei der KI-Analyse.";
+            if (err?.name === "TimeoutError") {
+                structureError = "Die KI hat zu lange gebraucht.";
+                structureRetryFast = !fast;
+            } else {
+                structureError = err.message || "Fehler bei der KI-Analyse.";
+            }
             structureState = "";
         }
     }
@@ -348,8 +360,10 @@
         aiChoiceMade = true;
     }
 
-    async function handleEnhancedImport() {
+    // fast = Zweitversuch mit den schnellen KI-Modellen (nach Zeitüberschreitung)
+    async function handleEnhancedImport(fast = false) {
         isExtracting = true;
+        let retryFast = false;
         try {
             const res = await fetch("/api/extract-article", {
                 method: "POST",
@@ -359,6 +373,7 @@
                     html: rawImportText || importUrl,
                     url: orderLink,
                     images: visibleCandidates,
+                    fast,
                     expectedAttributes: activeAttributes.map((a) => ({
                         id: a._id,
                         name: a.label,
@@ -396,16 +411,21 @@
                         console.warn("KI Bild konnte nicht geladen werden", e);
                     }
                 }
+            } else if (result.canRetryFast) {
+                retryFast = confirm(`${result.error}\n\nMit einem schnelleren KI-Modell erneut versuchen?`);
             } else if (browser) {
                 alert(result.error || "Fehler bei der KI-Analyse.");
             }
         } catch (error) {
             console.error("KI Fehler:", error);
-            if (browser) alert("Fehler bei der KI-Analyse.");
+            if (error?.name === "TimeoutError" && !fast) {
+                retryFast = confirm("Die KI hat zu lange gebraucht.\n\nMit einem schnelleren KI-Modell erneut versuchen?");
+            } else if (browser) alert("Fehler bei der KI-Analyse.");
         } finally {
             isExtracting = false;
             showAIWarning = true;
         }
+        if (retryFast) return handleEnhancedImport(true);
     }
 
     function handleNumberInput(event, attrId) {
@@ -638,7 +658,7 @@
                 <div class="ai-category-status no-match">
                     <span>Keine passende Kategorie gefunden – bitte selbst wählen{data.canManageCategories ? ' oder eine neue anlegen lassen' : ''}.</span>
                     {#if data.canManageCategories}
-                        <button type="button" class="btn-structure" on:click={requestCategoryStructure} disabled={structureState === "loading"}>
+                        <button type="button" class="btn-structure" on:click={() => requestCategoryStructure()} disabled={structureState === "loading"}>
                             {#if structureState === "loading"}<span class="mini-spinner"></span> KI plant Kategorie…{:else}✨ KI-Empfehlung für passende Kategorie erstellen{/if}
                         </button>
                     {/if}
@@ -646,7 +666,12 @@
             {/if}
 
             {#if structureError && !structure}
-                <div class="alert error" style="margin-bottom: 1rem;">{structureError}</div>
+                <div class="alert error" style="margin-bottom: 1rem;">
+                    {structureError}
+                    {#if structureRetryFast}
+                        <button type="button" class="btn-ai-no" style="margin-left: 0.75rem;" on:click={() => requestCategoryStructure(lastStructureAvoid, true)}>⚡ Mit schnellem Modell erneut versuchen</button>
+                    {/if}
+                </div>
             {/if}
 
             {#if structure}

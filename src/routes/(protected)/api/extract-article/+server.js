@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { generateJson, aiErrorMessage } from '$lib/server/gemini.js';
+import { generateJson, aiErrorMessage, canRetryFast } from '$lib/server/gemini.js';
 import db from '$lib/server/db.js';
 
 // Obergrenzen gegen Kostenmissbrauch der KI-API
@@ -7,8 +7,11 @@ const MAX_INPUT_CHARS = 200_000;
 const AI_CALLS_PER_HOUR = 60;
 
 export async function POST({ request, locals }) {
+    const startedAt = Date.now();
+    let prefer = 'best'; // 'fast' = Zweitversuch nach Zeitüberschreitung
     try {
-        const { html, expectedAttributes, images: rawImages } = await request.json();
+        const { html, expectedAttributes, images: rawImages, fast } = await request.json();
+        if (fast === true) prefer = 'fast';
 
         // Bild-Kandidaten vom Lesezeichen (nur http/https, begrenzt)
         const images = (Array.isArray(rawImages) ? rawImages : [])
@@ -54,6 +57,8 @@ ${html}
         `;
 
         const { data: extractedData, model: aiModel } = await generateJson({
+            prefer,
+            startedAt,
             contents: prompt,
             config: {
                 systemInstruction: `Du bist ein technischer Daten-Extraktor. Extrahiere Produktdaten präzise im JSON-Format.
@@ -79,6 +84,6 @@ GIB AUSSCHLIESSLICH DAS JSON ZURÜCK! Keine Begrüßung, keine Erklärungen.`,
 
     } catch (error) {
         console.error("❌ FATALER FEHLER IM BACKEND:", error);
-        return json({ error: aiErrorMessage(error, 'Fehler beim Analysieren der Artikeldaten.') }, { status: 502 });
+        return json({ error: aiErrorMessage(error, 'Fehler beim Analysieren der Artikeldaten.'), canRetryFast: canRetryFast(error, prefer) }, { status: 502 });
     }
 }

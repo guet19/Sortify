@@ -120,10 +120,13 @@
   });
 
   // --- KI FUNKTIONEN ---
-  async function generateStructure() {
+  // fast = Zweitversuch mit den schnellen KI-Modellen (nach Zeitüberschreitung)
+  let aiRetryFast = $state(false);
+  async function generateStructure(fast = false) {
     if (!aiArticleInput.trim()) return;
     isAiLoading = true;
     aiError = "";
+    aiRetryFast = false;
     
     try {
       // Unverändert importierter Titel -> die ausführlichen Shop-Daten verwenden
@@ -133,13 +136,14 @@
         method: 'POST',
         signal: AbortSignal.timeout(60000), // nie endlos warten
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ articleText })
+        body: JSON.stringify({ articleText, fast })
       });
 
       const result = await response.json();
       if (!response.ok) {
         aiResult = null;
         aiError = result.error || "Fehler bei der KI-Analyse.";
+        aiRetryFast = Boolean(result.canRetryFast);
         return;
       }
       aiResult = result;
@@ -168,7 +172,12 @@
     } catch (error) {
       console.error(error);
       aiResult = null;
-      aiError = "Fehler bei der KI-Analyse. Bitte versuche es erneut.";
+      if (error?.name === "TimeoutError") {
+        aiError = "Die KI hat zu lange gebraucht.";
+        aiRetryFast = !fast;
+      } else {
+        aiError = "Fehler bei der KI-Analyse. Bitte versuche es erneut.";
+      }
     } finally {
       isAiLoading = false;
     }
@@ -320,7 +329,7 @@
         {/if}
         
         <div class="input-group shadow-sm mt-3">
-<input type="text" class="form-control light-input py-3" placeholder="Artikel-Name oder Lieferanten-Link (https://...) einfügen" bind:value={aiArticleInput} onkeydown={(e) => e.key === "Enter" && generateStructure()}/>        <button class="btn btn-primary fw-bold px-4" onclick={generateStructure} disabled={isAiLoading || !aiArticleInput}>
+<input type="text" class="form-control light-input py-3" placeholder="Artikel-Name oder Lieferanten-Link (https://...) einfügen" bind:value={aiArticleInput} onkeydown={(e) => e.key === "Enter" && generateStructure()}/>        <button class="btn btn-primary fw-bold px-4" onclick={() => generateStructure()} disabled={isAiLoading || !aiArticleInput}>
             {#if isAiLoading} <span class="spinner-border spinner-border-sm me-2"></span> Analysiere... {:else} <i class="bi bi-magic me-1"></i> Struktur planen {/if}
           </button>
         </div>
@@ -329,6 +338,9 @@
       {#if aiError || form?.errorAi}
         <div class="alert alert-danger m-4 mb-0 d-flex align-items-center gap-2">
           <i class="bi bi-exclamation-triangle-fill"></i> {aiError || form?.errorAi}
+          {#if aiRetryFast && !isAiLoading}
+            <button type="button" class="btn btn-sm btn-outline-danger ms-auto" onclick={() => generateStructure(true)}>⚡ Mit schnellem Modell erneut versuchen</button>
+          {/if}
         </div>
       {/if}
 

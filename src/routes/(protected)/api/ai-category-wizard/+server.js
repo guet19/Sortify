@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import * as cheerio from 'cheerio';
-import { generateJson, aiErrorMessage } from '$lib/server/gemini.js';
+import { generateJson, aiErrorMessage, canRetryFast } from '$lib/server/gemini.js';
 import { safeFetch, readLimited } from '$lib/server/security.js';
 import db from '$lib/server/db.js';
 
@@ -35,8 +35,11 @@ async function readProductPage(link) {
 }
 
 export async function POST({ request, locals }) {
+    const startedAt = Date.now();
+    let prefer = 'best'; // 'fast' = Zweitversuch nach Zeitüberschreitung
     try {
-        const { articleText, avoid } = await request.json();
+        const { articleText, avoid, fast } = await request.json();
+        if (fast === true) prefer = 'fast';
 
         if (!articleText || typeof articleText !== 'string' || articleText.length > MAX_INPUT_CHARS) {
             return json({ error: `Bitte gib einen Text oder Link mit max. ${MAX_INPUT_CHARS} Zeichen ein.` }, { status: 400 });
@@ -116,7 +119,7 @@ export async function POST({ request, locals }) {
             }
         `;
 
-        const { data: aiData, model: aiModel } = await generateJson({ contents: prompt, config: { temperature: 0.2 } });
+        const { data: aiData, model: aiModel } = await generateJson({ prefer, startedAt, contents: prompt, config: { temperature: 0.2 } });
 
         // --- Antwort gegen die echten Daten prüfen und bereinigen ---
         const mainIn = aiData.mainCategory || {};
@@ -172,6 +175,6 @@ export async function POST({ request, locals }) {
 
     } catch (error) {
         console.error("❌ KI-Fehler im Kategorie-Assistenten:", error);
-        return json({ error: aiErrorMessage(error) }, { status: 502 });
+        return json({ error: aiErrorMessage(error), canRetryFast: canRetryFast(error, prefer) }, { status: 502 });
     }
 }

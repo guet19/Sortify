@@ -110,13 +110,25 @@ function modelOrder(prefer) {
     return [...AI_MODELS.filter(m => m.tier === 'good'), ...AI_MODELS.filter(m => m.tier !== 'good')];
 }
 
+// Zeitbudget der Server-Funktion: Auf Netlify bricht die Plattform eine Anfrage sonst hart ab
+// (der Browser sieht nur einen nackten 502). AI_MAX_DURATION_MS überschreibt den Standard,
+// z.B. wenn dein Netlify-Plan längere Laufzeiten erlaubt.
+const ON_SERVERLESS = Boolean(process.env.NETLIFY || process.env.AWS_LAMBDA_FUNCTION_NAME);
+export function aiTimeBudgetMs() {
+    const configured = Number(env.AI_MAX_DURATION_MS);
+    if (Number.isFinite(configured) && configured > 0) return configured;
+    return ON_SERVERLESS ? 26_000 : Infinity;
+}
+
 // Ruft Gemini auf und liefert { data, model } – mit automatischem Modellwechsel.
 // timeoutMs: max. Wartezeit pro Modell, deadlineMs: max. Gesamtdauer über alle Modelle
-export async function generateJson({ contents, config = {}, prefer = 'best', timeoutMs = 20_000, deadlineMs = 45_000 }) {
+// startedAt: Beginn der Anfrage (falls vorher schon z.B. eine Webseite geladen wurde)
+export async function generateJson({ contents, config = {}, prefer = 'best', timeoutMs = 20_000, deadlineMs = 45_000, startedAt = Date.now() }) {
     if (!env.GEMINI_API_KEY) throw new AiError('missing_key', 500);
     client ??= new GoogleGenAI({ apiKey: env.GEMINI_API_KEY });
 
-    const deadline = Date.now() + deadlineMs;
+    // Etwas Reserve für das Senden der Antwort
+    const deadline = Math.min(Date.now() + deadlineMs, startedAt + aiTimeBudgetMs() - 2_500);
     const blocked = await getBlockedModels();
     const skipped = [];
     let lastError;
@@ -164,6 +176,11 @@ export async function generateJson({ contents, config = {}, prefer = 'best', tim
     }
 
     throw lastError ?? new AiError('all_models_exhausted', 429);
+}
+
+// Lohnt sich ein zweiter Versuch mit den schnellen Modellen? (nur bei Zeitüberschreitung)
+export function canRetryFast(error, prefer) {
+    return prefer !== 'fast' && (error?.message === 'timeout' || isTimeout(error));
 }
 
 // Verständliche Meldung für die Oberfläche (Details stehen im Server-Log)
