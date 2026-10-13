@@ -8,6 +8,7 @@ const AVAILABLE_ROUTES = [
     // Artikel-Management
     { path: '/addarticle', name: 'Artikel hinzufügen' },
     { path: '/editarticle', name: 'Artikel bearbeiten' },
+    { path: '/nachbestellen', name: 'Nachbestell-Liste' },
     
     // Einstellungen
     { path: '/einstellungen/authorization', name: 'Berechtigungsverwaltung' },

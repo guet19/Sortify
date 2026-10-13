@@ -60,7 +60,8 @@ async function authHandle({ event, resolve }) {
         '/reset-password', 
         '/verify', 
         '/verify-email', 
-        '/verify-password'
+        '/verify-password',
+        '/api/cron/'           // Zeitgesteuerte Aufgaben, geschützt durch CRON_SECRET
     ]; 
     if (publicRoutes.some(route => path.startsWith(route))) {
         if (user) {

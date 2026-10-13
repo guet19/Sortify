@@ -74,6 +74,15 @@
                     >
                 {/if}
 
+                <!-- Nachbestellen -->
+                {#if canSee('/nachbestellen')}
+                    <a
+                        class="nav-link"
+                        class:active={$page.url.pathname === "/nachbestellen"}
+                        href="/nachbestellen">Nachbestellen</a
+                    >
+                {/if}
+
                 <!-- 🔥 Kategorien -->
                 {#if canSee('/einstellungen/category')}
                     <a

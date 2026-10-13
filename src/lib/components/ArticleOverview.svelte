@@ -1,5 +1,6 @@
 <script>
     import { imageUrl } from '$lib/imageUrl.js';
+    import { inventoryStats } from '$lib/reorder.js';
     // Artikelübersicht – genutzt von der Inventar-Startseite (/) und der Terminal-Suche (/terminal/search).
     // Im Terminal-Modus: nur eingelagerte Artikel, keine Verwaltungsfunktionen.
     import { page } from '$app/stores';
@@ -38,6 +39,9 @@
     // Im Terminal nur Artikel, die tatsächlich in einem Fach liegen
     const articles = terminal ? data.articles.filter(a => getSlots(a).length > 0) : data.articles;
     const detailBase = terminal ? '/terminal/search/' : '/';
+    // Kennzahlen für die Startseite (nur Web-Ansicht)
+    const stats = terminal ? null : inventoryStats(articles);
+    const chf = (v) => v.toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     // Getrennte Filter-Speicher, damit sich Web und Terminal nicht gegenseitig verstellen
     const filterStorageKey = terminal ? 'Sortify_TerminalFilters' : 'Sortify_ArticleFilters';
 
@@ -369,6 +373,28 @@
             <a href="/addarticle" class="btn-primary">+ Neuer Artikel</a>
         {/if}
     </div>
+
+    {#if stats && stats.count > 0}
+        <div class="stats-row">
+            <div class="stat-tile"><span class="stat-label">Artikel</span><span class="stat-value">{stats.count}</span></div>
+            <div class="stat-tile"><span class="stat-label">Lagerwert</span><span class="stat-value">CHF {chf(stats.value)}</span></div>
+            <a href="/nachbestellen" class="stat-tile stat-link" class:warn={stats.lowStock > 0}>
+                <span class="stat-label">Nachbestellen</span>
+                <span class="stat-value">{stats.lowStock}</span>
+                <span class="stat-hint">{stats.lowStock > 0 ? 'zur Liste →' : 'alles im grünen Bereich'}</span>
+            </a>
+            <div class="stat-tile" class:warn={stats.outOfStock > 0}><span class="stat-label">Nicht auf Lager</span><span class="stat-value">{stats.outOfStock}</span></div>
+            <div class="stat-tile"><span class="stat-label">Ohne Lagerplatz</span><span class="stat-value">{stats.notStored}</span></div>
+        </div>
+        {#if data.topConsumption?.length}
+            <div class="top-consumption">
+                <span class="stat-label">Meistverbraucht (30 Tage)</span>
+                {#each data.topConsumption as item, i (item.id)}
+                    <a href="/{item.id}" class="tc-item"><span class="tc-rank">{i + 1}</span> {item.title} <span class="tc-used">−{item.used} Stk.</span></a>
+                {/each}
+            </div>
+        {/if}
+    {/if}
 
     <div class="top-bar">
         <div class="filter-left">
@@ -908,4 +934,21 @@
     @media (max-width: 640px) {
         .page-container.in-terminal { padding: 0; }
     }
+
+    /* Kennzahlen (Startseite) */
+    .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+    .stat-tile { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.2rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05); text-decoration: none; color: inherit; }
+    .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; font-weight: 700; }
+    .stat-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
+    .stat-hint { font-size: 0.78rem; color: #64748b; }
+    .stat-tile.warn { border-color: #fecaca; background: #fef2f2; }
+    .stat-tile.warn .stat-value { color: #dc2626; }
+    .stat-link { transition: transform 0.15s, box-shadow 0.15s; }
+    .stat-link:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.08); }
+
+    .top-consumption { display: flex; align-items: center; gap: 0.6rem 1rem; flex-wrap: wrap; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.75rem 1rem; margin: -0.5rem 0 1.5rem 0; }
+    .tc-item { color: #1e293b; text-decoration: none; font-size: 0.9rem; font-weight: 600; display: inline-flex; align-items: center; gap: 0.35rem; }
+    .tc-item:hover { color: #2563eb; }
+    .tc-rank { background: #e2e8f0; color: #475569; border-radius: 999px; width: 1.4rem; height: 1.4rem; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
+    .tc-used { color: #dc2626; font-weight: 700; font-size: 0.82rem; }
 </style>

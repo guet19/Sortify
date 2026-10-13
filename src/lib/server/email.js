@@ -213,3 +213,33 @@ export async function send2FABackupCode(email, firstName, code) {
         throw error;
     }
 }
+// Täglicher Hinweis: Artikel am oder unter dem Mindestbestand (groups aus buildReorderList)
+export async function sendLowStockEmail(toEmails, systemName, groups, newCount) {
+    const link = `${env.BASE_URL}/nachbestellen`;
+    const total = groups.reduce((n, g) => n + g.items.length, 0);
+    const rows = groups.map((g) => `
+        <tr><td colspan="3" style="padding: 12px 0 4px; font-weight: bold; color: #1e293b;">${escapeHtml(g.supplier)}</td></tr>
+        ${g.items.map((i) => `
+            <tr>
+                <td style="padding: 4px 8px 4px 0; border-bottom: 1px solid #f1f5f9;">${escapeHtml(i.title)}</td>
+                <td style="padding: 4px 8px; border-bottom: 1px solid #f1f5f9; text-align: right; color: ${i.stock === 0 ? '#dc2626' : '#334155'};">${i.stock} Stk.</td>
+                <td style="padding: 4px 0 4px 8px; border-bottom: 1px solid #f1f5f9; text-align: right; color: #64748b;">+${i.quantity}</td>
+            </tr>`).join('')}`).join('');
+
+    return transporter.sendMail({
+        from: `"Sortify Inventar" <${env.SMTP_EMAIL}>`,
+        to: toEmails,
+        subject: `Sortify: ${total} Artikel nachbestellen (${systemName})`,
+        html: `
+            <div style="font-family: 'Segoe UI', Arial, sans-serif; color: #334155; max-width: 600px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px;">
+                <h2 style="color: #22c55e; margin-top: 0;">Nachbestellen im Lager „${escapeHtml(systemName)}"</h2>
+                <p>${newCount} Artikel ${newCount === 1 ? 'ist' : 'sind'} neu am oder unter dem Mindestbestand. Insgesamt sollten ${total} Artikel nachbestellt werden:</p>
+                <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                    <tr style="color: #64748b; font-size: 12px; text-transform: uppercase;"><td>Artikel</td><td style="text-align: right;">Bestand</td><td style="text-align: right;">Vorschlag</td></tr>
+                    ${rows}
+                </table>
+                <p style="margin-top: 24px;"><a href="${link}" style="background: #3b82f6; color: #fff; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-weight: bold;">Nachbestell-Liste öffnen</a></p>
+                <p style="font-size: 12px; color: #94a3b8; margin-top: 24px;">Du erhältst diese Mail als Administrator des Lagers. Sie wird nur verschickt, wenn neue Artikel unter den Mindestbestand fallen.</p>
+            </div>`
+    });
+}

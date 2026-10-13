@@ -1435,6 +1435,29 @@ async function createSystem(userId, name, color = '#3b82f6') {
     return result.insertedId.toString();
 }
 
+// Alle Lager (für den täglichen Mindestbestand-Hinweis)
+async function listAllSystems() {
+    const db = await getDb();
+    const systems = await db.collection('systems').find({}, { projection: { name: 1, lowStockNotified: 1 } }).toArray();
+    return systems.map(s => ({ ...s, _id: s._id.toString(), lowStockNotified: s.lowStockNotified || [] }));
+}
+
+// E-Mail-Adressen der Administratoren eines Lagers (nur bestätigte Konten)
+async function getSystemAdminEmails(systemId) {
+    const db = await getDb();
+    const users = await db.collection('users').find(
+        { systems: { $elemMatch: { systemId: new ObjectId(systemId), role: 'admin' } }, email: { $type: 'string' }, isVerified: { $ne: false } },
+        { projection: { email: 1 } }
+    ).toArray();
+    return users.map(u => u.email);
+}
+
+// Merkt sich, für welche Artikel bereits ein Hinweis verschickt wurde (keine doppelten Mails)
+async function setLowStockNotified(systemId, articleIds) {
+    const db = await getDb();
+    await db.collection('systems').updateOne({ _id: new ObjectId(systemId) }, { $set: { lowStockNotified: articleIds, lowStockCheckedAt: new Date() } });
+}
+
 // Wird ein Bild noch von irgendeinem Artikel verwendet? (z.B. nach dem Kopieren eines Artikels)
 async function isImageInUse(url) {
     const db = await getDb();
@@ -2100,6 +2123,9 @@ export default {
     isImageInUse,
     getStockMovements,
     getTopConsumption,
+    listAllSystems,
+    getSystemAdminEmails,
+    setLowStockNotified,
     getSystemImageUrls,
     deleteSystemCompletely,
     createSystem,

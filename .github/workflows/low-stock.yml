@@ -1,0 +1,20 @@
+# Prüft jeden Morgen, ob Artikel unter den Mindestbestand gefallen sind, und benachrichtigt die Admins per Mail.
+# Benötigt die Repository-Secrets SORTIFY_URL (z.B. https://sortify.netlify.app) und CRON_SECRET
+# (derselbe Wert wie die Umgebungsvariable CRON_SECRET auf Netlify).
+name: Mindestbestand prüfen
+
+on:
+  schedule:
+    - cron: '0 5 * * 1-5'   # Mo–Fr 05:00 UTC (07:00 Uhr Sommerzeit / 06:00 Uhr Winterzeit)
+  workflow_dispatch:         # manuell auslösbar
+
+jobs:
+  low-stock:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mindestbestand-Prüfung auslösen
+        env:
+          SORTIFY_URL: ${{ secrets.SORTIFY_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" "$SORTIFY_URL/api/cron/low-stock"
