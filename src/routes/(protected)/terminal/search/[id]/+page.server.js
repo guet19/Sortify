@@ -9,10 +9,11 @@ export async function load({ locals, params }) {
     if (!ObjectId.isValid(params.id)) throw redirect(303, '/terminal/search');
 
     // Unabhängige Abfragen parallel statt nacheinander
-    const [article, categories, attributes] = await Promise.all([
+    const [article, categories, attributes, movements] = await Promise.all([
         db.getArticleById(systemId, params.id),
         db.getCategories(systemId).catch(() => []),
-        db.getFilterAttributes(systemId).catch(() => [])
+        db.getFilterAttributes(systemId).catch(() => []),
+        db.getStockMovements(systemId, params.id, 20).catch(() => [])
     ]);
 
     // Im Terminal gibt es nur eingelagerte Artikel
@@ -24,7 +25,8 @@ export async function load({ locals, params }) {
         article: JSON.parse(JSON.stringify(article)),
         categories: JSON.parse(JSON.stringify(categories)),
         attributes: JSON.parse(JSON.stringify(attributes)),
-        userColor: locals.color || '#3b82f6'
+        userColor: locals.color || '#3b82f6',
+        movements
     };
 }
 

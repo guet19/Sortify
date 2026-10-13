@@ -1,4 +1,5 @@
 import db from '$lib/server/db.js';
+import { actor } from '$lib/server/actor.js';
 import { error, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb'; // 🔥 NEU: Import hinzugefügt
 import { lightUpArticle, turnOffArticle } from '$lib/server/leds.js';
@@ -35,9 +36,10 @@ export async function load({ params, locals }) {
 
     // 5. Metadaten für das aktuelle Lager laden
     // Unabhängige Abfragen parallel statt nacheinander
-    const [categories, attributes] = await Promise.all([
+    const [categories, attributes, movements] = await Promise.all([
         db.getCategories(systemId),
-        db.getFilterAttributes(systemId)
+        db.getFilterAttributes(systemId),
+        db.getStockMovements(systemId, articleId, 20).catch(() => [])
     ]);
 
     // 6. JSON-Parsen für das POJO-Problem von SvelteKit
@@ -46,7 +48,8 @@ export async function load({ params, locals }) {
         categories: JSON.parse(JSON.stringify(categories)),
         attributes: JSON.parse(JSON.stringify(attributes)),
         // LED-Farbe des Nutzers für den Leucht-Button
-        userColor: locals.color || '#3b82f6'
+        userColor: locals.color || '#3b82f6',
+        movements
     };
 }
 
@@ -98,7 +101,7 @@ export const actions = {
 
         try {
             // 3. Update-Funktion mit der neuen systemId aufrufen
-            await db.updateArticle(systemId, articleId, { istBestand: newStock });
+            await db.updateArticle(systemId, articleId, { istBestand: newStock }, actor(locals, 'web'));
 
             return { success: true };
         } catch (err) {

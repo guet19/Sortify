@@ -264,13 +264,64 @@ async function removeOptionFromFilterAttribute(systemId, id, optionToRemove) {
 // 3. ARTIKEL VERWALTUNG
 // ==========================================
 
-async function createArticle(systemId, articleData) {
+// ==========================================
+// 3a. BESTANDSBEWEGUNGEN (Protokoll)
+// ==========================================
+// meta: { userId, userName, source } – wer hat den Bestand wo geändert (z.B. 'web', 'terminal-return')
+
+async function logStockMovement(systemId, article, before, after, meta = {}) {
+    const b = parseFloat(before) || 0, a = parseFloat(after) || 0;
+    if (b === a) return;
+    try {
+        const db = await getDb();
+        await db.collection('stock_movements').insertOne({
+            systemId: new ObjectId(systemId),
+            articleId: new ObjectId(article._id),
+            articleTitle: article.title || '',
+            before: b,
+            after: a,
+            delta: Math.round((a - b) * 1000) / 1000,
+            source: meta.source || 'unbekannt',
+            userId: meta.userId && ObjectId.isValid(meta.userId) ? new ObjectId(meta.userId) : null,
+            userName: meta.userName || '',
+            createdAt: new Date()
+        });
+    } catch (error) {
+        // Das Protokoll darf eine Bestandsänderung nie verhindern
+        console.error("Bestandsbewegung konnte nicht protokolliert werden:", error);
+    }
+}
+
+// Letzte Bewegungen eines Artikels
+async function getStockMovements(systemId, articleId, limit = 20) {
+    if (!ObjectId.isValid(articleId)) return [];
+    const db = await getDb();
+    const rows = await db.collection('stock_movements')
+        .find({ systemId: new ObjectId(systemId), articleId: new ObjectId(articleId) })
+        .sort({ createdAt: -1 }).limit(limit).toArray();
+    return rows.map(r => ({ id: r._id.toString(), before: r.before, after: r.after, delta: r.delta, source: r.source, userName: r.userName, createdAt: r.createdAt.toISOString() }));
+}
+
+// Meistverbrauchte Artikel der letzten Tage (Summe aller Abgänge)
+async function getTopConsumption(systemId, days = 30, limit = 5) {
+    const db = await getDb();
+    const rows = await db.collection('stock_movements').aggregate([
+        { $match: { systemId: new ObjectId(systemId), delta: { $lt: 0 }, createdAt: { $gte: new Date(Date.now() - days * 86400000) } } },
+        { $group: { _id: '$articleId', title: { $last: '$articleTitle' }, used: { $sum: { $multiply: ['$delta', -1] } } } },
+        { $sort: { used: -1 } },
+        { $limit: limit }
+    ]).toArray();
+    return rows.map(r => ({ id: r._id.toString(), title: r.title, used: Math.round(r.used * 100) / 100 }));
+}
+
+async function createArticle(systemId, articleData, meta = {}) {
     try {
         const db = await getDb();
         const collection = db.collection("articles");
         // Initialisiere assigned_barcodes immer als leeres Array!
         const dataToInsert = { ...articleData, systemId: new ObjectId(systemId), assigned_barcodes: [] };
         const result = await collection.insertOne(dataToInsert);
+        await logStockMovement(systemId, { _id: result.insertedId, title: articleData.title }, 0, articleData.istBestand, { ...meta, source: meta.source || 'angelegt' });
         return result;
     } catch (error) {
         console.error("Fehler beim Speichern des Artikels:", error);
@@ -328,14 +379,17 @@ async function getArticleById(systemId, id) {
     }
 }
 
-async function updateArticle(systemId, id, updateData) {
+async function updateArticle(systemId, id, updateData, meta = {}) {
     try {
         const db = await getDb();
         const collection = db.collection("articles");
-        const result = await collection.updateOne(
-            { _id: new ObjectId(id), systemId: new ObjectId(systemId) },
-            { $set: updateData }
-        );
+        const filter = { _id: new ObjectId(id), systemId: new ObjectId(systemId) };
+        // Bei Bestandsänderung den alten Wert fürs Protokoll merken
+        const before = updateData.istBestand !== undefined
+            ? await collection.findOne(filter, { projection: { istBestand: 1, title: 1 } })
+            : null;
+        const result = await collection.updateOne(filter, { $set: updateData });
+        if (before) await logStockMovement(systemId, before, before.istBestand, updateData.istBestand, meta);
         return result;
     } catch (error) {
         console.error("Fehler beim Aktualisieren des Artikels:", error);
@@ -1070,7 +1124,7 @@ async function updateArticleStock(systemId, articleId, newStock) {
     );
 }
 
-async function assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, itemWeight) {
+async function assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, itemWeight, meta = {}) {
     try {
         const db = await getDb();
         const article = await db.collection('articles').findOne({ _id: new ObjectId(articleId), systemId: new ObjectId(systemId) });
@@ -1116,6 +1170,7 @@ async function assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, 
                 $unset: { assigned_barcode: "" } 
             }
         );
+        await logStockMovement(systemId, article, oldTotalStock, newTotalStock, meta);
 
         await db.collection('shelves').updateOne(
             { systemId: new ObjectId(systemId), "drawers.barcode": barcode },
@@ -1146,7 +1201,7 @@ async function getDrawerByBarcode(systemId, barcode) {
     }
 }
 
-async function updateArticleStockFromWeights(systemId, articleId, barcode, newStock) {
+async function updateArticleStockFromWeights(systemId, articleId, barcode, newStock, meta = {}) {
     try {
         const db = await getDb();
         const article = await db.collection('articles').findOne({ 
@@ -1176,7 +1231,7 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
         const totalStock = barcodes.reduce((sum, b) => sum + (parseFloat(b.stock) || 0), 0);
 
         await db.collection('articles').updateOne(
-            { _id: new ObjectId(articleId) },
+            { _id: new ObjectId(articleId), systemId: new ObjectId(systemId) },
             { 
                 $set: { 
                     assigned_barcodes: barcodes,
@@ -1186,13 +1241,14 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
                 $unset: { assigned_barcode: "" } 
             }
         );
+        await logStockMovement(systemId, article, article.istBestand, totalStock, meta);
 
     } catch (error) {
         console.error("Fehler bei updateArticleStockFromWeights:", error);
         throw error;
     }
 }
-async function removeBarcodes(systemId, articleId, barcodeToRemove = null) {
+async function removeBarcodes(systemId, articleId, barcodeToRemove = null, meta = {}) {
     try {
         const db = await getDb();
         const article = await db.collection('articles').findOne({ _id: new ObjectId(articleId), systemId: new ObjectId(systemId) });
@@ -1239,6 +1295,7 @@ async function removeBarcodes(systemId, articleId, barcodeToRemove = null) {
                 $unset: { assigned_barcode: "" } 
             }
         );
+        await logStockMovement(systemId, article, oldTotalStock, newTotalStock, meta);
     } catch (error) {
         console.error("Fehler bei removeBarcodes:", error);
         throw error;
@@ -1409,6 +1466,7 @@ async function deleteSystemCompletely(systemId) {
         db.collection('hardware_commands').deleteMany(bySystem),
         db.collection('scale_requests').deleteMany(bySystem),
         db.collection('invitations').deleteMany(bySystem),
+        db.collection('stock_movements').deleteMany(bySystem),
         // Kopplungen speichern die System-ID als Text
         db.collection('device_pairings').deleteMany({ systemId: systemId.toString() })
     ]);
@@ -2040,6 +2098,8 @@ export default {
     getSystemById,
     getSystemsByIds,
     isImageInUse,
+    getStockMovements,
+    getTopConsumption,
     getSystemImageUrls,
     deleteSystemCompletely,
     createSystem,

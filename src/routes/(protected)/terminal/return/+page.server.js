@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
+import { actor } from '$lib/server/actor.js';
 import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
 
 export async function load({ locals }) { 
@@ -87,7 +88,7 @@ export const actions = {
 
         try {
             // Bestand buchen
-            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock);
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock, actor(locals, 'terminal-rueckgabe'));
             
             cancelLedsOff(systemId);
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
@@ -143,8 +144,8 @@ export const actions = {
         const barcode = data.get('barcode');
 
         try {
-            await db.updateArticleStockFromWeights(systemId, articleId, barcode, 0);
-            await db.removeBarcodes(systemId, articleId, barcode);
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, 0, actor(locals, 'terminal-fach-leer'));
+            await db.removeBarcodes(systemId, articleId, barcode, actor(locals, 'terminal-fach-leer'));
 
             cancelLedsOff(systemId);
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben

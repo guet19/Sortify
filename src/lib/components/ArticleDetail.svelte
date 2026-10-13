@@ -268,6 +268,21 @@
                 <p>{article.description}</p>
             </div>
 
+            {#if data.movements?.length}
+                <div class="movements">
+                    <h3>Bestandsverlauf</h3>
+                    <ul>
+                        {#each data.movements as m (m.id)}
+                            <li>
+                                <span class="mv-delta" class:plus={m.delta > 0} class:minus={m.delta < 0}>{m.delta > 0 ? '+' : ''}{m.delta}</span>
+                                <span class="mv-stock">→ {m.after} Stk.</span>
+                                <span class="mv-meta">{sourceLabels[m.source] || m.source}{m.userName ? ` · ${m.userName}` : ''} · {new Date(m.createdAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                            </li>
+                        {/each}
+                    </ul>
+                </div>
+            {/if}
+
             <div class="meta-grid">
                 {#if article.supplier}
                     <div class="meta-item">
@@ -706,4 +721,14 @@
         .btn-back-top { display: flex; justify-content: center; width: 100%; margin-bottom: 1rem; }
         .btn-back-inline { display: none; }
     }
+
+    /* Bestandsverlauf */
+    .movements h3 { margin: 0 0 0.75rem 0; }
+    .movements ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; max-height: 320px; overflow-y: auto; }
+    .movements li { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; padding: 0.45rem 0.6rem; border-radius: 6px; background: rgba(255,255,255,0.04); border: 1px solid rgba(148,163,184,0.15); }
+    .mv-delta { font-weight: 700; min-width: 3.2rem; font-variant-numeric: tabular-nums; }
+    .mv-delta.plus { color: #22c55e; }
+    .mv-delta.minus { color: #f87171; }
+    .mv-stock { color: #cbd5e1; font-variant-numeric: tabular-nums; }
+    .mv-meta { color: #94a3b8; font-size: 0.82rem; }
 </style>

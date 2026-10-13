@@ -59,6 +59,12 @@ const INDEXES = {
     filter_attributes: [
         [{ systemId: 1 }, { name: 'systemId' }]
     ],
+    stock_movements: [
+        [{ systemId: 1, articleId: 1, createdAt: -1 }, { name: 'systemId_article_createdAt' }],
+        [{ systemId: 1, createdAt: -1 }, { name: 'systemId_createdAt' }],
+        // Bewegungsprotokoll nach 2 Jahren löschen
+        [{ createdAt: 1 }, { name: 'ttl_createdAt', expireAfterSeconds: 730 * DAY }]
+    ],
     hardware_commands: [
         [{ systemId: 1, status: 1 }, { name: 'systemId_status' }],
         [{ createdAt: 1 }, { name: 'ttl_createdAt', expireAfterSeconds: DAY }]

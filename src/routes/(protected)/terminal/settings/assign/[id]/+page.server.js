@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
+import { actor } from '$lib/server/actor.js';
 import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
 
 export async function load({ locals, params }) { 
@@ -131,7 +132,7 @@ export const actions = {
         const itemWeight = parseFloat(data.get('itemWeight'));
 
         try {
-            await db.assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, itemWeight);
+            await db.assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, itemWeight, actor(locals, 'terminal-zuweisung'));
             return { success: true };
         } catch (err) {
             return { success: false, error: 'Fehler beim Speichern' };
@@ -146,7 +147,7 @@ export const actions = {
         const barcode = data.get('barcode'); 
         
         try {
-            await db.removeBarcodes(systemId, articleId, barcode);
+            await db.removeBarcodes(systemId, articleId, barcode, actor(locals, 'terminal-zuweisung'));
             return { success: true };
         } catch (err) {
             return { success: false };
@@ -190,7 +191,7 @@ export const actions = {
         const userColor = locals.color || '#3b82f6';
 
         try {
-            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock);
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock, actor(locals, 'terminal-zuweisung'));
             
             cancelLedsOff(systemId);
 
@@ -223,7 +224,7 @@ export const actions = {
             if (slotsDataStr) {
                 const slotsData = JSON.parse(slotsDataStr);
                 for (const slot of slotsData) {
-                    await db.updateArticleStockFromWeights(systemId, articleId, slot.barcode, slot.newStock);
+                    await db.updateArticleStockFromWeights(systemId, articleId, slot.barcode, slot.newStock, actor(locals, 'terminal-zuweisung'));
                 }
             }
 

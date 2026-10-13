@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
+import { actor } from '$lib/server/actor.js';
 
 // 🔥 Speichert Timeouts pro User, damit diese sich nicht gegenseitig stören
 const activeUserTimeouts = new Map();
@@ -124,7 +125,7 @@ export const actions = {
 
         try {
             // Bestand buchen (Dies setzt intern auch lastWeighedAt und lastReturnedAt)
-            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock);
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newStock, actor(locals, 'terminal-inventur'));
             
             // 🔥 NEU: Fach ERNEUT aufleuchten lassen für das Einlagern!
             await db.triggerLedsByBarcodeArray(systemId, [barcode], userColor);

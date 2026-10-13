@@ -1,5 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import db from '$lib/server/db.js'; // WICHTIG: Als Default-Import ohne geschweifte Klammern!
+import { actor } from '$lib/server/actor.js';
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
 import { canAccessPath } from '$lib/permissions.js';
@@ -128,7 +129,7 @@ export const actions = {
             };
 
             // 3. Artikel mit der neuen systemId in der Datenbank anlegen
-            await db.createArticle(systemId, newArticle);
+            await db.createArticle(systemId, newArticle, actor(locals, 'angelegt'));
 
             return { success: true, message: "Artikel erfolgreich gespeichert!" };
             

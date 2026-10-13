@@ -71,6 +71,12 @@ const INDEXES = {
     filter_attributes: [
         { key: { systemId: 1 }, options: { name: 'systemId' } }
     ],
+    stock_movements: [
+        { key: { systemId: 1, articleId: 1, createdAt: -1 }, options: { name: 'systemId_article_createdAt' } },
+        { key: { systemId: 1, createdAt: -1 }, options: { name: 'systemId_createdAt' } },
+        // Bewegungsprotokoll nach 2 Jahren löschen
+        { key: { createdAt: 1 }, options: { name: 'ttl_createdAt', expireAfterSeconds: 730 * DAY } }
+    ],
     hardware_commands: [
         { key: { systemId: 1, status: 1 }, options: { name: 'systemId_status' } },
         // Erledigte/alte LED-Befehle nach 24 Stunden entfernen

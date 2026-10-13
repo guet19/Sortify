@@ -1,4 +1,5 @@
 import db from '$lib/server/db.js';
+import { actor } from '$lib/server/actor.js';
 import { error, redirect, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
@@ -95,7 +96,7 @@ export const actions = {
 
         // --- UPDATE IN DATENBANK ---
         try {
-            await db.updateArticle(systemId, articleId, updateData);
+            await db.updateArticle(systemId, articleId, updateData, actor(locals, 'web-bearbeiten'));
 
             // Entfernte Bilder bei Cloudinary löschen (sofern kein anderer Artikel sie nutzt)
             const removedImages = getArticleImages(oldArticle).filter(url => !updateData.images.includes(url));
