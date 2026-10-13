@@ -1,4 +1,5 @@
 <script>
+    import { downloadLabelsPdf } from '$lib/labels.js';
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { invalidateAll, beforeNavigate } from '$app/navigation';
@@ -183,6 +184,15 @@
         node.focus();
         return { destroy() {} };
     }
+
+    // Fach-Etiketten: QR-Code mit dem Fach-Barcode, dazu Regal und LED-Nummer
+    async function printShelfLabels(shelf) {
+        const labels = (shelf.drawers || [])
+            .filter((d) => d.barcode)
+            .sort((a, b) => a.ledIndex - b.ledIndex)
+            .map((d) => ({ qr: d.barcode, title: d.barcode, lines: [shelf.name, `LED #${d.ledIndex}`] }));
+        await downloadLabelsPdf(labels, `Etiketten_${shelf.name.replace(/[^\w-]+/g, '_')}.pdf`);
+    }
 </script>
 
 <div class="terminal-page space-grotesk">
@@ -210,6 +220,10 @@
                             <span class="value">#{shelf.start_index} - #{parseInt(shelf.start_index) + parseInt(shelf.drawer_count) - 1}</span>
                         </div>
                     </div>
+
+                    {#if (shelf.drawers || []).some((d) => d.barcode)}
+                        <button type="button" class="btn-labels" on:click={() => printShelfLabels(shelf)}>🏷️ Etiketten drucken</button>
+                    {/if}
 
                     {#if expandedShelfId === shelf._id}
                         <div class="shelf-details">
@@ -642,4 +656,7 @@
             border-radius: 10px; padding: 0.9rem; font-size: 1.05rem; font-weight: bold; cursor: pointer;
         }
     }
+
+    .btn-labels { margin-top: 1rem; width: 100%; background: transparent; border: 1px dashed #38bdf8; color: #38bdf8; border-radius: 8px; padding: 0.7rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-labels:hover { background: rgba(56, 189, 248, 0.1); border-style: solid; }
 </style>
