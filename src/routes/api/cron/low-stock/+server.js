@@ -5,7 +5,7 @@ import db from '$lib/server/db.js';
 import { buildReorderList } from '$lib/reorder.js';
 import { sendLowStockEmail } from '$lib/server/email.js';
 
-// Täglicher Mindestbestand-Hinweis. Wird von einem Zeitplan (GitHub Action) mit
+// Täglicher Mindestbestand-Hinweis. Wird von der Netlify Scheduled Function netlify/functions/low-stock.mjs mit
 // "Authorization: Bearer <CRON_SECRET>" aufgerufen – nicht für Nutzer gedacht.
 function authorized(request) {
     const expected = env.CRON_SECRET;
