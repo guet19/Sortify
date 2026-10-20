@@ -2,5 +2,5 @@
         command = "npm run build"
         publish = "build"
 [build.environment]
-        # nodemailer 10 benötigt Node 20 oder neuer
-        NODE_VERSION = "22"
+        # Node 24 (LTS): @zxing/library (Kamera-Scan) verlangt Node 24, nodemailer 10 mindestens Node 20
+        NODE_VERSION = "24"
