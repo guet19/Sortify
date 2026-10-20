@@ -16,23 +16,6 @@
         : (article.imagePath ? [article.imagePath] : []);
     let activeImage = 0;
 
-    // Artikel-Etikett: QR-Code führt direkt auf diese Artikelseite
-    async function printArticleLabel() {
-        const { downloadLabelsPdf } = await import('$lib/labels.js');
-        await downloadLabelsPdf([{
-            qr: `${window.location.origin}/${article._id}`,
-            title: article.title,
-            lines: [storedSlots.length ? `Fach: ${storedSlots.join(', ')}` : '', article.gtin ? `GTIN ${article.gtin}` : ''].filter(Boolean)
-        }], `Etikett_${article.title.replace(/[^\w-]+/g, '_').slice(0, 40)}.pdf`);
-    }
-
-    // Herkunft einer Bestandsänderung (Bewegungsprotokoll)
-    const sourceLabels = {
-        'web': 'Bestand angepasst', 'web-bearbeiten': 'Artikel bearbeitet', 'angelegt': 'Artikel angelegt', 'import': 'CSV-Import',
-        'terminal-rueckgabe': 'Rückgabe am Terminal', 'terminal-inventur': 'Inventur am Terminal',
-        'terminal-zuweisung': 'Fach zugewiesen/gewogen', 'terminal-fach-leer': 'Fach geleert'
-    };
-
     // --- 1. Kategorienamen auflösen ---
     const mainCategory = categories.find(c => c._id === article.mainCategoryId);
     const mainCategoryName = mainCategory ? mainCategory.name : 'Unbekannte Kategorie';
@@ -201,9 +184,6 @@
                 </div>
                 {:else}
                 <div class="action-buttons">
-                    <button type="button" class="btn-copy" title="Etikett mit QR-Code drucken" on:click={printArticleLabel}>
-                        🏷️ Etikett
-                    </button>
                     <a href="/addarticle?copy={article._id}" class="btn-copy" title="Artikel kopieren">
                         <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
