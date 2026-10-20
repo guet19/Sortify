@@ -89,7 +89,14 @@ const INDEXES = {
     ],
     device_pairings: [
         { key: { systemId: 1, status: 1 }, options: { name: 'systemId_status' } },
-        { key: { code1: 1, status: 1 }, options: { name: 'code1_status' } }
+        { key: { code1: 1, status: 1 }, options: { name: 'code1_status' } },
+        // Abgelaufene Kopplungsversuche automatisch löschen (gekoppelte Altgeräte haben kein expiresAt)
+        { key: { expiresAt: 1 }, options: { name: 'ttl_expiresAt', expireAfterSeconds: 0 } }
+    ],
+    // Gekoppelte Terminals (Geräte-Token als SHA-256-Hash)
+    devices: [
+        { key: { tokenHash: 1 }, options: { name: 'tokenHash_unique', unique: true } },
+        { key: { systemId: 1 }, options: { name: 'systemId' } }
     ]
 };
 

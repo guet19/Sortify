@@ -76,9 +76,15 @@
 <div class="pairing-container">
     <p class="description">
         Verbinde ein neues Raspberry Pi Terminal sicher mit deinem Sortify-System. 
-        Dieser Prozess garantiert, dass nur autorisierte Geräte Zugriff auf deine Datenbank erhalten. 
+        Das Terminal erhält dabei einen eigenen Schlüssel und sieht nur die Befehle deines Lagers – keine Datenbank-Zugangsdaten. 
         Folge einfach den Schritten hier und auf dem Display deines Terminals.
     </p>
+
+    {#if !data.mqttReady}
+        <div class="error-msg" style="margin-bottom: 16px;">
+            Auf dem Server ist noch kein MQTT-Broker eingerichtet (MQTT_HOST usw.). Neue Terminals können gekoppelt werden, erhalten aber erst danach Befehle.
+        </div>
+    {/if}
 
     <div class="grid-layout">
         <!-- LINKE SPALTE: Anleitung -->
@@ -125,6 +131,9 @@
                     </div>
                     <h2 class="space-grotesk" style="color: #3b82f6;">Terminal verbunden</h2>
                     <p>Dein System ist bereits erfolgreich mit einem Raspberry Pi gekoppelt. Aus Sicherheitsgründen kann immer nur ein Terminal gleichzeitig verbunden sein.</p>
+                    {#if data.lastSeenAt}
+                        <p style="color: #94a3b8;">Zuletzt gemeldet: {new Date(data.lastSeenAt).toLocaleString('de-CH')}</p>
+                    {/if}
                     
                     <div class="action-buttons-row">
                         <a href="/terminal" class="back-link space-grotesk">Zum Terminal</a>

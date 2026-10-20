@@ -24,3 +24,7 @@ vite.config.ts.timestamp-*
 
 # Datenbank-Backups (enthalten persönliche Daten)
 /backups
+
+# Zugangsdaten eines Terminals
+terminal/terminal_config.json
+terminal/__pycache__/

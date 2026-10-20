@@ -818,6 +818,17 @@ async function renewVerificationData(email) {
 // 6. HARDWARE & REGAL-VERWALTUNG
 // ==========================================
 
+// Befehl für die Terminals speichern und per MQTT an die gekoppelten Geräte senden.
+// (Ältere Terminals, die direkt die Datenbank abfragen, lesen das Dokument weiterhin.)
+async function insertDeviceCommand(db, collectionName, doc, { dispatch = true } = {}) {
+    const result = await db.collection(collectionName).insertOne(doc);
+    if (dispatch) {
+        const { dispatchCommandDoc } = await import('./devices.js'); // erst hier laden: devices.js nutzt db.js
+        await dispatchCommandDoc(collectionName, { ...doc, _id: result.insertedId });
+    }
+    return result;
+}
+
 async function createHardwareCommand(systemId, command, color = null) {
     try {
         const db = await getDb();
@@ -837,7 +848,7 @@ async function createHardwareCommand(systemId, command, color = null) {
             commandDoc.color = color;
         }
 
-        await commandsCollection.insertOne(commandDoc);
+        await insertDeviceCommand(db, 'hardware_commands', commandDoc);
 
         return true;
     } catch (error) {
@@ -1027,7 +1038,7 @@ export async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
 
         // 4. Hardware-Befehl absetzen
         if (drawerIdsToLightUp.length > 0) {
-            await db.collection('hardware_commands').insertOne({
+            await insertDeviceCommand(db, 'hardware_commands', {
                 systemId: new ObjectId(systemId),
                 drawer_ids: drawerIdsToLightUp,
                 color: color, 
@@ -1063,7 +1074,7 @@ export async function triggerLedsByBarcodeArray(systemId, barcodesArray, color =
 
         // Ein EINZIGER Hardware-Befehl für alle gefundenen Fächer!
         if (drawerIdsToLightUp.length > 0) {
-            await db.collection('hardware_commands').insertOne({
+            await insertDeviceCommand(db, 'hardware_commands', {
                 systemId: new ObjectId(systemId),
                 drawer_ids: drawerIdsToLightUp, // Hier liegt jetzt das Array [4, 12] drin!
                 color: color,
@@ -1098,7 +1109,7 @@ async function getArticleByBarcode(systemId, barcode) {
 
 async function createScaleRequest(systemId, barcode) {
     const db = await getDb();
-    const result = await db.collection('scale_requests').insertOne({
+    const result = await insertDeviceCommand(db, 'scale_requests', {
         systemId: new ObjectId(systemId),
         barcode: barcode,
         status: 'pending',  
@@ -1368,7 +1379,7 @@ export async function triggerEmptyLedsBlue(systemId, color = '#0000FF') {
         });
 
         if (emptyDrawerIds.length > 0) {
-            await db.collection('hardware_commands').insertOne({
+            await insertDeviceCommand(db, 'hardware_commands', {
                 systemId: new ObjectId(systemId),
                 drawer_ids: emptyDrawerIds,
                 color: color,      // 🔥 HIER: Nimmt jetzt den Hex-Code aus dem Frontend!
@@ -1397,7 +1408,7 @@ async function triggerSingleLedBlue(systemId, barcode) {
             const drawer = shelf.drawers.find(d => d.barcode === barcode);
             if (drawer) {
                 const ledIndex = parseInt(drawer.ledIndex) + 1; 
-                await db.collection('hardware_commands').insertOne({
+                await insertDeviceCommand(db, 'hardware_commands', {
                     systemId: new ObjectId(systemId),
                     drawer_ids: [ledIndex],
                     color: "blue",
@@ -1491,7 +1502,9 @@ async function deleteSystemCompletely(systemId) {
         db.collection('invitations').deleteMany(bySystem),
         db.collection('stock_movements').deleteMany(bySystem),
         // Kopplungen speichern die System-ID als Text
-        db.collection('device_pairings').deleteMany({ systemId: systemId.toString() })
+        db.collection('device_pairings').deleteMany({ systemId: systemId.toString() }),
+        // Terminals erfahren per MQTT, dass sie nicht mehr gekoppelt sind
+        import('./devices.js').then(({ removeSystemDevices }) => removeSystemDevices(id))
     ]);
 
     // Lokale Konten nur dieses Lagers komplett entfernen (inkl. ihrer Sessions)
@@ -1985,7 +1998,7 @@ export async function createLiveScaleRequest(systemId) {
         status: { $in: ["pending", "processing"] } 
     });
 
-    const result = await collection.insertOne({
+    const result = await insertDeviceCommand(db, 'scale_requests', {
         systemId: new ObjectId(systemId),
         status: "pending",
         createdAt: new Date()
@@ -2013,8 +2026,10 @@ export async function sendCalibrationCommand(systemId, commandType, weight = 0) 
         createdAt: new Date()
     };
 
-    const hwResult = await hwCollection.insertOne({ ...payload });
-    const scaleResult = await scaleCollection.insertOne({ ...payload });
+    // Neue Terminals erhalten den Auftrag einmal (per MQTT, Rückmeldung über scale_requests),
+    // ältere lesen eines der beiden Dokumente direkt aus der Datenbank
+    const hwResult = await insertDeviceCommand(db, 'hardware_commands', { ...payload }, { dispatch: false });
+    const scaleResult = await insertDeviceCommand(db, 'scale_requests', { ...payload });
 
     let sawProcessing = false;
 

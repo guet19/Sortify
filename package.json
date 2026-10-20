@@ -13,6 +13,7 @@
 		"db:backup": "node --env-file=.env scripts/backup-db.js",
 		"db:migrate-barcodes": "node --env-file=.env scripts/migrate-barcodes.js",
 		"cloudinary:cleanup": "node --env-file=.env scripts/cleanup-cloudinary.js",
+		"mqtt:check": "node --env-file=.env scripts/check-mqtt.js",
 		"prepare": "svelte-kit sync || echo ''"
 	},
 	"devDependencies": {
@@ -35,6 +36,7 @@
 		"cropperjs": "^1.6.2",
 		"jspdf": "^4.2.1",
 		"mongodb": "^7.1.1",
+		"mqtt": "5.15.2",
 		"nodemailer": "^10.0.12",
 		"qrcode": "^1.5.4",
 		"speakeasy": "^2.0.0"

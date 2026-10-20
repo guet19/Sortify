@@ -61,7 +61,8 @@ async function authHandle({ event, resolve }) {
         '/verify', 
         '/verify-email', 
         '/verify-password',
-        '/api/cron/'           // Zeitgesteuerte Aufgaben, geschützt durch CRON_SECRET
+        '/api/cron/',          // Zeitgesteuerte Aufgaben, geschützt durch CRON_SECRET
+        '/api/device/'         // Terminals, geschützt durch Kopplungsgeheimnis bzw. Geräte-Token
     ]; 
     if (publicRoutes.some(route => path.startsWith(route))) {
         if (user) {

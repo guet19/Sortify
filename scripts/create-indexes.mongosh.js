@@ -75,7 +75,12 @@ const INDEXES = {
     ],
     device_pairings: [
         [{ systemId: 1, status: 1 }, { name: 'systemId_status' }],
-        [{ code1: 1, status: 1 }, { name: 'code1_status' }]
+        [{ code1: 1, status: 1 }, { name: 'code1_status' }],
+        [{ expiresAt: 1 }, { name: 'ttl_expiresAt', expireAfterSeconds: 0 }]
+    ],
+    devices: [
+        [{ tokenHash: 1 }, { name: 'tokenHash_unique', unique: true }],
+        [{ systemId: 1 }, { name: 'systemId' }]
     ]
 };
 

@@ -1,0 +1,13 @@
+# Kommunikation mit Sortify
+requests>=2.31,<3
+paho-mqtt>=2.0,<3
+cryptography>=42
+
+# Hardware (Display, Touch, LED-Streifen, Waage)
+pillow>=10
+adafruit-blinka
+adafruit-circuitpython-rgb-display
+adafruit-circuitpython-neopixel
+spidev
+RPi.GPIO
+hx711 @ git+https://github.com/gandalf15/HX711.git#subdirectory=HX711_Python3

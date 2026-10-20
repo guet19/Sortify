@@ -1,0 +1,19 @@
+# systemd-Dienst: startet das Terminal automatisch beim Einschalten und nach Fehlern neu.
+# Installation siehe terminal/README.md
+[Unit]
+Description=Sortify Terminal
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+# Der LED-Streifen (GPIO 18) braucht Root-Rechte
+User=root
+WorkingDirectory=/opt/sortify-terminal
+ExecStart=/opt/sortify-terminal/venv/bin/python /opt/sortify-terminal/sortify_terminal.py
+Restart=always
+RestartSec=3
+# Optional: andere Sortify-Instanz
+# Environment=SORTIFY_URL=https://mein-sortify.example.com
+
+[Install]
+WantedBy=multi-user.target
