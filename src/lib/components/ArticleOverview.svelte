@@ -974,6 +974,25 @@
     .tc-rank { background: #e2e8f0; color: #475569; border-radius: 999px; width: 1.4rem; height: 1.4rem; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; }
     .tc-used { color: #dc2626; font-weight: 700; font-size: 0.82rem; }
 
+    /* Handy: Kennzahlen kompakt in zwei Zeilen, "Meistverbraucht" als wischbare Leiste */
+    @media (max-width: 640px) {
+        .stats-row { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.4rem; margin-bottom: 0.75rem; }
+        .stat-tile { grid-column: span 2; padding: 0.45rem 0.55rem; gap: 0.05rem; border-radius: 6px; box-shadow: none; min-width: 0; }
+        .stat-tile:nth-child(1) { grid-column: span 2; }
+        .stat-tile:nth-child(2) { grid-column: span 4; }
+        .stat-label { font-size: 0.6rem; letter-spacing: 0.02em; line-height: 1.2; overflow-wrap: anywhere; }
+        .stat-value { font-size: 1.05rem; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .stat-hint { display: none; }
+        .stat-link:hover { transform: none; }
+
+        .top-consumption { flex-wrap: nowrap; overflow-x: auto; gap: 0.75rem; padding: 0.45rem 0.6rem; margin: 0 0 0.75rem 0; border-radius: 6px; scrollbar-width: none; }
+        .top-consumption::-webkit-scrollbar { display: none; }
+        .top-consumption .stat-label { flex: none; }
+        .tc-item { flex: none; white-space: nowrap; font-size: 0.8rem; }
+        .tc-rank { width: 1.15rem; height: 1.15rem; font-size: 0.65rem; }
+        .tc-used { font-size: 0.75rem; }
+    }
+
     .header-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
     .btn-outline { background: transparent; color: #e2e8f0; border: 1px solid #475569; padding: 0.55rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; cursor: pointer; font-family: inherit; font-size: 0.95rem; }
     .btn-outline:hover { background: rgba(255,255,255,0.06); border-color: #94a3b8; color: #fff; }
