@@ -16,6 +16,13 @@
         : (article.imagePath ? [article.imagePath] : []);
     let activeImage = 0;
 
+    // Herkunft einer Bestandsänderung (Bewegungsprotokoll)
+    const sourceLabels = {
+        'web': 'Bestand angepasst', 'web-bearbeiten': 'Artikel bearbeitet', 'angelegt': 'Artikel angelegt', 'import': 'CSV-Import',
+        'terminal-rueckgabe': 'Rückgabe am Terminal', 'terminal-inventur': 'Inventur am Terminal',
+        'terminal-zuweisung': 'Fach zugewiesen/gewogen', 'terminal-fach-leer': 'Fach geleert'
+    };
+
     // --- 1. Kategorienamen auflösen ---
     const mainCategory = categories.find(c => c._id === article.mainCategoryId);
     const mainCategoryName = mainCategory ? mainCategory.name : 'Unbekannte Kategorie';
