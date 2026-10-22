@@ -8,6 +8,8 @@
     // Lager für das Dropdown in der Menüleiste
     let systems = $derived($page.data.systems || []);
     let activeSystem = $derived(systems.find(s => s.id === $page.data.activeSystemId));
+    // Zuschaltbare Funktion "Projekte" (Einstellungen › Funktionen)
+    let projectsOn = $derived(activeSystem?.features?.projects === true);
 
     // Zentrale Funktion: Prüft, ob der Menüpunkt gerendert werden darf
     function canSee(path) {
@@ -83,6 +85,15 @@
                     >
                 {/if}
 
+                <!-- Projekte (nur wenn die Funktion im Lager eingeschaltet ist) -->
+                {#if projectsOn && canSee('/projekte')}
+                    <a
+                        class="nav-link"
+                        class:active={$page.url.pathname.startsWith("/projekte")}
+                        href="/projekte">Projekte</a
+                    >
+                {/if}
+
                 <!-- 🔥 Kategorien -->
                 {#if canSee('/einstellungen/category')}
                     <a
@@ -154,6 +165,13 @@
                                     <i class="bi bi-pencil-square me-2"></i>Lager bearbeiten
                                 </a>
                             </li>
+                            {#if canSee('/einstellungen/funktionen')}
+                                <li>
+                                    <a class="dropdown-item" href="/einstellungen/funktionen">
+                                        <i class="bi bi-toggles me-2"></i>Funktionen
+                                    </a>
+                                </li>
+                            {/if}
                         </ul>
                     </div>
 

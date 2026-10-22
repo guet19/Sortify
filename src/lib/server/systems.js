@@ -28,7 +28,9 @@ export async function getUserSystems(userSystems = []) {
             roleName: customRole?.name || DEFAULT_ROLE_NAMES[membership.role] || membership.role,
             isOwner: !!system?.createdBy && system.createdBy === membership.userId,
             // Löschen darf nur der Ersteller; bei alten Lagern ohne gespeicherten Ersteller die Admins
-            canDelete: canDeleteSystem(system, membership.userId, membership.role)
+            canDelete: canDeleteSystem(system, membership.userId, membership.role),
+            // Zuschaltbare Funktionen dieses Lagers, z.B. { projects: true }
+            features: system?.features || {}
         };
     });
 }

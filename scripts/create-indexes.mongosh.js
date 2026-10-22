@@ -65,6 +65,13 @@ const INDEXES = {
         // Bewegungsprotokoll nach 2 Jahren löschen
         [{ createdAt: 1 }, { name: 'ttl_createdAt', expireAfterSeconds: 730 * DAY }]
     ],
+    projects: [
+        [{ systemId: 1, parentId: 1 }, { name: 'systemId_parentId' }]
+    ],
+    project_bookings: [
+        [{ systemId: 1, rootProjectId: 1, createdAt: -1 }, { name: 'systemId_root_createdAt' }],
+        [{ systemId: 1, projectId: 1, createdAt: -1 }, { name: 'systemId_project_createdAt' }]
+    ],
     hardware_commands: [
         [{ systemId: 1, status: 1 }, { name: 'systemId_status' }],
         [{ createdAt: 1 }, { name: 'ttl_createdAt', expireAfterSeconds: DAY }]

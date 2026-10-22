@@ -2,6 +2,19 @@ import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { actor } from '$lib/server/actor.js';
 import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
+import { projectsEnabled, listProjects, resolveBookingProject } from '$lib/server/projects.js';
+import { selectableProjects } from '$lib/projects.js';
+
+// Funktion "Projekte": Projekt aus dem Formular prüfen und für die Buchung vorbereiten.
+// Liefert { meta } oder { error } (Code für die Oberfläche)
+async function bookingMeta(systemId, data, locals, source) {
+    const base = actor(locals, source);
+    if (!(await projectsEnabled(systemId))) return { meta: base };
+    const projectId = data.get('projectId')?.toString();
+    const project = projectId ? await resolveBookingProject(systemId, projectId) : null;
+    if (projectId && !project) return { error: 'project_closed' };
+    return { meta: { ...base, project, requireProject: true } };
+}
 
 export async function load({ locals }) { 
     const systemId = locals.systemId;
@@ -9,10 +22,12 @@ export async function load({ locals }) {
     // Wenn kein Lager ausgewählt ist, zurück zum Login/Systemauswahl
     if (!systemId) throw redirect(303, '/login');
 
-    const articles = await db.getArticles(systemId).catch(() => []);
+    const [articles, projectsOn] = await Promise.all([db.getArticles(systemId).catch(() => []), projectsEnabled(systemId)]);
     
     return {
         articles: JSON.parse(JSON.stringify(articles)),
+        projectsEnabled: projectsOn,
+        projectOptions: projectsOn ? selectableProjects(await listProjects(systemId)) : [],
         // 🔥 NEU: Farbe auslesen und an das Frontend übergeben
         userColor: locals.color || '#3b82f6' 
     };
@@ -85,10 +100,12 @@ export const actions = {
         if (!articleId || !barcode || isNaN(newDrawerStock)) {
             return { success: false, error: 'Fehlende Buchungsdaten' };
         }
+        const { meta, error: projectError } = await bookingMeta(systemId, data, locals, 'terminal-rueckgabe');
+        if (projectError) return { success: false, error: projectError };
 
         try {
             // Bestand buchen
-            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock, actor(locals, 'terminal-rueckgabe'));
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, newDrawerStock, meta);
             
             cancelLedsOff(systemId);
             // 🔥 NEU: userColor statt 'true' an die Hardware übergeben
@@ -98,6 +115,7 @@ export const actions = {
 
             return { success: true, step: 'done' };
         } catch (err) {
+            if (err.code === 'project_required') return { success: false, error: 'project_required' };
             console.error("🔴 Fehler in Action bookReturn:", err);
             return { success: false, error: 'Buchungsfehler' };
         }
@@ -142,9 +160,11 @@ export const actions = {
         const data = await request.formData();
         const articleId = data.get('articleId');
         const barcode = data.get('barcode');
+        const { meta, error: projectError } = await bookingMeta(systemId, data, locals, 'terminal-fach-leer');
+        if (projectError) return { success: false, error: projectError };
 
         try {
-            await db.updateArticleStockFromWeights(systemId, articleId, barcode, 0, actor(locals, 'terminal-fach-leer'));
+            await db.updateArticleStockFromWeights(systemId, articleId, barcode, 0, meta);
             await db.removeBarcodes(systemId, articleId, barcode, actor(locals, 'terminal-fach-leer'));
 
             cancelLedsOff(systemId);
@@ -155,6 +175,7 @@ export const actions = {
 
             return { success: true, step: 'done', unlinked: true };
         } catch (err) {
+            if (err.code === 'project_required') return { success: false, error: 'project_required' };
             console.error("Fehler beim Freigeben des leeren Fachs:", err);
             return { success: false, error: 'Fehler beim Freigeben' };
         }

@@ -5,6 +5,7 @@
     import { enhance } from "$app/forms";
     import { beforeNavigate } from "$app/navigation";
     import { onDestroy } from "svelte";
+    import { page } from "$app/stores";
     
     export let data;
     export let terminal = false;
@@ -58,6 +59,32 @@
     let isUpdatingStock = false;
     let stockUpdateSuccess = false;
 
+    // --- 3b. Funktion "Projekte": Entnahmen einem Projekt zuordnen ---
+    const projectOptions = data.projectOptions || [];
+    const lastProjectKey = `Sortify_LastProject_${$page.data.activeSystemId || ''}`;
+    let projectId = '';
+    let stockError = '';
+    let lastDirection = 0;
+    // -1 = Entnahme (Projekt Pflicht), +1 = Zugang (Rückbuchung optional), 0 = keine Änderung
+    $: direction = !data.projectsEnabled || localStock === originalStock ? 0 : (localStock < originalStock ? -1 : 1);
+    $: if (direction !== lastDirection) {
+        lastDirection = direction;
+        // Bei Entnahmen das zuletzt genutzte Projekt vorschlagen, bei Zugängen nichts vorbelegen
+        projectId = direction === -1 ? rememberedProject() : '';
+        stockError = '';
+    }
+    $: missingProject = direction === -1 && !projectId;
+
+    function rememberedProject() {
+        try {
+            const id = localStorage.getItem(lastProjectKey);
+            return projectOptions.some((p) => p.id === id) ? id : '';
+        } catch { return ''; }
+    }
+    function rememberProject(id) {
+        try { if (id) localStorage.setItem(lastProjectKey, id); } catch { /* privater Modus */ }
+    }
+
     // --- 4. Im Regal aufleuchten lassen ---
     const ledColor = data.userColor || '#3b82f6';
     // Fächer des Artikels (neues und altes Datenformat)
@@ -80,6 +107,7 @@
     }
     beforeNavigate(turnOffLeds);
     onDestroy(() => clearTimeout(ledTimer));
+
 
     // Synchronisiere, falls sich die Daten vom Server ändern (nach dem Speichern)
     $: if (data.article.istBestand !== originalStock) {
@@ -231,11 +259,18 @@
                     <form method="POST" action="?/updateStock" class="stock-form" 
                         use:enhance={() => {
                             isUpdatingStock = true;
+                            stockError = '';
+                            const usedProject = direction === -1 ? projectId : '';
                             
                             return async ({ result, update }) => {
                                 isUpdatingStock = false;
                                 
+                                if (result.type === 'failure') {
+                                    stockError = result.data?.stockError || 'Bestand konnte nicht gespeichert werden.';
+                                    return;
+                                }
                                 if (result.type === 'success') {
+                                    rememberProject(usedProject);
                                     stockUpdateSuccess = true;
                                     setTimeout(() => stockUpdateSuccess = false, 2500);
                                     
@@ -257,10 +292,27 @@
                         </div>
 
                         {#if localStock !== originalStock}
-                            <button type="submit" class="btn-save-stock" disabled={isUpdatingStock}>
+                            <button type="submit" class="btn-save-stock" disabled={isUpdatingStock || missingProject}>
                                 {isUpdatingStock ? '...' : 'Speichern'}
                             </button>
                         {/if}
+
+                        {#if direction !== 0}
+                            <div class="project-pick">
+                                {#if direction === -1 && projectOptions.length === 0}
+                                    <span class="project-hint">Für Entnahmen ist ein Projekt nötig. <a href="/projekte">Projekt anlegen</a></span>
+                                {:else}
+                                    <label for="stock-project">{direction === -1 ? `Entnahme von ${originalStock - localStock} Stk. für Projekt` : 'Rückbuchung aus Projekt'}</label>
+                                    <select id="stock-project" name="projectId" bind:value={projectId} required={direction === -1}>
+                                        <option value="">{direction === -1 ? 'Projekt wählen…' : 'Kein Projekt (Wareneingang)'}</option>
+                                        {#each projectOptions as p (p.id)}
+                                            <option value={p.id}>{p.label}</option>
+                                        {/each}
+                                    </select>
+                                {/if}
+                            </div>
+                        {/if}
+                        {#if stockError}<span class="stock-error">{stockError}</span>{/if}
 
                         {#if stockUpdateSuccess && localStock === originalStock}
                             <span class="stock-success-msg">✓ Aktualisiert</span>
@@ -284,6 +336,7 @@
                                 <span class="mv-delta" class:plus={m.delta > 0} class:minus={m.delta < 0}>{m.delta > 0 ? '+' : ''}{m.delta}</span>
                                 <span class="mv-stock">→ {m.after} Stk.</span>
                                 <span class="mv-meta">{sourceLabels[m.source] || m.source}{m.userName ? ` · ${m.userName}` : ''} · {new Date(m.createdAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                {#if m.projectName}<span class="mv-project">{m.projectName}</span>{/if}
                             </li>
                         {/each}
                     </ul>
@@ -577,7 +630,16 @@
         display: flex;
         align-items: center;
         gap: 0.8rem;
+        flex-wrap: wrap;
     }
+    .project-pick { flex: 1 1 100%; display: flex; flex-direction: column; gap: 0.3rem; }
+    .project-pick label { font-size: 0.8rem; font-weight: 600; color: #94a3b8; }
+    .project-pick select { max-width: 360px; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.95rem; color: #1e293b; background: #fff; }
+    .project-pick select:invalid { border-color: #f59e0b; }
+    .project-hint { color: #fbbf24; font-size: 0.88rem; }
+    .project-hint a { color: #60a5fa; }
+    .stock-error { flex: 1 1 100%; color: #f87171; font-size: 0.88rem; font-weight: 600; }
+    .mv-project { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border-radius: 999px; padding: 0 0.55rem; font-size: 0.75rem; font-weight: 600; }
     .stock-controls {
         display: flex;
         align-items: center;

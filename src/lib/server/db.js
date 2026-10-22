@@ -268,10 +268,28 @@ async function removeOptionFromFilterAttribute(systemId, id, optionToRemove) {
 // 3a. BESTANDSBEWEGUNGEN (Protokoll)
 // ==========================================
 // meta: { userId, userName, source } – wer hat den Bestand wo geändert (z.B. 'web', 'terminal-return')
+//       project: { id, rootId, label } – Projekt, dem die Änderung zugeordnet wird (siehe projects.js)
+//       requireProject: true – eine Entnahme ohne Projekt wird abgelehnt (Funktion "Projekte" aktiv)
+
+// Entnahme ohne Projekt verhindern, wenn die Funktion "Projekte" im Lager aktiv ist
+function assertProjectForWithdrawal(meta, before, after) {
+    if (meta.requireProject && !meta.project && (parseFloat(after) || 0) < (parseFloat(before) || 0)) {
+        throw Object.assign(new Error('Für eine Entnahme muss ein Projekt gewählt werden.'), { code: 'project_required' });
+    }
+}
 
 async function logStockMovement(systemId, article, before, after, meta = {}) {
     const b = parseFloat(before) || 0, a = parseFloat(after) || 0;
-    if (b === a) return;
+    if (b !== a) await insertStockMovement(systemId, article, b, a, meta);
+    // Projektbuchung: am Terminal zählt die gewogene Veränderung im Fach (meta.bookingQuantity),
+    // sonst die Änderung des Gesamtbestands
+    if (meta.project) {
+        const quantity = meta.bookingQuantity ?? (b - a);
+        if (quantity !== 0) await addProjectBooking(systemId, article, quantity, meta);
+    }
+}
+
+async function insertStockMovement(systemId, article, b, a, meta) {
     try {
         const db = await getDb();
         await db.collection('stock_movements').insertOne({
@@ -284,11 +302,41 @@ async function logStockMovement(systemId, article, before, after, meta = {}) {
             source: meta.source || 'unbekannt',
             userId: meta.userId && ObjectId.isValid(meta.userId) ? new ObjectId(meta.userId) : null,
             userName: meta.userName || '',
+            projectId: meta.project ? new ObjectId(meta.project.id) : null,
+            projectName: meta.project?.label || null,
             createdAt: new Date()
         });
     } catch (error) {
         // Das Protokoll darf eine Bestandsänderung nie verhindern
         console.error("Bestandsbewegung konnte nicht protokolliert werden:", error);
+    }
+}
+
+// Kostenbuchung für ein Projekt: Menge > 0 = Verbrauch, < 0 = Rückbuchung ins Lager.
+// Der Stückpreis wird festgehalten, damit spätere Preisänderungen alte Projekte nicht verändern.
+// Eigene Collection ohne Löschfrist (das Bestandsprotokoll wird nach 2 Jahren gelöscht).
+async function addProjectBooking(systemId, article, quantity, meta) {
+    try {
+        const price = parseFloat(article.price);
+        const unitPrice = Number.isFinite(price) && price > 0 ? price : null;
+        const db = await getDb();
+        await db.collection('project_bookings').insertOne({
+            systemId: new ObjectId(systemId),
+            projectId: new ObjectId(meta.project.id),
+            rootProjectId: new ObjectId(meta.project.rootId),
+            projectName: meta.project.label,
+            articleId: new ObjectId(article._id),
+            articleTitle: article.title || '',
+            quantity: Math.round(quantity * 1000) / 1000,
+            unitPrice,
+            total: Math.round(quantity * (unitPrice || 0) * 100) / 100,
+            source: meta.source || 'unbekannt',
+            userId: meta.userId && ObjectId.isValid(meta.userId) ? new ObjectId(meta.userId) : null,
+            userName: meta.userName || '',
+            createdAt: new Date()
+        });
+    } catch (error) {
+        console.error("Projektbuchung konnte nicht gespeichert werden:", error);
     }
 }
 
@@ -299,7 +347,7 @@ async function getStockMovements(systemId, articleId, limit = 20) {
     const rows = await db.collection('stock_movements')
         .find({ systemId: new ObjectId(systemId), articleId: new ObjectId(articleId) })
         .sort({ createdAt: -1 }).limit(limit).toArray();
-    return rows.map(r => ({ id: r._id.toString(), before: r.before, after: r.after, delta: r.delta, source: r.source, userName: r.userName, createdAt: r.createdAt.toISOString() }));
+    return rows.map(r => ({ id: r._id.toString(), before: r.before, after: r.after, delta: r.delta, source: r.source, userName: r.userName, projectName: r.projectName || null, createdAt: r.createdAt.toISOString() }));
 }
 
 // Meistverbrauchte Artikel der letzten Tage (Summe aller Abgänge)
@@ -386,8 +434,9 @@ async function updateArticle(systemId, id, updateData, meta = {}) {
         const filter = { _id: new ObjectId(id), systemId: new ObjectId(systemId) };
         // Bei Bestandsänderung den alten Wert fürs Protokoll merken
         const before = updateData.istBestand !== undefined
-            ? await collection.findOne(filter, { projection: { istBestand: 1, title: 1 } })
+            ? await collection.findOne(filter, { projection: { istBestand: 1, title: 1, price: 1 } })
             : null;
+        if (before) assertProjectForWithdrawal(meta, before.istBestand, updateData.istBestand);
         const result = await collection.updateOne(filter, { $set: updateData });
         if (before) await logStockMovement(systemId, before, before.istBestand, updateData.istBestand, meta);
         return result;
@@ -1231,6 +1280,9 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
         barcodes = barcodes.map(b => typeof b === 'string' ? { barcode: b, stock: 0 } : b);
 
         const targetBarcodeIndex = barcodes.findIndex(b => b.barcode === barcode);
+        // Was physisch aus diesem Fach entnommen (> 0) bzw. hineingelegt (< 0) wurde
+        const oldDrawerStock = targetBarcodeIndex !== -1 ? (parseFloat(barcodes[targetBarcodeIndex].stock) || 0) : 0;
+        const withdrawn = Math.round((oldDrawerStock - (parseFloat(newStock) || 0)) * 1000) / 1000;
         
         if (targetBarcodeIndex !== -1) {
             barcodes[targetBarcodeIndex].stock = newStock;
@@ -1240,6 +1292,7 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
         }
 
         const totalStock = barcodes.reduce((sum, b) => sum + (parseFloat(b.stock) || 0), 0);
+        assertProjectForWithdrawal(meta, oldDrawerStock, newStock);
 
         await db.collection('articles').updateOne(
             { _id: new ObjectId(articleId), systemId: new ObjectId(systemId) },
@@ -1252,7 +1305,7 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
                 $unset: { assigned_barcode: "" } 
             }
         );
-        await logStockMovement(systemId, article, article.istBestand, totalStock, meta);
+        await logStockMovement(systemId, article, article.istBestand, totalStock, { ...meta, bookingQuantity: withdrawn });
 
     } catch (error) {
         console.error("Fehler bei updateArticleStockFromWeights:", error);
@@ -1501,6 +1554,8 @@ async function deleteSystemCompletely(systemId) {
         db.collection('scale_requests').deleteMany(bySystem),
         db.collection('invitations').deleteMany(bySystem),
         db.collection('stock_movements').deleteMany(bySystem),
+        db.collection('projects').deleteMany(bySystem),
+        db.collection('project_bookings').deleteMany(bySystem),
         // Kopplungen speichern die System-ID als Text
         db.collection('device_pairings').deleteMany({ systemId: systemId.toString() }),
         // Terminals erfahren per MQTT, dass sie nicht mehr gekoppelt sind
@@ -1530,7 +1585,7 @@ async function getSystemsByIds(ids) {
     if (validIds.length === 0) return [];
     const db = await getDb();
     const systems = await db.collection('systems')
-        .find({ _id: { $in: validIds } }, { projection: { name: 1, roles: 1, createdBy: 1 } })
+        .find({ _id: { $in: validIds } }, { projection: { name: 1, roles: 1, createdBy: 1, features: 1 } })
         .toArray();
     return systems.map(s => ({ ...s, _id: s._id.toString(), createdBy: s.createdBy?.toString() || null }));
 }

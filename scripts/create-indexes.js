@@ -77,6 +77,14 @@ const INDEXES = {
         // Bewegungsprotokoll nach 2 Jahren löschen
         { key: { createdAt: 1 }, options: { name: 'ttl_createdAt', expireAfterSeconds: 730 * DAY } }
     ],
+    // Projekte & Kosten (Funktion "Projekte"); Buchungen ohne Löschfrist
+    projects: [
+        { key: { systemId: 1, parentId: 1 }, options: { name: 'systemId_parentId' } }
+    ],
+    project_bookings: [
+        { key: { systemId: 1, rootProjectId: 1, createdAt: -1 }, options: { name: 'systemId_root_createdAt' } },
+        { key: { systemId: 1, projectId: 1, createdAt: -1 }, options: { name: 'systemId_project_createdAt' } }
+    ],
     hardware_commands: [
         { key: { systemId: 1, status: 1 }, options: { name: 'systemId_status' } },
         // Erledigte/alte LED-Befehle nach 24 Stunden entfernen

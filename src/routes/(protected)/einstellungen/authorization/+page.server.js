@@ -10,6 +10,7 @@ const AVAILABLE_ROUTES = [
     { path: '/editarticle', name: 'Artikel bearbeiten' },
     { path: '/nachbestellen', name: 'Nachbestell-Liste' },
     { path: '/einstellungen/import', name: 'CSV-Import' },
+    { path: '/projekte', name: 'Projekte & Kosten' },
     
     // Einstellungen
     { path: '/einstellungen/authorization', name: 'Berechtigungsverwaltung' },
@@ -17,6 +18,7 @@ const AVAILABLE_ROUTES = [
     { path: '/einstellungen/filter_attributes', name: 'Filter & Attribute' },
     { path: '/einstellungen/security', name: 'Sicherheitseinstellungen' },
     { path: '/einstellungen/team', name: 'Teamverwaltung inkl. Rollen' },
+    { path: '/einstellungen/funktionen', name: 'Funktionen ein-/ausschalten' },
 
     // Terminal & Terminal-Settings
     // Hinweis: '/terminal' gibt KEINEN Zugriff auf die Hardware-Einstellungen,

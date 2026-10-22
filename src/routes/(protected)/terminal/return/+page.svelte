@@ -4,6 +4,7 @@
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
     import { enhance } from '$app/forms';
     import { onDestroy } from 'svelte';
+    import { page } from '$app/stores';
 
     export let form; 
     export let data; // 🔥 NEU: data importiert, um an userColor zu kommen
@@ -106,6 +107,29 @@
     $: difference = newDrawerStock - oldDrawerStock;
     $: newTotalStock = (parseFloat(article?.istBestand) || 0) + difference;
 
+    // --- Funktion "Projekte": Jede Entnahme wird einem Projekt zugeordnet ---
+    $: projectOptions = data?.projectOptions || [];
+    // Auch anzeigen, wenn der Server eine Entnahme erkennt (er rechnet mit dem gespeicherten Fach-Bestand)
+    $: needsProject = !!data?.projectsEnabled && (difference < 0 || form?.error === 'project_required' || form?.error === 'project_closed');
+    let selectedProjectId = '';
+    let bookedProjectLabel = '';
+    const lastProjectKey = `Sortify_LastProject_${$page.data.activeSystemId || ''}`;
+    function rememberedProject() {
+        try {
+            const id = localStorage.getItem(lastProjectKey);
+            return projectOptions.some((p) => p.id === id) ? id : '';
+        } catch { return ''; }
+    }
+    // Beim Messergebnis das zuletzt genutzte Projekt vorschlagen
+    $: if (currentStep === 'confirm' && !selectedProjectId) selectedProjectId = rememberedProject();
+    // Beim Buchen merken, welches Projekt gewählt wurde (Standardverhalten des Formulars bleibt)
+    function rememberOnSubmit() {
+        bookedProjectLabel = needsProject ? (projectOptions.find((p) => p.id === selectedProjectId)?.label || '') : '';
+        if (needsProject && selectedProjectId) {
+            try { localStorage.setItem(lastProjectKey, selectedProjectId); } catch { /* privater Modus */ }
+        }
+    }
+
     function resetWorkflow() {
         if (pollInterval) clearInterval(pollInterval);
         currentStep = 'scan';
@@ -116,6 +140,8 @@
         activeBarcode = '';
         currentBoxWeight = 0;
         lastScannedCode = ''; 
+        selectedProjectId = '';
+        bookedProjectLabel = '';
         setTimeout(() => scanInputRef?.focus(), 100);
     }
 
@@ -297,6 +323,31 @@
                     <h4 style="font-size: 1.5rem; margin: 0; color: #38bdf8;">Alt: {article?.istBestand || 0} ➔ Neu: {newTotalStock} Stk.</h4>
                 </div>
 
+                {#if needsProject}
+                    <div class="project-picker">
+                        <div class="project-picker-head">{difference < 0 ? `Für welches Projekt sind die ${-difference} Stück?` : 'Für welches Projekt ist die Entnahme?'}</div>
+                        {#if projectOptions.length === 0}
+                            <p class="project-empty">Noch kein Projekt angelegt. Lege im Web unter „Projekte“ eines an.</p>
+                        {:else}
+                            <div class="project-options">
+                                {#each projectOptions as p (p.id)}
+                                    <button type="button" class="project-option" class:sub={p.parentName} class:selected={selectedProjectId === p.id}
+                                        style={selectedProjectId === p.id ? `border-color: ${activeColor}; background-color: ${activeColor}22;` : ''}
+                                        aria-pressed={selectedProjectId === p.id} on:click={() => (selectedProjectId = p.id)}>
+                                        {#if p.parentName}<small>{p.parentName}</small>{/if}
+                                        <span>{p.name}</span>
+                                    </button>
+                                {/each}
+                            </div>
+                        {/if}
+                        {#if form?.error === 'project_required'}
+                            <div class="error-box">Bitte wähle zuerst ein Projekt.</div>
+                        {:else if form?.error === 'project_closed'}
+                            <div class="error-box">Dieses Projekt ist inzwischen abgeschlossen. Bitte ein anderes wählen.</div>
+                        {/if}
+                    </div>
+                {/if}
+
                 {#if newDrawerStock === 0 && displaySlots.length > 1}
                     <div style="background: rgba(239, 68, 68, 0.05); border: 1px dashed #ef4444; border-radius: 12px; padding: 1.5rem; margin-top: 2rem; text-align: left;">
                         <div style="display: flex; gap: 1rem; align-items: center; margin-bottom: 1rem;">
@@ -308,30 +359,33 @@
                         </div>
                         
                         <div style="display: flex; gap: 1rem;">
-                            <form method="POST" action="?/bookReturn" use:enhance style="flex: 1;">
+                            <form method="POST" action="?/bookReturn" use:enhance={rememberOnSubmit} style="flex: 1;">
+                                <input type="hidden" name="projectId" value={needsProject ? selectedProjectId : ''}>
                                 <input type="hidden" name="articleId" value={article?._id}>
                                 <input type="hidden" name="barcode" value={activeBarcode}>
                                 <input type="hidden" name="newStock" value={0}>
-                                <button type="submit" class="huge-btn" style="background: #334155; border: 1px solid {activeColor}60; color: #f8fafc; font-size: 1rem; padding: 1.2rem;">
+                                <button type="submit" class="huge-btn" disabled={needsProject && !selectedProjectId} style="background: #334155; border: 1px solid {activeColor}60; color: #f8fafc; font-size: 1rem; padding: 1.2rem;">
                                     Nur buchen (Behalten)
                                 </button>
                             </form>
 
-                            <form method="POST" action="?/bookAndUnlink" use:enhance style="flex: 1.5;">
+                            <form method="POST" action="?/bookAndUnlink" use:enhance={rememberOnSubmit} style="flex: 1.5;">
+                                <input type="hidden" name="projectId" value={needsProject ? selectedProjectId : ''}>
                                 <input type="hidden" name="articleId" value={article?._id}>
                                 <input type="hidden" name="barcode" value={activeBarcode}>
-                                <button type="submit" class="huge-btn" style="background: #ef4444; font-size: 1rem; padding: 1.2rem;">
+                                <button type="submit" class="huge-btn" disabled={needsProject && !selectedProjectId} style="background: #ef4444; font-size: 1rem; padding: 1.2rem;">
                                     Bestand buchen & Fach freigeben
                                 </button>
                             </form>
                         </div>
                     </div>
                 {:else}
-                    <form method="POST" action="?/bookReturn" use:enhance style="margin-top: 2rem;">
+                    <form method="POST" action="?/bookReturn" use:enhance={rememberOnSubmit} style="margin-top: 2rem;">
+                        <input type="hidden" name="projectId" value={needsProject ? selectedProjectId : ''}>
                         <input type="hidden" name="articleId" value={article?._id}><input type="hidden" name="barcode" value={activeBarcode}><input type="hidden" name="newStock" value={newDrawerStock}>
                         <!-- 🔥 NEU: Der Haupt-Button übernimmt die Nutzerfarbe! -->
-                        <button type="submit" class="huge-btn" style="background-color: {activeColor}; box-shadow: 0 4px 20px {activeColor}60;">
-                            Veränderung buchen & Fach leuchten lassen
+                        <button type="submit" class="huge-btn" disabled={needsProject && !selectedProjectId} style="background-color: {activeColor}; box-shadow: 0 4px 20px {activeColor}60;">
+                            {needsProject && !selectedProjectId ? 'Bitte zuerst ein Projekt wählen' : 'Veränderung buchen & Fach leuchten lassen'}
                         </button>
                     </form>
                 {/if}
@@ -351,6 +405,7 @@
                 <div class="emoji-hero" style="animation: bounce 2s infinite; filter: drop-shadow(0 0 25px {activeColor}90);">✅</div>
                 <h2 style="color: {activeColor};">Erfolgreich eingespielt!</h2>
                 <p>Das entsprechende Fach im Regal leuchtet nun auf.<br>Bitte räume die Box ein.</p>
+                {#if bookedProjectLabel}<p class="booked-project">Gebucht auf Projekt <strong>{bookedProjectLabel}</strong></p>{/if}
             </div>
 
         {:else if currentStep === 'success_unlinked'}
@@ -365,6 +420,7 @@
 
                 <div class="emoji-hero" style="animation: bounce 2s infinite;">🗑️</div>
                 <h2 style="color: #ef4444;">Fach freigegeben!</h2>
+                {#if bookedProjectLabel}<p class="booked-project">Gebucht auf Projekt <strong>{bookedProjectLabel}</strong></p>{/if}
                 <p>Der Bestand wurde auf 0 gesetzt und das Fach <strong>{activeBarcode}</strong> vom Artikel gelöst.<br>Das Fach leuchtet im Regal, damit du die leere Box <strong>wieder zurückstellen</strong> kannst.</p>
             </div>
         {/if}
@@ -574,5 +630,25 @@
             background: #3b82f6; color: white; border: none; border-radius: 10px;
             padding: 0.9rem; font-size: 1.05rem; font-weight: bold; cursor: pointer;
         }
+    }
+
+    /* Funktion "Projekte": Auswahl beim Buchen einer Entnahme */
+    .project-picker { margin-top: 1.75rem; text-align: left; display: flex; flex-direction: column; gap: 0.75rem; }
+    .project-picker-head { color: #94a3b8; font-size: 0.9rem; text-transform: uppercase; font-weight: bold; letter-spacing: 0.03em; }
+    .project-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.6rem; max-height: 320px; overflow-y: auto; padding: 2px; }
+    .project-option { background: #0f172a; border: 2px solid #334155; color: #f8fafc; border-radius: 12px; padding: 0.9rem 1rem; text-align: left; font-family: inherit; font-size: 1.05rem; font-weight: 600; cursor: pointer; display: flex; flex-direction: column; gap: 0.15rem; min-height: 64px; justify-content: center; overflow-wrap: break-word; min-width: 0; }
+    .project-option small { color: #94a3b8; font-size: 0.75rem; font-weight: 500; }
+    .project-option:hover { border-color: #64748b; }
+    .project-option.selected { color: #fff; }
+    .project-empty { color: #fbbf24; margin: 0; }
+    .booked-project { color: #cbd5e1; margin-top: 0.75rem; }
+    .booked-project strong { color: #fff; }
+    .huge-btn:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none !important; }
+    .confirm-card h2 { color: #f8fafc; }
+    @media (max-width: 640px) {
+        /* Handy: eine Spalte, Unterprojekte eingerückt unter ihrem Hauptprojekt */
+        .project-options { grid-template-columns: 1fr; max-height: 360px; }
+        .project-option { font-size: 1rem; padding: 0.65rem 0.85rem; min-height: 52px; }
+        .project-option.sub { margin-left: 1.25rem; }
     }
 </style>
