@@ -25,3 +25,18 @@ export function normalizeArticleBarcodes(article) {
     }
     return unique;
 }
+
+// Fächer eines Artikels im aktuellen Format [{ barcode, stock, … }] – auch für Altdaten.
+// Wird im Browser (Artikelseite) und auf dem Server (Bestandsänderung) gleich verwendet.
+export function articleDrawers(article) {
+    const list = normalizeArticleBarcodes(article) ?? (Array.isArray(article?.assigned_barcodes) ? article.assigned_barcodes : []);
+    return list
+        .filter((b) => b && typeof b === 'object' && b.barcode)
+        .map((b) => ({ ...b, barcode: String(b.barcode), stock: parseFloat(b.stock) || 0 }));
+}
+
+// Gescannten Fach-Barcode einem Fach des Artikels zuordnen (Gross-/Kleinschreibung egal)
+export function findDrawer(drawers, code) {
+    const wanted = String(code || '').trim().toLowerCase();
+    return wanted ? drawers.find((d) => d.barcode.trim().toLowerCase() === wanted) || null : null;
+}

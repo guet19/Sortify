@@ -5,6 +5,7 @@ import { MongoClient, ObjectId } from "mongodb";
 import { env } from '$env/dynamic/private';
 import bcrypt from "bcryptjs";
 import { generateToken, hashToken, generateNumericCode, escapeRegex, BCRYPT_ROUNDS } from './security.js';
+import { normalizeArticleBarcodes } from '../barcodes.js';
 
 // ==========================================
 // 0. SERVERLESS CONNECTION POOLING
@@ -304,6 +305,7 @@ async function insertStockMovement(systemId, article, b, a, meta) {
             userName: meta.userName || '',
             projectId: meta.project ? new ObjectId(meta.project.id) : null,
             projectName: meta.project?.label || null,
+            barcode: meta.barcode || null,
             createdAt: new Date()
         });
     } catch (error) {
@@ -347,7 +349,7 @@ async function getStockMovements(systemId, articleId, limit = 20) {
     const rows = await db.collection('stock_movements')
         .find({ systemId: new ObjectId(systemId), articleId: new ObjectId(articleId) })
         .sort({ createdAt: -1 }).limit(limit).toArray();
-    return rows.map(r => ({ id: r._id.toString(), before: r.before, after: r.after, delta: r.delta, source: r.source, userName: r.userName, projectName: r.projectName || null, createdAt: r.createdAt.toISOString() }));
+    return rows.map(r => ({ id: r._id.toString(), before: r.before, after: r.after, delta: r.delta, source: r.source, userName: r.userName, projectName: r.projectName || null, barcode: r.barcode || null, createdAt: r.createdAt.toISOString() }));
 }
 
 // Meistverbrauchte Artikel der letzten Tage (Summe aller Abgänge)
@@ -1261,7 +1263,14 @@ async function getDrawerByBarcode(systemId, barcode) {
     }
 }
 
+// Bestand eines Fachs nach dem Wiegen am Terminal (legt das Fach bei Bedarf neu an)
 async function updateArticleStockFromWeights(systemId, articleId, barcode, newStock, meta = {}) {
+    return setDrawerStock(systemId, articleId, barcode, newStock, meta, { weighed: true });
+}
+
+// Setzt den Bestand EINES Fachs; der Gesamtbestand ist immer die Summe aller Fächer.
+// weighed: true = Messung am Terminal, false = manuelle Änderung im Web (nur bestehende Fächer)
+async function setDrawerStock(systemId, articleId, barcode, newStock, meta = {}, { weighed = false } = {}) {
     try {
         const db = await getDb();
         const article = await db.collection('articles').findOne({ 
@@ -1271,22 +1280,21 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
 
         if (!article) throw new Error('Artikel nicht gefunden');
 
-        let barcodes = Array.isArray(article.assigned_barcodes) ? article.assigned_barcodes : [];
-
-        if (article.assigned_barcode && barcodes.length === 0) {
-            barcodes.push({ barcode: article.assigned_barcode, stock: parseFloat(article.istBestand) || 0 });
-        }
-
-        barcodes = barcodes.map(b => typeof b === 'string' ? { barcode: b, stock: 0 } : b);
+        // Auch alte Datenformate (einzelner String, String-Liste) einheitlich behandeln
+        let barcodes = (normalizeArticleBarcodes(article) ?? (Array.isArray(article.assigned_barcodes) ? article.assigned_barcodes : []))
+            .map(b => ({ ...b }));
 
         const targetBarcodeIndex = barcodes.findIndex(b => b.barcode === barcode);
+        if (targetBarcodeIndex === -1 && !weighed) {
+            throw Object.assign(new Error('Dieses Fach gehört nicht zu diesem Artikel.'), { code: 'unknown_drawer' });
+        }
         // Was physisch aus diesem Fach entnommen (> 0) bzw. hineingelegt (< 0) wurde
         const oldDrawerStock = targetBarcodeIndex !== -1 ? (parseFloat(barcodes[targetBarcodeIndex].stock) || 0) : 0;
         const withdrawn = Math.round((oldDrawerStock - (parseFloat(newStock) || 0)) * 1000) / 1000;
         
         if (targetBarcodeIndex !== -1) {
             barcodes[targetBarcodeIndex].stock = newStock;
-            barcodes[targetBarcodeIndex].lastWeighedAt = new Date(); 
+            if (weighed) barcodes[targetBarcodeIndex].lastWeighedAt = new Date();
         } else {
             barcodes.push({ barcode: barcode, stock: newStock, lastWeighedAt: new Date() });
         }
@@ -1300,15 +1308,16 @@ async function updateArticleStockFromWeights(systemId, articleId, barcode, newSt
                 $set: { 
                     assigned_barcodes: barcodes,
                     istBestand: totalStock,
-                    lastWeighedAt: new Date() 
+                    ...(weighed ? { lastWeighedAt: new Date() } : {})
                 },
                 $unset: { assigned_barcode: "" } 
             }
         );
-        await logStockMovement(systemId, article, article.istBestand, totalStock, { ...meta, bookingQuantity: withdrawn });
+        await logStockMovement(systemId, article, article.istBestand, totalStock, { ...meta, barcode, bookingQuantity: withdrawn });
 
     } catch (error) {
-        console.error("Fehler bei updateArticleStockFromWeights:", error);
+        // Erwartete Ablehnungen (Projekt fehlt, fremdes Fach) nicht als Serverfehler protokollieren
+        if (!['project_required', 'unknown_drawer'].includes(error.code)) console.error("Fehler bei setDrawerStock:", error);
         throw error;
     }
 }
@@ -2183,6 +2192,7 @@ export default {
     assignBarcodeAndWeights,
     getDrawerByBarcode,
     updateArticleStockFromWeights,
+    setDrawerStock,
     removeBarcodes,
     logArticleAction,
     updateArticleItemWeight,

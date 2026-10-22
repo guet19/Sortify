@@ -5,6 +5,7 @@ import { ObjectId } from 'mongodb'; // 🔥 NEU: Import hinzugefügt
 import { lightUpArticle, turnOffArticle } from '$lib/server/leds.js';
 import { projectsEnabled, listProjects, resolveBookingProject } from '$lib/server/projects.js';
 import { selectableProjects } from '$lib/projects.js';
+import { articleDrawers, findDrawer } from '$lib/barcodes.js';
 
 export async function load({ params, locals }) { 
     // 1. Die System-ID aus dem Rucksack (locals) holen
@@ -115,14 +116,39 @@ export const actions = {
             if (!project) return fail(400, { stockError: 'Das gewählte Projekt ist nicht mehr offen. Bitte ein anderes wählen.' });
         }
 
+        const article = await db.getArticleById(systemId, articleId);
+        if (!article) return fail(404, { stockError: 'Artikel nicht gefunden.' });
+        const meta = { ...actor(locals, 'web'), project, requireProject: projectsOn };
+
+        // Eingelagerte Artikel: Bestand wird pro Fach geführt (Gesamtbestand = Summe der Fächer).
+        // Bei einem Fach gilt die Änderung für dieses, bei mehreren muss das Fach gescannt worden sein.
+        const drawers = articleDrawers(article);
+        let drawer = null;
+        if (drawers.length === 1) {
+            drawer = drawers[0];
+        } else if (drawers.length > 1) {
+            const scanned = data.get('barcode')?.toString();
+            if (!scanned) return fail(400, { stockError: 'Dieser Artikel liegt in mehreren Fächern. Bitte zuerst das Fach scannen.' });
+            drawer = findDrawer(drawers, scanned);
+            if (!drawer) return fail(400, { stockError: `Das Fach „${scanned}“ gehört nicht zu diesem Artikel.` });
+        }
+
         try {
-            // 3. Update-Funktion mit der neuen systemId aufrufen
-            await db.updateArticle(systemId, articleId, { istBestand: newStock }, { ...actor(locals, 'web'), project, requireProject: projectsOn });
+            if (drawer) {
+                // newStock = neuer Bestand dieses Fachs
+                await db.setDrawerStock(systemId, articleId, drawer.barcode, newStock, meta);
+            } else {
+                // Nicht eingelagert: nur der Gesamtbestand
+                await db.updateArticle(systemId, articleId, { istBestand: newStock }, meta);
+            }
 
             return { success: true };
         } catch (err) {
             if (err.code === 'project_required') {
                 return fail(400, { stockError: 'Bitte wähle, für welches Projekt das Material entnommen wird.' });
+            }
+            if (err.code === 'unknown_drawer') {
+                return fail(400, { stockError: 'Das Fach gehört nicht (mehr) zu diesem Artikel. Bitte Seite neu laden.' });
             }
             console.error("Fehler beim Aktualisieren des Bestandes:", err);
             return { success: false, error: "Bestand konnte nicht gespeichert werden." };

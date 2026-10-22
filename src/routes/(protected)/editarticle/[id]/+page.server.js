@@ -4,6 +4,17 @@ import { error, redirect, fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { safeHttpUrl } from '$lib/server/security.js';
 import { buildImageList, getArticleImages, deleteUnusedImages } from '$lib/server/articleImages.js';
+import { articleDrawers } from '$lib/barcodes.js';
+import { projectsEnabled } from '$lib/server/projects.js';
+
+// Wann der Bestand hier NICHT geändert werden darf (sondern nur auf der Artikelseite):
+// - eingelagerte Artikel: Bestand wird pro Fach geführt (Gesamtbestand = Summe der Fächer)
+// - Funktion "Projekte" aktiv: Entnahmen brauchen ein Projekt
+async function stockLockReason(systemId, article) {
+    if (articleDrawers(article).length > 0) return 'drawers';
+    if (await projectsEnabled(systemId)) return 'projects';
+    return null;
+}
 
 export async function load({ params, locals }) { // NEU: locals statt cookies
     const systemId = locals.systemId;
@@ -20,16 +31,18 @@ export async function load({ params, locals }) { // NEU: locals statt cookies
     }
 
     // Unabhängige Abfragen parallel statt nacheinander
-    const [categories, attributes] = await Promise.all([
+    const [categories, attributes, stockLock] = await Promise.all([
         db.getCategories(systemId),
-        db.getFilterAttributes(systemId)
+        db.getFilterAttributes(systemId),
+        stockLockReason(systemId, article)
     ]);
 
     // POJO Fix zur Sicherheit beibehalten, besonders wegen der "attributes" Map und Datumswerten
     return {
         article: JSON.parse(JSON.stringify(article)), 
         categories: JSON.parse(JSON.stringify(categories)),
-        attributes: JSON.parse(JSON.stringify(attributes))
+        attributes: JSON.parse(JSON.stringify(attributes)),
+        stockLock
     };
 }
 
@@ -66,8 +79,11 @@ export const actions = {
         const priceStr = formData.get("price");
         updateData.price = priceStr ? parseFloat(priceStr) : null;
 
-        const istBestandStr = formData.get("istBestand");
-        updateData.istBestand = istBestandStr ? parseInt(istBestandStr, 10) : 0;
+        // Bestand nur übernehmen, wenn er hier geändert werden darf (sonst bleibt er unverändert)
+        if (!(await stockLockReason(systemId, oldArticle))) {
+            const istBestandStr = formData.get("istBestand");
+            updateData.istBestand = istBestandStr ? parseInt(istBestandStr, 10) : 0;
+        }
 
         const sollBestandStr = formData.get("sollBestand");
         updateData.sollBestand = sollBestandStr ? parseInt(sollBestandStr, 10) : null;

@@ -6,6 +6,8 @@
     import { beforeNavigate } from "$app/navigation";
     import { onDestroy } from "svelte";
     import { page } from "$app/stores";
+    import { articleDrawers, findDrawer } from '$lib/barcodes.js';
+    import CameraScan from '$lib/components/CameraScan.svelte';
     
     export let data;
     export let terminal = false;
@@ -54,8 +56,45 @@
     }
 
     // --- 3. Bestands-Management ---
-    let originalStock = article.istBestand || 0;
-    let localStock = originalStock;
+    // Eingelagerte Artikel: Der Zähler ändert den Bestand EINES Fachs (Gesamtbestand = Summe der Fächer).
+    // Liegt der Artikel in mehreren Fächern, muss zuerst das betroffene Fach gescannt werden.
+    $: drawers = articleDrawers(data.article);
+    let scannedBarcode = '';
+    let scanValue = '';
+    let scanError = '';
+    let scanInputRef;
+    $: activeDrawer = drawers.length === 1 ? drawers[0] : findDrawer(drawers, scannedBarcode);
+    $: needsScan = drawers.length > 1 && !activeDrawer;
+    $: totalStock = data.article.istBestand || 0;
+    // Bezugswert des Zählers: Bestand des Fachs bzw. Gesamtbestand bei Artikeln ohne Fach
+    $: baseStock = activeDrawer ? activeDrawer.stock : totalStock;
+    let originalStock = 0;
+    let localStock = 0;
+    let syncedKey = null;
+    $: stockKey = `${activeDrawer?.barcode ?? ''}:${baseStock}`;
+    // Nach dem Speichern (neue Daten) oder beim Fachwechsel den Zähler neu setzen
+    $: if (stockKey !== syncedKey) {
+        syncedKey = stockKey;
+        originalStock = baseStock;
+        localStock = baseStock;
+    }
+
+    function selectDrawer() {
+        const match = findDrawer(drawers, scanValue);
+        if (match) {
+            scannedBarcode = match.barcode;
+            scanError = '';
+            stockError = '';
+        } else {
+            scanError = scanValue.trim() ? `Das Fach „${scanValue.trim()}“ gehört nicht zu diesem Artikel.` : 'Bitte einen Fach-Barcode scannen.';
+        }
+        scanValue = '';
+    }
+    function chooseOtherDrawer() {
+        scannedBarcode = '';
+        scanError = '';
+        stockError = '';
+    }
     let isUpdatingStock = false;
     let stockUpdateSuccess = false;
 
@@ -108,12 +147,6 @@
     beforeNavigate(turnOffLeds);
     onDestroy(() => clearTimeout(ledTimer));
 
-
-    // Synchronisiere, falls sich die Daten vom Server ändern (nach dem Speichern)
-    $: if (data.article.istBestand !== originalStock) {
-        originalStock = data.article.istBestand || 0;
-        localStock = originalStock;
-    }
 </script>
 
 <div class="page-container space-grotesk" class:in-terminal={terminal}>
@@ -245,17 +278,37 @@
                 
                 <div class="stock-manager">
                     <div class="stock-info" 
-                         class:low-stock={article.mindestBestand !== undefined && article.mindestBestand !== null && originalStock <= article.mindestBestand && originalStock > 0} 
-                         class:out-of-stock={originalStock === 0}>
+                         class:low-stock={article.mindestBestand !== undefined && article.mindestBestand !== null && totalStock <= article.mindestBestand && totalStock > 0} 
+                         class:out-of-stock={totalStock === 0}>
                         <span class="indicator"></span>
-                        {#if originalStock === 0}
+                        {#if totalStock === 0}
                             Nicht auf Lager
                         {:else}
-                            {originalStock} Stück auf Lager
+                            {totalStock} Stück auf Lager
                         {/if}
                     </div>
 
-                    {#if !terminal}
+                    {#if !terminal && drawers.length > 1}
+                        <div class="drawer-overview">
+                            <span>Liegt in {drawers.length} Fächern:</span>
+                            {#each drawers as d (d.barcode)}
+                                <span class="drawer-chip" class:active={activeDrawer?.barcode === d.barcode}>{d.barcode}: {d.stock} Stk.</span>
+                            {/each}
+                        </div>
+                    {/if}
+
+                    {#if !terminal && needsScan}
+                        <!-- Mehrere Fächer: erst das betroffene Fach scannen, dann den Bestand ändern -->
+                        <div class="drawer-scan">
+                            <p class="drawer-hint">Um den Bestand zu ändern, scanne zuerst das Fach, aus dem du entnimmst oder in das du etwas legst.</p>
+                            <form class="drawer-scan-form" on:submit|preventDefault={selectDrawer}>
+                                <input bind:this={scanInputRef} bind:value={scanValue} class="drawer-scan-input" placeholder="Fach-Barcode, z.B. {drawers[0].barcode}" aria-label="Fach-Barcode scannen" autocomplete="off" />
+                                <button type="submit" class="btn-save-stock">Fach wählen</button>
+                            </form>
+                            <CameraScan input={scanInputRef} label="📷 Fach mit Kamera scannen" />
+                            {#if scanError}<span class="stock-error">{scanError}</span>{/if}
+                        </div>
+                    {:else if !terminal}
                     <form method="POST" action="?/updateStock" class="stock-form" 
                         use:enhance={() => {
                             isUpdatingStock = true;
@@ -284,6 +337,13 @@
                         }}>
                         
                         <input type="hidden" name="articleId" value={article._id} />
+                        {#if activeDrawer}
+                            <input type="hidden" name="barcode" value={activeDrawer.barcode} />
+                            <div class="drawer-label">
+                                Bestand in Fach <strong>{activeDrawer.barcode}</strong>
+                                {#if drawers.length > 1}<button type="button" class="btn-link-small" on:click={chooseOtherDrawer}>anderes Fach scannen</button>{/if}
+                            </div>
+                        {/if}
                         
                         <div class="stock-controls">
                             <button type="button" class="btn-stepper" on:click={() => {if(localStock > 0) localStock--}}>−</button>
@@ -335,7 +395,7 @@
                             <li>
                                 <span class="mv-delta" class:plus={m.delta > 0} class:minus={m.delta < 0}>{m.delta > 0 ? '+' : ''}{m.delta}</span>
                                 <span class="mv-stock">→ {m.after} Stk.</span>
-                                <span class="mv-meta">{sourceLabels[m.source] || m.source}{m.userName ? ` · ${m.userName}` : ''} · {new Date(m.createdAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                                <span class="mv-meta">{sourceLabels[m.source] || m.source}{m.barcode ? ` · Fach ${m.barcode}` : ''}{m.userName ? ` · ${m.userName}` : ''} · {new Date(m.createdAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' })}</span>
                                 {#if m.projectName}<span class="mv-project">{m.projectName}</span>{/if}
                             </li>
                         {/each}
@@ -639,6 +699,18 @@
     .project-hint { color: #fbbf24; font-size: 0.88rem; }
     .project-hint a { color: #60a5fa; }
     .stock-error { flex: 1 1 100%; color: #f87171; font-size: 0.88rem; font-weight: 600; }
+
+    /* Bestand pro Fach */
+    .drawer-overview { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #94a3b8; }
+    .drawer-chip { background: rgba(148, 163, 184, 0.15); color: #e2e8f0; border-radius: 999px; padding: 0.1rem 0.6rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .drawer-chip.active { background: rgba(59, 130, 246, 0.25); color: #bfdbfe; }
+    .drawer-scan { display: flex; flex-direction: column; gap: 0.5rem; background: rgba(245, 158, 11, 0.08); border: 1px dashed #f59e0b; border-radius: 8px; padding: 0.85rem 1rem; }
+    .drawer-hint { margin: 0; color: #fcd34d; font-size: 0.92rem; }
+    .drawer-scan-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .drawer-scan-input { flex: 1 1 180px; min-width: 0; padding: 0.45rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.95rem; color: #1e293b; background: #fff; }
+    .drawer-label { flex: 1 1 100%; color: #cbd5e1; font-size: 0.88rem; display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .drawer-label strong { color: #fff; }
+    .btn-link-small { background: none; border: none; color: #60a5fa; font-family: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer; padding: 0; }
     .mv-project { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border-radius: 999px; padding: 0 0.55rem; font-size: 0.75rem; font-weight: 600; }
     .stock-controls {
         display: flex;

@@ -311,10 +311,15 @@
                     
                     <div class="stock-manager tooltip-container">
                         <span class="stock-label">Ist-Bestand:</span>
-                        <input type="number" name="istBestand" class="stock-input" class:error-highlight={formErrors.istBestand} bind:value={istBestand} min="0" required />
+                        <input type="number" name="istBestand" class="stock-input" class:error-highlight={formErrors.istBestand} bind:value={istBestand} min="0" required readonly={!!data.stockLock} class:locked={!!data.stockLock} />
                         <span class="stock-label">Stk.</span>
                         {#if formErrors.istBestand} <div class="warning-bubble">Bestand fehlt</div> {/if}
                     </div>
+                    {#if data.stockLock}
+                        <p class="stock-lock-hint">
+                            {data.stockLock === 'drawers' ? 'Der Bestand wird pro Fach geführt' : 'Entnahmen brauchen ein Projekt'} – ändern auf der <a href="/{article._id}">Artikelseite</a>.
+                        </p>
+                    {/if}
                 </div>
 
                 <div class="description">
@@ -511,7 +516,7 @@
     }
     .title-input:focus, .title-input:hover { border-color: #22c55e; background: rgba(255,255,255,0.05); outline: none; border-style: solid; box-shadow: 0 4px 6px -4px rgba(34, 197, 94, 0.2); }
 
-    .price-stock-box { display: flex; align-items: center; gap: 3rem; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
+    .price-stock-box { display: flex; align-items: center; gap: 0.5rem 3rem; flex-wrap: wrap; padding-bottom: 1.5rem; border-bottom: 1px solid #334155; }
     
     .price-input-wrapper { display: flex; align-items: center; gap: 0.5rem; }
     .price-input {
@@ -655,4 +660,9 @@
         .action-buttons { justify-content: space-between; margin-top: 1rem; }
         .price-stock-box { flex-direction: column; align-items: flex-start; gap: 1rem; }
     }
+
+    /* Bestand nur auf der Artikelseite änderbar (Fächer bzw. Projekte) */
+    .stock-input.locked { background: #f1f5f9; color: #64748b; cursor: not-allowed; }
+    .stock-lock-hint { flex-basis: 100%; margin: 0; font-size: 0.82rem; color: #94a3b8; }
+    .stock-lock-hint a { color: #60a5fa; }
 </style>
