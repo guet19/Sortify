@@ -27,6 +27,9 @@ describe('canAccessPath', () => {
         expect(canAccessPath('/api/fetch-image', ['/addarticle'])).toBe(true);
         expect(canAccessPath('/api/apply-category-structure', ['/addarticle'])).toBe(false);
         expect(canAccessPath('/api/apply-category-structure', ['/einstellungen/category'])).toBe(true);
+        expect(canAccessPath('/api/terminal-status', ['/terminal'])).toBe(true);
+        expect(canAccessPath('/api/terminal-status', ['/terminal/settings/shelf'])).toBe(true);
+        expect(canAccessPath('/api/terminal-status', ['/'])).toBe(false);
     });
 });
 

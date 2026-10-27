@@ -34,7 +34,7 @@ import neopixel
 import RPi.GPIO as GPIO
 from hx711 import HX711
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"   # ab 2.1.0: Antwort auf Verbindungstests (Anzeige "Sync aktiv" in Sortify)
 
 # ==========================================
 # 1. EINSTELLUNGEN
@@ -534,8 +534,15 @@ def run_normal_mode():
                 message = None
 
             if message:
-                wake_up()
                 kind = message.get("t")
+                if kind == "ping":
+                    # Verbindungstest von Sortify: sofort antworten, Display nicht aufwecken
+                    try:
+                        api("POST", "/api/device/pong", timeout=10)
+                    except requests.RequestException as e:
+                        print("Antwort auf Verbindungstest fehlgeschlagen:", e)
+                    continue
+                wake_up()
                 if kind == "unpaired":
                     raise Unpaired()
 

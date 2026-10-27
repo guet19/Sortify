@@ -15,7 +15,10 @@ const API_PERMISSIONS = {
     '/api/ai-category-wizard': ['/einstellungen/category'],
     '/api/apply-category-structure': ['/einstellungen/category'],
     '/api/ai-status': ['/addarticle', '/einstellungen/category'],
-    '/api/pairing-status': ['/terminal/settings/pairing']
+    '/api/pairing-status': ['/terminal/settings/pairing'],
+    // Verbindungsanzeige im Terminal: für alle, die irgendeine Terminal-Seite öffnen dürfen
+    '/api/terminal-status': ['/terminal', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
+        '/terminal/settings/maintenance', '/terminal/settings/shelf', '/terminal/settings/pairing']
 };
 
 // Liegt "path" in "route"? Nur an Segmentgrenzen ('/terminal' deckt nicht '/terminalxyz' ab)

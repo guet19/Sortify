@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import db from '$lib/server/db.js';
 import { hashToken } from '$lib/server/security.js';
 import { publish, topicPrefix, isMqttConfigured } from '$lib/server/mqtt.js';
-import { newDeviceToken, newDeviceKey, newTopicId, commandTopic, encryptMessage, envelope, commandFromDoc } from '$lib/server/deviceProtocol.js';
+import { newDeviceToken, newDeviceKey, newTopicId, commandTopic, encryptMessage, envelope, commandFromDoc, terminalState, versionFromUserAgent } from '$lib/server/deviceProtocol.js';
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne 0/O und 1/I
@@ -121,19 +121,49 @@ export async function removeSystemDevices(systemId) {
 
 // ---------- Anfragen der Terminals (HTTPS) ----------
 
-// Prüft "Authorization: Bearer <Geräte-Token>" und liefert das Gerät
-export async function deviceFromRequest(request) {
+// Prüft "Authorization: Bearer <Geräte-Token>" und liefert das Gerät.
+// Merkt sich dabei "zuletzt gesehen" (höchstens jede Minute; force = sofort, z.B. Antwort auf einen Ping)
+// und die Software-Version des Terminals aus dem User-Agent.
+export async function deviceFromRequest(request, { force = false } = {}) {
     const header = request.headers.get('authorization') || '';
     const match = header.match(/^Bearer (sd_[A-Za-z0-9_-]{20,100})$/);
     if (!match) return null;
     const { devices } = await collections();
     const device = await devices.findOne({ tokenHash: hashToken(match[1]) });
     if (!device) return null;
-    // "Zuletzt gesehen" höchstens alle 5 Minuten speichern
-    if (!device.lastSeenAt || Date.now() - device.lastSeenAt.getTime() > 5 * 60 * 1000) {
-        devices.updateOne({ _id: device._id }, { $set: { lastSeenAt: new Date() } }).catch(() => {});
+
+    const version = versionFromUserAgent(request.headers.get('user-agent'));
+    const stale = !device.lastSeenAt || Date.now() - device.lastSeenAt.getTime() > 60 * 1000;
+    if (force || stale || (version && version !== device.softwareVersion)) {
+        const update = devices.updateOne({ _id: device._id }, { $set: { lastSeenAt: new Date(), ...(version ? { softwareVersion: version } : {}) } });
+        if (force) await update; else update.catch(() => {});
     }
     return device;
+}
+
+// Ist das Terminal des Lagers gerade erreichbar? Pingt es bei Bedarf über MQTT an;
+// die Antwort (/api/device/pong) setzt "zuletzt gesehen" – der nächste Aufruf meldet dann "online".
+export async function getTerminalStatus(systemId) {
+    const { devices, pairings } = await collections();
+    const [device] = await devices.find({ systemId: new ObjectId(systemId) }).sort({ createdAt: -1 }).limit(1).toArray();
+    if (!device) {
+        // Terminal mit altem Code (direkter Datenbankzugriff) lässt sich nicht prüfen
+        const legacy = await pairings.findOne({ systemId: String(systemId), status: 'paired', viaApi: { $ne: true } });
+        return { state: legacy ? 'unknown' : 'unpaired' };
+    }
+    if (!isMqttConfigured()) return { state: 'unknown', lastSeenAt: device.lastSeenAt?.toISOString() || null };
+
+    const result = terminalState({
+        now: Date.now(),
+        lastSeenAt: device.lastSeenAt?.getTime(),
+        lastPingAt: device.lastPingAt?.getTime(),
+        version: device.softwareVersion
+    });
+    if (result.sendPing) {
+        await devices.updateOne({ _id: device._id }, { $set: { lastPingAt: new Date() } });
+        await dispatchToSystem(systemId, { t: 'ping' });
+    }
+    return { state: result.state, outdated: !!result.outdated, lastSeenAt: device.lastSeenAt?.toISOString() || null };
 }
 
 // Rückmeldung zu einem Waagen- oder Kalibrier-Auftrag – nur für Aufträge des eigenen Lagers

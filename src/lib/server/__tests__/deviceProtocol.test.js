@@ -26,3 +26,35 @@ describe('Geräte-Protokoll', () => {
             .toEqual({ t: 'calibrate_ratio', id: 'c', weight: 500 });
     });
 });
+
+import { terminalState, versionAtLeast, versionFromUserAgent } from '../deviceProtocol.js';
+describe('Erreichbarkeit des Terminals', () => {
+    const now = 1_000_000_000;
+    const v = '2.1.0';
+    it('vergleicht Versionen', () => {
+        expect(versionAtLeast('2.1.0', '2.1.0')).toBe(true);
+        expect(versionAtLeast('2.0.9', '2.1.0')).toBe(false);
+        expect(versionAtLeast('10.0.0', '2.1.0')).toBe(true);
+        expect(versionAtLeast(null, '2.1.0')).toBe(false);
+        expect(versionFromUserAgent('SortifyTerminal/2.1.0')).toBe('2.1.0');
+        expect(versionFromUserAgent('Mozilla/5.0')).toBeNull();
+    });
+    it('frische Meldung = verbunden, ohne Ping', () => {
+        expect(terminalState({ now, lastSeenAt: now - 30_000, version: v })).toEqual({ state: 'online', sendPing: false });
+    });
+    it('alte Meldung: anpingen und prüfen', () => {
+        expect(terminalState({ now, lastSeenAt: now - 120_000, version: v })).toEqual({ state: 'checking', sendPing: true });
+        expect(terminalState({ now, lastSeenAt: now - 120_000, lastPingAt: now - 3_000, version: v })).toEqual({ state: 'checking', sendPing: false });
+    });
+    it('Ping unbeantwortet = nicht erreichbar, später erneut anpingen', () => {
+        expect(terminalState({ now, lastSeenAt: now - 120_000, lastPingAt: now - 10_000, version: v })).toEqual({ state: 'offline', sendPing: false });
+        expect(terminalState({ now, lastSeenAt: now - 120_000, lastPingAt: now - 25_000, version: v })).toEqual({ state: 'offline', sendPing: true });
+    });
+    it('Antwort auf den Ping = verbunden', () => {
+        expect(terminalState({ now, lastSeenAt: now - 1_000, lastPingAt: now - 2_000, version: v }).state).toBe('online');
+    });
+    it('ältere Terminal-Software: Status über das Lebenszeichen', () => {
+        expect(terminalState({ now, lastSeenAt: now - 10 * 60_000, version: '2.0.0' })).toEqual({ state: 'online', sendPing: false, outdated: true });
+        expect(terminalState({ now, lastSeenAt: now - 20 * 60_000, version: null })).toEqual({ state: 'offline', sendPing: false, outdated: true });
+    });
+});

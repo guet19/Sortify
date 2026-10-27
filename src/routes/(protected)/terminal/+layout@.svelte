@@ -1,7 +1,42 @@
 <script>
     import { beforeNavigate, afterNavigate } from '$app/navigation';
+    import { onMount } from 'svelte';
 
-    let hardwareConnected = true; 
+    // --- Verbindung zum Terminal (Raspberry Pi) ---
+    // Der Server pingt das Terminal bei Bedarf per MQTT an; es antwortet per HTTPS.
+    // Abgefragt wird nur, solange die Seite sichtbar ist.
+    const STATUS = {
+        online:   { label: 'Sync aktiv', hint: 'Das Terminal ist verbunden.' },
+        checking: { label: 'Prüfe…', hint: 'Verbindung zum Terminal wird geprüft.' },
+        offline:  { label: 'Terminal offline', hint: 'Das Terminal antwortet nicht. LEDs und Waage reagieren erst wieder, wenn es verbunden ist.' },
+        unpaired: { label: 'Kein Terminal', hint: 'Mit diesem Lager ist noch kein Terminal gekoppelt.' },
+        unknown:  { label: 'Status unbekannt', hint: 'Der Verbindungsstatus lässt sich gerade nicht ermitteln.' }
+    };
+    let status = { state: 'checking' };
+    let statusTimer;
+
+    async function checkStatus() {
+        clearTimeout(statusTimer);
+        try {
+            const res = await fetch('/api/terminal-status', { cache: 'no-store' });
+            status = res.ok ? await res.json() : { state: 'unknown' };
+        } catch {
+            status = { state: 'unknown' }; // eigenes Netzwerk weg
+        }
+        if (!document.hidden) statusTimer = setTimeout(checkStatus, status.state === 'checking' ? 2500 : 45000);
+    }
+
+    onMount(() => {
+        checkStatus();
+        const onVisibility = () => (document.hidden ? clearTimeout(statusTimer) : checkStatus());
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => { clearTimeout(statusTimer); document.removeEventListener('visibilitychange', onVisibility); };
+    });
+
+    $: info = STATUS[status.state] || STATUS.unknown;
+    $: lastSeen = status.lastSeenAt ? new Date(status.lastSeenAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : null;
+    $: title = [info.hint, lastSeen && status.state !== 'online' ? `Zuletzt gemeldet: ${lastSeen}` : '', status.outdated ? 'Hinweis: Terminal-Software veraltet – Status nur ungefähr.' : '']
+        .filter(Boolean).join(' ');
 
     // Im Terminal scrollt nicht das Fenster, sondern dieser Bereich – SvelteKit setzt ihn
     // beim Seitenwechsel nicht zurück. Deshalb: neue Seite immer oben öffnen,
@@ -30,10 +65,17 @@
         </div>
         
         <div class="system-status">
-            <div class="status-indicator">
-                <span class="dot {hardwareConnected ? 'online' : 'offline'}"></span>
-                <span class="status-text">{hardwareConnected ? 'Sync aktiv' : 'Offline'}</span>
-            </div>
+            {#if status.state === 'unpaired'}
+                <a href="/terminal/settings/pairing" class="status-indicator" title={title} aria-label="{info.label}: {info.hint}">
+                    <span class="dot {status.state}"></span>
+                    <span class="status-text">{info.label}</span>
+                </a>
+            {:else}
+                <button type="button" class="status-indicator" on:click={checkStatus} title="{title} Klicken zum erneuten Prüfen." aria-label="{info.label}: {info.hint} Erneut prüfen">
+                    <span class="dot {status.state}"></span>
+                    <span class="status-text">{info.label}</span>
+                </button>
+            {/if}
             
             <!-- NEU: Das kleine Zahnrad-Symbol oben rechts -->
             <a href="/terminal/settings" class="settings-btn" aria-label="Einstellungen">
@@ -44,6 +86,12 @@
             </a>
         </div>
     </header>
+
+    {#if status.state === 'offline'}
+        <div class="offline-banner" role="status">
+            Das Terminal ist nicht erreichbar{lastSeen ? ` (zuletzt gemeldet ${lastSeen})` : ''}. LEDs und Waage reagieren erst wieder, wenn es verbunden ist.
+        </div>
+    {/if}
 
     <main class="terminal-content" bind:this={contentEl}>
         <slot />
@@ -60,10 +108,16 @@
     .badge { font-size: 0.9rem; background-color: #3b82f6; padding: 0.3rem 0.8rem; border-radius: 8px; letter-spacing: 2px; }
     
     .system-status { display: flex; align-items: center; gap: 2rem; }
-    .status-indicator { display: flex; align-items: center; gap: 0.8rem; font-weight: 600; color: #94a3b8; }
-    .dot { width: 12px; height: 12px; border-radius: 50%; }
-    .online { background-color: #22c55e; box-shadow: 0 0 10px #22c55e; }
-    .offline { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+    .status-indicator { display: flex; align-items: center; gap: 0.8rem; font-weight: 600; color: #94a3b8; background: none; border: none; padding: 0.4rem; margin: -0.4rem; border-radius: 8px; cursor: pointer; font-family: inherit; font-size: 1rem; text-decoration: none; }
+    .status-indicator:hover, .status-indicator:focus-visible { color: #e2e8f0; background: rgba(148, 163, 184, 0.1); }
+    .dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+    .dot.online { background-color: #22c55e; box-shadow: 0 0 10px #22c55e; }
+    .dot.offline { background-color: #ef4444; box-shadow: 0 0 10px #ef4444; }
+    .dot.checking { background-color: #f59e0b; box-shadow: 0 0 8px #f59e0b; animation: pulse 1.2s ease-in-out infinite; }
+    .dot.unpaired, .dot.unknown { background-color: #64748b; }
+    @keyframes pulse { 50% { opacity: 0.35; } }
+    @media (prefers-reduced-motion: reduce) { .dot.checking { animation: none; } }
+    .offline-banner { background: rgba(239, 68, 68, 0.12); border-bottom: 1px solid #ef4444; color: #fecaca; padding: 0.6rem 2rem; font-size: 0.95rem; font-weight: 600; }
 
     /* Touch-freundlicher Settings-Button */
     .settings-btn {
@@ -92,5 +146,6 @@
         .settings-btn { width: 44px; height: 44px; border-radius: 10px; }
         .settings-btn svg { width: 22px; height: 22px; }
         .terminal-content { padding: 1rem; }
+        .offline-banner { padding: 0.5rem 1rem; font-size: 0.85rem; }
     }
 </style>

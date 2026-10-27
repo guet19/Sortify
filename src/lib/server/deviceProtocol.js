@@ -59,3 +59,40 @@ export function commandFromDoc(collection, doc) {
     }
     return null;
 }
+
+// ---------- Erreichbarkeit des Terminals ----------
+// Terminals ab Version 2.1.0 beantworten einen "ping" sofort per HTTPS (/api/device/pong).
+export const PING_MIN_VERSION = '2.1.0';
+export const STATUS_TIMING = {
+    freshMs: 60_000,          // so lange gilt eine Meldung des Terminals als "verbunden"
+    pingTimeoutMs: 8_000,     // ohne Antwort nach dieser Zeit: "nicht erreichbar"
+    repingMs: 20_000,         // frühestens dann erneut anpingen (z.B. wenn es offline war)
+    legacyWindowMs: 16 * 60_000 // ältere Terminals: Lebenszeichen alle 15 Minuten
+};
+
+// "2.0.0" < "2.1.0"; fehlende Version = alt
+export function versionAtLeast(version, minimum) {
+    const parse = (v) => String(v || '0').split('.').map((n) => parseInt(n, 10) || 0);
+    const [a, b] = [parse(version), parse(minimum)];
+    for (let i = 0; i < 3; i++) if ((a[i] || 0) !== (b[i] || 0)) return (a[i] || 0) > (b[i] || 0);
+    return true;
+}
+
+// Version aus dem User-Agent des Terminals ("SortifyTerminal/2.1.0")
+export function versionFromUserAgent(userAgent) {
+    return String(userAgent || '').match(/SortifyTerminal\/(\d+\.\d+\.\d+)/)?.[1] || null;
+}
+
+// Entscheidet anhand der Zeitstempel (ms), wie der Status lautet und ob jetzt ein Ping nötig ist.
+// state: 'online' | 'checking' | 'offline'
+export function terminalState({ now, lastSeenAt, lastPingAt, version }, t = STATUS_TIMING) {
+    const seen = lastSeenAt || 0, pinged = lastPingAt || 0;
+    if (!versionAtLeast(version, PING_MIN_VERSION)) {
+        return { state: now - seen < t.legacyWindowMs ? 'online' : 'offline', sendPing: false, outdated: true };
+    }
+    if (now - seen < t.freshMs) return { state: 'online', sendPing: false };
+    const pending = pinged > seen;
+    if (pending && now - pinged < t.pingTimeoutMs) return { state: 'checking', sendPing: false };
+    if (pending) return { state: 'offline', sendPing: now - pinged >= t.repingMs };
+    return { state: 'checking', sendPing: true };
+}
