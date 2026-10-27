@@ -53,6 +53,17 @@ describe('Erreichbarkeit des Terminals', () => {
     it('Antwort auf den Ping = verbunden', () => {
         expect(terminalState({ now, lastSeenAt: now - 1_000, lastPingAt: now - 2_000, version: v }).state).toBe('online');
     });
+    it('unbeantworteter Ping hat Vorrang vor einer erst kurz zurückliegenden Meldung', () => {
+        // Terminal vor 30 s zuletzt gemeldet, seit 10 s keine Antwort auf den Ping -> offline
+        expect(terminalState({ now, lastSeenAt: now - 30_000, lastPingAt: now - 10_000, version: v }).state).toBe('offline');
+        expect(terminalState({ now, lastSeenAt: now - 30_000, lastPingAt: now - 3_000, version: v }).state).toBe('checking');
+    });
+    it('Neuladen/Klick prüft echt: Meldung älter als 10 s -> neu anpingen', () => {
+        expect(terminalState({ now, lastSeenAt: now - 30_000, version: v, freshMs: 10_000 })).toEqual({ state: 'checking', sendPing: true });
+        expect(terminalState({ now, lastSeenAt: now - 5_000, version: v, freshMs: 10_000 })).toEqual({ state: 'online', sendPing: false });
+        // Hintergrund-Abfrage: 30 s alte Meldung reicht
+        expect(terminalState({ now, lastSeenAt: now - 30_000, version: v }).state).toBe('online');
+    });
     it('ältere Terminal-Software: Status über das Lebenszeichen', () => {
         expect(terminalState({ now, lastSeenAt: now - 10 * 60_000, version: '2.0.0' })).toEqual({ state: 'online', sendPing: false, outdated: true });
         expect(terminalState({ now, lastSeenAt: now - 20 * 60_000, version: null })).toEqual({ state: 'offline', sendPing: false, outdated: true });

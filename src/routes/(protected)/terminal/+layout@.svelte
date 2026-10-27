@@ -15,10 +15,12 @@
     let status = { state: 'checking' };
     let statusTimer;
 
-    async function checkStatus() {
+    // fresh = beim Öffnen, Klick oder Zurückkehren zum Tab: das Terminal jetzt wirklich anpingen
+    async function checkStatus(fresh = false) {
         clearTimeout(statusTimer);
+        if (fresh && status.state !== 'unpaired') status = { ...status, state: 'checking' };
         try {
-            const res = await fetch('/api/terminal-status', { cache: 'no-store' });
+            const res = await fetch(`/api/terminal-status${fresh ? '?fresh=1' : ''}`, { cache: 'no-store' });
             status = res.ok ? await res.json() : { state: 'unknown' };
         } catch {
             status = { state: 'unknown' }; // eigenes Netzwerk weg
@@ -27,8 +29,8 @@
     }
 
     onMount(() => {
-        checkStatus();
-        const onVisibility = () => (document.hidden ? clearTimeout(statusTimer) : checkStatus());
+        checkStatus(true);
+        const onVisibility = () => (document.hidden ? clearTimeout(statusTimer) : checkStatus(true));
         document.addEventListener('visibilitychange', onVisibility);
         return () => { clearTimeout(statusTimer); document.removeEventListener('visibilitychange', onVisibility); };
     });
@@ -71,7 +73,7 @@
                     <span class="status-text">{info.label}</span>
                 </a>
             {:else}
-                <button type="button" class="status-indicator" on:click={checkStatus} title="{title} Klicken zum erneuten Prüfen." aria-label="{info.label}: {info.hint} Erneut prüfen">
+                <button type="button" class="status-indicator" on:click={() => checkStatus(true)} title="{title} Klicken zum erneuten Prüfen." aria-label="{info.label}: {info.hint} Erneut prüfen">
                     <span class="dot {status.state}"></span>
                     <span class="status-text">{info.label}</span>
                 </button>

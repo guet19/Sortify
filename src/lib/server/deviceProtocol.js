@@ -85,14 +85,17 @@ export function versionFromUserAgent(userAgent) {
 
 // Entscheidet anhand der Zeitstempel (ms), wie der Status lautet und ob jetzt ein Ping nötig ist.
 // state: 'online' | 'checking' | 'offline'
-export function terminalState({ now, lastSeenAt, lastPingAt, version }, t = STATUS_TIMING) {
+// freshMs: wie alt die letzte Meldung höchstens sein darf, damit ohne Ping "online" gilt
+//          (Hintergrund-Abfrage: 60 s; Neuladen/Klick: 10 s, damit sofort echt geprüft wird)
+export function terminalState({ now, lastSeenAt, lastPingAt, version, freshMs }, t = STATUS_TIMING) {
     const seen = lastSeenAt || 0, pinged = lastPingAt || 0;
     if (!versionAtLeast(version, PING_MIN_VERSION)) {
         return { state: now - seen < t.legacyWindowMs ? 'online' : 'offline', sendPing: false, outdated: true };
     }
-    if (now - seen < t.freshMs) return { state: 'online', sendPing: false };
+    // Ein unbeantworteter Ping hat Vorrang: Wer gefragt wurde und nicht antwortet, ist nicht erreichbar
     const pending = pinged > seen;
     if (pending && now - pinged < t.pingTimeoutMs) return { state: 'checking', sendPing: false };
     if (pending) return { state: 'offline', sendPing: now - pinged >= t.repingMs };
+    if (now - seen < (freshMs ?? t.freshMs)) return { state: 'online', sendPing: false };
     return { state: 'checking', sendPing: true };
 }

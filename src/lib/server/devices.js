@@ -143,7 +143,8 @@ export async function deviceFromRequest(request, { force = false } = {}) {
 
 // Ist das Terminal des Lagers gerade erreichbar? Pingt es bei Bedarf über MQTT an;
 // die Antwort (/api/device/pong) setzt "zuletzt gesehen" – der nächste Aufruf meldet dann "online".
-export async function getTerminalStatus(systemId) {
+// fresh: true bei Neuladen/Klick – dann wird schon nach 10 s ohne Meldung neu angepingt
+export async function getTerminalStatus(systemId, { fresh = false } = {}) {
     const { devices, pairings } = await collections();
     const [device] = await devices.find({ systemId: new ObjectId(systemId) }).sort({ createdAt: -1 }).limit(1).toArray();
     if (!device) {
@@ -157,7 +158,8 @@ export async function getTerminalStatus(systemId) {
         now: Date.now(),
         lastSeenAt: device.lastSeenAt?.getTime(),
         lastPingAt: device.lastPingAt?.getTime(),
-        version: device.softwareVersion
+        version: device.softwareVersion,
+        freshMs: fresh ? 10_000 : undefined
     });
     if (result.sendPing) {
         await devices.updateOne({ _id: device._id }, { $set: { lastPingAt: new Date() } });
