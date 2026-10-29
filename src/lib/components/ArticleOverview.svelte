@@ -996,4 +996,9 @@
     .header-actions { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
     .btn-outline { background: transparent; color: #e2e8f0; border: 1px solid #475569; padding: 0.55rem 1rem; border-radius: 6px; text-decoration: none; font-weight: 600; cursor: pointer; font-family: inherit; font-size: 0.95rem; }
     .btn-outline:hover { background: rgba(255,255,255,0.06); border-color: #94a3b8; color: #fff; }
+
+    /* Smartphone: Artikel anlegen und CSV-Import/-Export nur am Tablet oder Computer anbieten */
+    @media (max-width: 640px) {
+        .header-actions { display: none; }
+    }
 </style>

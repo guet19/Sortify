@@ -126,19 +126,20 @@
             </div>
 
             {#if $page.data.isLoggedIn && $page.data.user}
-                <div class="d-flex align-items-center gap-3">
-                    <!-- Lager-Umschalter -->
-                    <div class="dropdown">
+                <div class="d-flex align-items-center gap-3 user-area">
+                    <!-- Lager-Umschalter (eingeklappte Menüleiste: eigene Zeile, Menü linksbündig) -->
+                    <div class="dropdown system-dropdown">
                         <button
                             class="btn system-switch dropdown-toggle space-grotesk"
                             type="button"
                             data-bs-toggle="dropdown"
+                            data-bs-display="static"
                             aria-expanded="false"
                         >
                             <i class="bi bi-box-seam"></i>
                             <span class="system-switch-name">{activeSystem?.name || 'Lager wählen'}</span>
                         </button>
-                        <ul class="dropdown-menu dropdown-menu-end shadow-sm">
+                        <ul class="dropdown-menu dropdown-menu-lg-end shadow-sm">
                             {#if systems.length > 0}
                                 <li><h6 class="dropdown-header">Lager wechseln</h6></li>
                                 {#each systems as system (system.id)}
@@ -188,7 +189,7 @@
                     </a>
 
                     <!-- Logout per POST (ein Link könnte von fremden Seiten ausgelöst werden) -->
-                    <form method="POST" action="/logout" class="m-0">
+                    <form method="POST" action="/logout" class="m-0 logout-form">
                         <button type="submit" class="btn btn-danger m-0">Abmelden</button>
                     </form>
                 </div>

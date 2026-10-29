@@ -35,3 +35,16 @@ p {color: white;}
 .system-switch-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropdown-item.active, .dropdown-item:disabled.active { background-color: #22c55e; color: #0B192C; }
 .dropdown-item.active small { color: #0B192C !important; }
+
+/* Eingeklappte Menüleiste (Handy & Tablet, unter 992 px):
+   Lager-Umschalter in voller Breite, darunter Profil links und "Abmelden" rechts */
+@media (max-width: 991.98px) {
+    .user-area { flex-wrap: wrap; gap: 0.75rem !important; padding: 0.75rem 0 0.25rem; margin-top: 0.5rem; border-top: 1px solid #e2e8f0; }
+    .user-area .system-dropdown { flex: 1 1 100%; min-width: 0; }
+    .user-area .system-switch { width: 100%; justify-content: flex-start; }
+    .user-area .system-switch::after { margin-left: auto; }
+    .user-area .system-switch-name { max-width: none; flex: 1; min-width: 0; text-align: left; }
+    .user-area .dropdown-menu { width: 100%; }
+    .user-area .dropdown-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .user-area .logout-form { margin-left: auto !important; }
+}
