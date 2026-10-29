@@ -36,7 +36,7 @@
     <link rel="icon" href={favicon} />
 </svelte:head>
 
-{#if !$page.url.pathname.startsWith('/terminal')}
+{#if !$page.url.pathname.startsWith('/terminal') && !$page.url.pathname.startsWith('/foto/')}
 <nav class="navbar navbar-expand-lg bg-body-tertiary">
     <div class="container">
         <!-- Das Logo verlinkt weiterhin auf "/", der Türsteher leitet User ohne Rechte dann smart weiter -->

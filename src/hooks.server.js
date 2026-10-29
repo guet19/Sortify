@@ -62,7 +62,9 @@ async function authHandle({ event, resolve }) {
         '/verify-email', 
         '/verify-password',
         '/api/cron/',          // Zeitgesteuerte Aufgaben, geschützt durch CRON_SECRET
-        '/api/device/'         // Terminals, geschützt durch Kopplungsgeheimnis bzw. Geräte-Token
+        '/api/device/',        // Terminals, geschützt durch Kopplungsgeheimnis bzw. Geräte-Token
+        '/foto/',              // Handy-Seite für Artikelfotos, geschützt durch den Schlüssel im QR-Code
+        '/api/photo-upload/'   // Upload dieser Fotos (gleicher Schlüssel)
     ]; 
     if (publicRoutes.some(route => path.startsWith(route))) {
         if (user) {

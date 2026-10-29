@@ -5,6 +5,8 @@
     import SearchableSelect from "$lib/components/SearchableSelect.svelte";
     import AiModelBadge from "$lib/components/AiModelBadge.svelte";
     import { prepareOnWhite, rotateBlob, imageItem, articleImageUrls, appendImagesToFormData, MAX_ARTICLE_IMAGES } from "$lib/imageTools.js";
+    import ImageAiTools from "$lib/components/ImageAiTools.svelte";
+    import PhonePhotoButton from "$lib/components/PhonePhotoButton.svelte";
     import ArticleImageList from "$lib/components/ArticleImageList.svelte";
     import { page } from "$app/stores";
     import { goto, invalidateAll } from "$app/navigation"; 
@@ -550,6 +552,25 @@
         isCropping = false; imagePreview = null; sourceBlob = null;
         selectedImageUrl = "";
         if (fileInputElement) fileInputElement.value = "";
+        openNextPhonePhoto();
+    }
+
+    // --- Fotos vom Smartphone (QR-Code): kommen nacheinander in den Zuschnitt-Editor ---
+    let phoneQueue = [];
+    async function receivePhonePhoto(blob) {
+        if (galleryItems.length + phoneQueue.length >= MAX_ARTICLE_IMAGES) return;
+        if (isCropping) {
+            phoneQueue = [...phoneQueue, blob];
+            return;
+        }
+        selectedImageUrl = "";
+        await processImageBlob(blob);
+    }
+    function openNextPhonePhoto() {
+        if (!phoneQueue.length || galleryItems.length >= MAX_ARTICLE_IMAGES) return;
+        const [next, ...rest] = phoneQueue;
+        phoneQueue = rest;
+        processImageBlob(next);
     }
 
     onDestroy(() => {
@@ -931,11 +952,22 @@
                     <div class="image-limit-hint">Maximal {MAX_ARTICLE_IMAGES} Bilder pro Artikel erreicht.</div>
                 {/if}
 
+                <!-- Ausserhalb des Editors, damit eine laufende Handy-Sitzung beim Zuschneiden weiterläuft -->
+                <div class="phone-photo" style="margin-top: 0.75rem;">
+                    <PhonePhotoButton disabled={!canAddImage} onPhoto={receivePhonePhoto} />
+                </div>
+
                 {#if isCropping}
                     <div class="crop-editor-box" style="margin-top: 1rem; border: 1px solid #e2e8f0; padding: 1rem; border-radius: 8px; background: #f8fafc;">
                         <div class="image-workspace" style="margin-bottom: 1rem;">
                             <img bind:this={cropperImageEl} src={imagePreview} alt="Zuschneiden" />
                         </div>
+                        <div style="margin-bottom: 1rem;">
+                            <ImageAiTools blob={sourceBlob} onResult={(b) => processImageBlob(b)} />
+                        </div>
+                        {#if phoneQueue.length}
+                            <div class="phone-queue-hint">📱 {phoneQueue.length} weitere{phoneQueue.length === 1 ? 's Foto wartet' : ' Fotos warten'} vom Handy – öffnet sich nach diesem Bild.</div>
+                        {/if}
                         <div class="cropper-actions" style="display: flex; gap: 1rem; justify-content: flex-end; flex-wrap: wrap;">
                             <button type="button" class="btn-rotate" on:click={() => rotateImage(-90)} disabled={isRotating} title="Bild nach links drehen">⟲ Links drehen</button>
                             <button type="button" class="btn-rotate" on:click={() => rotateImage(90)} disabled={isRotating} title="Bild nach rechts drehen">⟳ Rechts drehen</button>
@@ -1262,4 +1294,6 @@
     .candidate.added { border-color: #22c55e; opacity: 0.55; }
     .candidate:disabled { cursor: not-allowed; }
     .image-limit-hint { margin-top: 0.75rem; font-size: 0.85rem; color: #64748b; }
+
+    .phone-queue-hint { margin: -0.25rem 0 0.75rem 0; font-size: 0.85rem; color: #2563eb; font-weight: 600; }
 </style>

@@ -16,6 +16,9 @@ const API_PERMISSIONS = {
     '/api/apply-category-structure': ['/einstellungen/category'],
     '/api/ai-status': ['/addarticle', '/einstellungen/category'],
     '/api/pairing-status': ['/terminal/settings/pairing'],
+    // Artikel-Editor: KI-Bildbearbeitung und Fotos vom Smartphone
+    '/api/image-cleanup': ['/addarticle', '/editarticle'],
+    '/api/photo-session': ['/addarticle', '/editarticle'],
     // Verbindungsanzeige im Terminal: für alle, die irgendeine Terminal-Seite öffnen dürfen
     '/api/terminal-status': ['/terminal', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
         '/terminal/settings/maintenance', '/terminal/settings/shelf', '/terminal/settings/pairing']

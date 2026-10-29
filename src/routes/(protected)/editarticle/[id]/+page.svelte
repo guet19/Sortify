@@ -9,6 +9,8 @@
     import Cropper from "cropperjs";
     import { prepareOnWhite, rotateBlob, imageItem, articleImageUrls, appendImagesToFormData, MAX_ARTICLE_IMAGES } from "$lib/imageTools.js";
     import ArticleImageList from "$lib/components/ArticleImageList.svelte";
+    import ImageAiTools from "$lib/components/ImageAiTools.svelte";
+    import PhonePhotoButton from "$lib/components/PhonePhotoButton.svelte";
 
     export let data;
     export let form;
@@ -129,6 +131,24 @@
         if (imagePreview) URL.revokeObjectURL(imagePreview);
         isCropping = false; imagePreview = null; sourceBlob = null;
         if (fileInputElement) fileInputElement.value = "";
+        openNextPhonePhoto();
+    }
+
+    // --- Fotos vom Smartphone (QR-Code): kommen nacheinander in den Zuschnitt-Editor ---
+    let phoneQueue = [];
+    async function receivePhonePhoto(blob) {
+        if (galleryItems.length + phoneQueue.length >= MAX_ARTICLE_IMAGES) return;
+        if (isCropping) {
+            phoneQueue = [...phoneQueue, blob];
+            return;
+        }
+        await processImageBlob(blob);
+    }
+    function openNextPhonePhoto() {
+        if (!phoneQueue.length || galleryItems.length >= MAX_ARTICLE_IMAGES) return;
+        const [next, ...rest] = phoneQueue;
+        phoneQueue = rest;
+        processImageBlob(next);
     }
 
     onDestroy(() => {
@@ -266,6 +286,10 @@
                             <button type="button" class="btn-image-action" on:click={() => rotateImage(-90)} disabled={isRotating} title="Bild nach links drehen">⟲ Links drehen</button>
                             <button type="button" class="btn-image-action" on:click={() => rotateImage(90)} disabled={isRotating} title="Bild nach rechts drehen">⟳ Rechts drehen</button>
                         </div>
+                        <ImageAiTools blob={sourceBlob} onResult={(b) => processImageBlob(b)} />
+                        {#if phoneQueue.length}
+                            <div class="phone-queue-hint">📱 {phoneQueue.length} weitere{phoneQueue.length === 1 ? 's Foto wartet' : ' Fotos warten'} vom Handy – öffnet sich nach diesem Bild.</div>
+                        {/if}
                         <div class="cropper-actions">
                             <button type="button" class="btn-image-action cancel" on:click={closeCropper}>Abbrechen</button>
                             <button type="button" class="btn-image-action save" on:click={applyCrop}>Bild übernehmen</button>
@@ -294,6 +318,10 @@
                         {/if}
                     </div>
                 {/if}
+                <!-- Ausserhalb des Editors, damit eine laufende Handy-Sitzung beim Zuschneiden weiterläuft -->
+                <div class="phone-photo">
+                    <PhonePhotoButton disabled={!canAddImage} onPhoto={receivePhonePhoto} />
+                </div>
             </div>
 
             <div class="info-section">
@@ -665,4 +693,7 @@
     .stock-input.locked { background: #f1f5f9; color: #64748b; cursor: not-allowed; }
     .stock-lock-hint { flex-basis: 100%; margin: 0; font-size: 0.82rem; color: #94a3b8; }
     .stock-lock-hint a { color: #60a5fa; }
+
+    .phone-photo { margin-top: 0.75rem; }
+    .phone-queue-hint { font-size: 0.85rem; color: #60a5fa; font-weight: 600; }
 </style>

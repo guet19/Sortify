@@ -72,6 +72,14 @@ const INDEXES = {
         [{ systemId: 1, rootProjectId: 1, createdAt: -1 }, { name: 'systemId_root_createdAt' }],
         [{ systemId: 1, projectId: 1, createdAt: -1 }, { name: 'systemId_project_createdAt' }]
     ],
+    photo_sessions: [
+        [{ tokenHash: 1 }, { name: 'tokenHash_unique', unique: true }],
+        [{ expiresAt: 1 }, { name: 'ttl_expiresAt', expireAfterSeconds: 0 }]
+    ],
+    photo_session_images: [
+        [{ sessionId: 1, createdAt: 1 }, { name: 'sessionId_createdAt' }],
+        [{ expiresAt: 1 }, { name: 'ttl_expiresAt', expireAfterSeconds: 0 }]
+    ],
     hardware_commands: [
         [{ systemId: 1, status: 1 }, { name: 'systemId_status' }],
         [{ createdAt: 1 }, { name: 'ttl_createdAt', expireAfterSeconds: DAY }]

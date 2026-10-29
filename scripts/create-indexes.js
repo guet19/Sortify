@@ -85,6 +85,15 @@ const INDEXES = {
         { key: { systemId: 1, rootProjectId: 1, createdAt: -1 }, options: { name: 'systemId_root_createdAt' } },
         { key: { systemId: 1, projectId: 1, createdAt: -1 }, options: { name: 'systemId_project_createdAt' } }
     ],
+    // Fotos vom Smartphone (QR-Code beim Artikel anlegen): nach 15 Minuten automatisch löschen
+    photo_sessions: [
+        { key: { tokenHash: 1 }, options: { name: 'tokenHash_unique', unique: true } },
+        { key: { expiresAt: 1 }, options: { name: 'ttl_expiresAt', expireAfterSeconds: 0 } }
+    ],
+    photo_session_images: [
+        { key: { sessionId: 1, createdAt: 1 }, options: { name: 'sessionId_createdAt' } },
+        { key: { expiresAt: 1 }, options: { name: 'ttl_expiresAt', expireAfterSeconds: 0 } }
+    ],
     hardware_commands: [
         { key: { systemId: 1, status: 1 }, options: { name: 'systemId_status' } },
         // Erledigte/alte LED-Befehle nach 24 Stunden entfernen

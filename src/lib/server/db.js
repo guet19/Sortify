@@ -1565,6 +1565,8 @@ async function deleteSystemCompletely(systemId) {
         db.collection('stock_movements').deleteMany(bySystem),
         db.collection('projects').deleteMany(bySystem),
         db.collection('project_bookings').deleteMany(bySystem),
+        db.collection('photo_sessions').deleteMany(bySystem),
+        db.collection('photo_session_images').deleteMany(bySystem),
         // Kopplungen speichern die System-ID als Text
         db.collection('device_pairings').deleteMany({ systemId: systemId.toString() }),
         // Terminals erfahren per MQTT, dass sie nicht mehr gekoppelt sind
