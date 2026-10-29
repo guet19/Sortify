@@ -34,7 +34,7 @@ import neopixel
 import RPi.GPIO as GPIO
 from hx711 import HX711
 
-VERSION = "2.1.0"   # ab 2.1.0: Antwort auf Verbindungstests (Anzeige "Sync aktiv" in Sortify)
+VERSION = "2.1.1"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr
 
 # ==========================================
 # 1. EINSTELLUNGEN
@@ -327,11 +327,11 @@ def run_pairing_mode():
 
         credentials = {"pairingId": pairing["pairingId"], "secret": pairing["secret"]}
         state, shown_code = "CODE_1", pairing["code"]
-        deadline = time.time() + pairing.get("expiresInSeconds", 600)
+        deadline = time.monotonic() + pairing.get("expiresInSeconds", 600)
         last_ui = last_poll = 0
 
-        while time.time() < deadline:
-            now = time.time()
+        while time.monotonic() < deadline:
+            now = time.monotonic()
             if now - last_ui >= 1.0:
                 draw_pairing_ui(state, shown_code, int(deadline - now))
                 last_ui = now
@@ -375,7 +375,7 @@ def run_pairing_mode():
                     if not accept or not data.get("code2"):
                         break  # abgelehnt oder abgelaufen -> neuer Code
                     state, shown_code, last_ui = "CODE_2", data["code2"], 0
-                    deadline = time.time() + 600
+                    deadline = time.monotonic() + 600
                     time.sleep(0.3)
             time.sleep(0.05)
 
@@ -385,7 +385,16 @@ def run_pairing_mode():
 # ==========================================
 commands = queue.Queue()
 seen_message_ids = deque(maxlen=500)
-clock_offset_ms = 0   # Serverzeit - lokale Zeit (falls die Uhr des Pi falsch geht)
+# Serverzeit = monotone Uhr + Abstand. Die monotone Uhr springt nicht, wenn die Systemuhr nach dem
+# Einschalten übers Internet gestellt wird (der Raspberry Pi hat keine eingebaute Uhr). Ein einmaliger
+# Abgleich mit der Systemuhr wäre danach falsch und alle Befehle würden als "zu alt" verworfen.
+server_offset_ms = None
+
+
+def server_now_ms():
+    if server_offset_ms is None:
+        return time.time() * 1000
+    return time.monotonic() * 1000 + server_offset_ms
 mqtt_connected = False
 
 
@@ -417,9 +426,12 @@ def on_message(client, userdata, msg):
     except Exception:
         print("Nachricht verworfen (falscher Schlüssel oder verändert)")
         return
-    now_ms = time.time() * 1000 + clock_offset_ms
-    if abs(now_ms - message.get("ts", 0)) > MAX_MESSAGE_AGE_MS or message.get("mid") in seen_message_ids:
-        return  # zu alt oder doppelt
+    if message.get("mid") in seen_message_ids:
+        return  # doppelt
+    age_ms = server_now_ms() - message.get("ts", 0)
+    if abs(age_ms) > MAX_MESSAGE_AGE_MS:
+        print(f"Nachricht verworfen: {age_ms / 1000:.0f} s alt (erlaubt: {MAX_MESSAGE_AGE_MS // 1000} s)")
+        return
     seen_message_ids.append(message.get("mid"))
     commands.put(message)
 
@@ -442,12 +454,12 @@ def connect_mqtt(settings, prefix):
 
 def fetch_device_config():
     """Lebenszeichen an Sortify; liefert Broker-Daten und die Serverzeit."""
-    global clock_offset_ms
-    before = time.time() * 1000
+    global server_offset_ms
+    before = time.monotonic() * 1000
     response = api("GET", "/api/device/config")
     response.raise_for_status()
     data = response.json()
-    clock_offset_ms = data["serverTime"] - (before + time.time() * 1000) / 2
+    server_offset_ms = data["serverTime"] - (before + time.monotonic() * 1000) / 2
     return data
 
 
@@ -494,12 +506,12 @@ def run_normal_mode():
     blink_state = False
     last_blink_time = blink_start_time = 0
     led_color = (0, 255, 0)
-    last_activity = last_heartbeat = time.time()
+    last_activity = last_heartbeat = time.monotonic()
     sleeping = False
 
     def wake_up():
         nonlocal sleeping, last_activity
-        last_activity = time.time()
+        last_activity = time.monotonic()
         if sleeping:
             sleeping = False
             show_ready()
@@ -512,7 +524,7 @@ def run_normal_mode():
 
     try:
         while True:
-            now = time.time()
+            now = time.monotonic()
             if touched():
                 wake_up()
                 time.sleep(0.3)
@@ -591,21 +603,21 @@ def run_normal_mode():
                             blink_state = True
                             for i in blink_indices:
                                 pixels[i] = led_color
-                        last_blink_time = blink_start_time = time.time()
+                        last_blink_time = blink_start_time = time.monotonic()
                     pixels.show()
 
             # LEDs nach Ablauf der Zeit ausschalten
-            if (blink_indices or solid_indices) and time.time() - blink_start_time >= LED_TIMEOUT_SECONDS:
+            if (blink_indices or solid_indices) and time.monotonic() - blink_start_time >= LED_TIMEOUT_SECONDS:
                 blink_indices, solid_indices = [], []
                 pixels.fill((0, 0, 0))
                 pixels.show()
 
-            if blink_indices and time.time() - last_blink_time >= 0.5:
+            if blink_indices and time.monotonic() - last_blink_time >= 0.5:
                 blink_state = not blink_state
                 for i in blink_indices:
                     pixels[i] = led_color if blink_state else (0, 0, 0)
                 pixels.show()
-                last_blink_time = time.time()
+                last_blink_time = time.monotonic()
 
             time.sleep(0.05)
     finally:
