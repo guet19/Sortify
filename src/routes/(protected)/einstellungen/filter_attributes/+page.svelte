@@ -337,6 +337,12 @@
                 await update();
                 if (result.type === "success") {
                   successMessage = `Attribut erfolgreich angelegt!`;
+                  // Kommt man von einer Unterkategorie: neuen Filter dort beim Zurückkehren gleich anhaken
+                  if (returnToSubName && result.data?.newId) {
+                    let ids = [];
+                    try { ids = JSON.parse(sessionStorage.getItem("restoreNewAttrIds") || "[]"); } catch {}
+                    sessionStorage.setItem("restoreNewAttrIds", JSON.stringify([...ids, result.data.newId]));
+                  }
                   label = "";
                   unit = "";
                   optionsList = [];

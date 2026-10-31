@@ -120,11 +120,15 @@ export const actions = {
         const data = await request.formData();
         const mainId = data.get('mainId');
         const subId = data.get('subId');
-        const attributeIds = data.getAll('attributes');
-
         if (!mainId || !subId) return fail(400, { errorAttr: "IDs fehlen." });
 
         try {
+            // Nur vorhandene Filter dieses Lagers, jeden einmal
+            const submitted = [...new Set(data.getAll('attributes').map(String))];
+            const known = new Set((await db.getFilterAttributes(systemId)).map((a) => String(a._id)));
+            // getFilterAttributes liefert bei einem Datenbankfehler eine leere Liste – dann nichts überschreiben
+            if (submitted.length > 0 && known.size === 0) return fail(500, { errorAttr: "Die Filter konnten nicht geladen werden. Bitte erneut versuchen." });
+            const attributeIds = submitted.filter((id) => known.has(id));
             await db.updateSubcategoryAttributes(systemId, mainId, subId, attributeIds);
             return { successAttr: true };
         } catch (err) {

@@ -20,6 +20,9 @@
   let activeMainId = $state(null);
   let activeSubId = $state(null);
   let attributeSearchQuery = $state("");
+  // Ausgewählte Filter der Unterkategorie (IDs). Unabhängig von der Suche: Beim Speichern wird immer
+  // die ganze Auswahl gesendet, nicht nur die gerade sichtbaren Häkchen.
+  let selectedAttributeIds = $state([]);
 
   let successMessage = $state("");
 
@@ -85,9 +88,12 @@
       if (savedMain && savedSub) {
         activeMainId = savedMain;
         activeSubId = savedSub;
-        sessionStorage.removeItem("restoreMainId");
-        sessionStorage.removeItem("restoreSubId");
-        sessionStorage.removeItem("restoreSubName"); 
+        // Noch nicht gespeicherte Auswahl von vor "Neuen Filter anlegen" + dort neu angelegte Filter
+        const readIds = (key) => { try { const v = JSON.parse(sessionStorage.getItem(key) || "null"); return Array.isArray(v) ? v : null; } catch { return null; } };
+        const existing = new Set((data.filterAttributes || []).map((a) => a._id));
+        const pending = readIds("restoreSelection") ?? savedAttributeIds(savedMain, savedSub);
+        selectedAttributeIds = [...new Set([...pending, ...(readIds("restoreNewAttrIds") || [])])].filter((id) => existing.has(id));
+        ["restoreMainId", "restoreSubId", "restoreSubName", "restoreSelection", "restoreNewAttrIds"].forEach((key) => sessionStorage.removeItem(key));
       }
 
       // Bookmarklet Logik
@@ -211,6 +217,8 @@
       sessionStorage.setItem("restoreMainId", activeMainId);
       sessionStorage.setItem("restoreSubId", activeSubId);
       sessionStorage.setItem("restoreSubName", activeSubcategory.name); 
+      sessionStorage.setItem("restoreSelection", JSON.stringify(selectedAttributeIds));
+      sessionStorage.removeItem("restoreNewAttrIds");
       window.location.href = "/einstellungen/filter_attributes";
     }
   }
@@ -293,9 +301,21 @@
       .sort((a, b) => a.label.localeCompare(b.label, "de")),
   );
 
+  function savedAttributeIds(mainId, subId) {
+    const sub = data.categories?.find((c) => c._id === mainId)?.subcategories?.find((s) => s.id === subId);
+    return [...(sub?.allowed_attributes || [])];
+  }
+
+  function toggleAttribute(id, checked) {
+    selectedAttributeIds = checked
+      ? [...new Set([...selectedAttributeIds, id])]
+      : selectedAttributeIds.filter((x) => x !== id);
+  }
+
   function openAttributeEdit(mainId, subId) {
     activeMainId = mainId;
     activeSubId = subId;
+    selectedAttributeIds = savedAttributeIds(mainId, subId);
     attributeSearchQuery = "";
     successMessage = "";
     window.scrollTo(0, 0);
@@ -523,7 +543,7 @@
               </h3>
             </div>
             <div class="badge fs-6 rounded-pill" style="background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;">
-              {activeSubcategory.allowed_attributes?.length || 0} Filter aktiv
+              {selectedAttributeIds.length} Filter ausgewählt
             </div>
           </div>
 
@@ -544,6 +564,12 @@
             >
               <input type="hidden" name="mainId" value={activeCategory._id} />
               <input type="hidden" name="subId" value={activeSubcategory.id} />
+              {#each selectedAttributeIds as id (id)}
+                <input type="hidden" name="attributes" value={id} />
+              {/each}
+              {#if form?.errorAttr}
+                <div class="alert alert-danger" role="alert">{form.errorAttr}</div>
+              {/if}
 
               <div class="input-group mb-4 shadow-sm">
                 <span class="input-group-text light-input-group-text border-end-0 py-3"><i class="bi bi-search" style="color: #64748b;"></i></span>
@@ -569,17 +595,16 @@
                 </div>
 
                 <div class="row g-3">
-                  {#each filteredAttributes as attr}
+                  {#each filteredAttributes as attr (attr._id)}
                     <div class="col-md-6 col-lg-4">
                       <div class="form-check p-3 rounded h-100 d-flex align-items-center form-check-custom" style="border: 1px solid #e2e8f0; background: #ffffff;">
                         <input
                           class="form-check-input ms-0 me-3 mt-0 flex-shrink-0 light-checkbox"
                           style="width: 1.5em; height: 1.5em; cursor: pointer;"
                           type="checkbox"
-                          name="attributes"
-                          value={attr._id}
                           id="attr-{attr._id}"
-                          checked={activeSubcategory.allowed_attributes?.includes(attr._id)}
+                          checked={selectedAttributeIds.includes(attr._id)}
+                          onchange={(e) => toggleAttribute(attr._id, e.currentTarget.checked)}
                         />
                         <label class="form-check-label w-100 d-flex flex-column" style="cursor: pointer; color: #1e293b;" for="attr-{attr._id}">
                           <span class="fw-bold fs-6">{attr.label}</span>

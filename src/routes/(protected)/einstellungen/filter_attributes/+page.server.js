@@ -39,14 +39,14 @@ export const actions = {
         }
 
         try {
-            await db.createFilterAttribute(systemId, {
+            const result = await db.createFilterAttribute(systemId, {
                 label,
                 ui_type,
                 unit: unit || null,
                 is_multiple: ui_type === 'select' ? is_multiple : false,
                 options: ui_type === 'select' ? options : []
             });
-            return { success: true };
+            return { success: true, newId: result.insertedId.toString() };
         } catch (err) {
             console.error("Fehler beim Erstellen:", err);
             return fail(500, { errorCreate: "Datenbankfehler beim Erstellen." });
