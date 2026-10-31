@@ -71,6 +71,12 @@
     // Bereits übernommene Shop-Bilder in der Auswahl markieren
     $: addedImageUrls = new Set(galleryItems.map((i) => i.sourceUrl || i.url).filter(Boolean));
 
+    // Hinweis an die KI, z.B. welche Variante einer Shop-Seite gemeint ist.
+    // Vorausgefüllt mit der Variante, die auf der Shop-Seite ausgewählt war (falls erkannt)
+    let aiHint = "";
+    let detectedVariant = "";
+    let hintEdited = false;
+
     // Neues Lesezeichen (v2): Daten kommen per postMessage aus dem Shop-Fenster
     let importReceived = false;
     function handleImportMessage(event) {
@@ -87,6 +93,10 @@
         importReceived = true;
 
         rawImportText = payload.text.slice(0, 60000);
+        if (typeof payload.variant === "string" && payload.variant.trim()) {
+            detectedVariant = payload.variant.trim().slice(0, 300);
+            if (!hintEdited) aiHint = detectedVariant;
+        }
         if (!description && typeof payload.description === "string") description = payload.description.slice(0, 1000);
 
         const candidates = (Array.isArray(payload.images) ? payload.images : [])
@@ -379,6 +389,7 @@
                     html: rawImportText || importUrl,
                     url: orderLink,
                     images: visibleCandidates,
+                    hint: aiHint.trim(),
                     fast,
                     expectedAttributes: activeAttributes.map((a) => ({
                         id: a._id,
@@ -604,6 +615,14 @@
             <div style="margin-bottom: 1rem;"><AiModelBadge model={lastExtractModel} prefix="Analysiert mit" /></div>
         {/if}
         <button type="button" class="btn-confirm-warning" on:click={() => showAIWarning = false}>Bestätigen</button>
+        <!-- Falsche Variante erwischt? Hinweis anpassen und noch einmal analysieren -->
+        <form class="ai-rerun" on:submit|preventDefault={() => { showAIWarning = false; handleEnhancedImport(); }}>
+            <label for="ai-hint-rerun">Falsche Variante? Hinweis anpassen und neu analysieren:</label>
+            <div class="ai-rerun-row">
+                <input id="ai-hint-rerun" type="text" bind:value={aiHint} on:input={() => (hintEdited = true)} maxlength="300" placeholder="z.B. M3 x 10 mm, 100 Stück" />
+                <button type="submit" class="btn-ai-rerun">Neu analysieren</button>
+            </div>
+        </form>
     </div>
 {/if}
 
@@ -858,6 +877,12 @@
                 {:else if aiStatusLoaded}
                     <div class="ai-model-row ai-model-exhausted">⚠️ Die Tageskontingente aller KI-Modelle sind aufgebraucht (Reset um 09:00 Uhr).</div>
                 {/if}
+                <label class="ai-hint" for="ai-hint">
+                    <span>Welche Variante genau? <small>(optional – z.B. wenn die Seite mehrere Grössen oder Mengen anbietet)</small></span>
+                    <input id="ai-hint" type="text" bind:value={aiHint} on:input={() => (hintEdited = true)} maxlength="300"
+                        placeholder="z.B. M3 x 10 mm, 100 Stück" on:keydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); acceptAI(); } }} />
+                    {#if detectedVariant && aiHint === detectedVariant}<small class="ai-hint-note">✓ Auf der Shop-Seite ausgewählt</small>{/if}
+                </label>
                 <div class="ai-prompt-actions">
                     <button type="button" class="btn-ai-yes" on:click={acceptAI}>Ja</button>
                     <button type="button" class="btn-ai-no" on:click={declineAI}>Produktdaten manuell ausfüllen</button>
@@ -1157,6 +1182,17 @@
     }
     .ai-prompt-box h3 { color: #1e40af; margin-top: 0; margin-bottom: 1.5rem; font-size: 1.15rem; }
     .ai-prompt-actions { display: flex; justify-content: center; gap: 1rem; flex-wrap: wrap; }
+    .ai-hint { display: flex; flex-direction: column; gap: 0.35rem; text-align: left; max-width: 560px; margin: -0.5rem auto 1.25rem auto; color: #1e3a8a; font-weight: 600; font-size: 0.92rem; }
+    .ai-hint small { font-weight: 500; color: #64748b; }
+    .ai-hint input, .ai-rerun input { padding: 0.6rem 0.75rem; border: 1px solid #93c5fd; border-radius: 8px; font-size: 1rem; font-family: inherit; background: #fff; color: #1e293b; }
+    .ai-hint input:focus, .ai-rerun input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15); }
+    .ai-hint .ai-hint-note { color: #15803d; font-weight: 600; }
+    .ai-rerun { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 0.4rem; text-align: left; width: 100%; }
+    .ai-rerun label { font-size: 0.85rem; color: #475569; font-weight: 600; }
+    .ai-rerun-row { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .ai-rerun-row input { flex: 1 1 200px; min-width: 0; }
+    .btn-ai-rerun { background: #fff; color: #1d4ed8; border: 1px solid #93c5fd; border-radius: 8px; padding: 0.6rem 1rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-ai-rerun:hover { background: #eff6ff; }
     
     .btn-ai-yes { background: #22c55e; color: white; border: none; padding: 0.8rem 2rem; border-radius: 8px; font-weight: bold; font-size: 1rem; cursor: pointer; transition: background 0.2s; }
     .btn-ai-yes:hover { background: #16a34a; }
@@ -1174,6 +1210,7 @@
     .overlay-modal {
         position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
         background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; width: 90%; max-width: 400px; padding: 2.5rem 2rem;
+        max-height: 90vh; overflow-y: auto; box-sizing: border-box;
         text-align: center; z-index: 10001; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
         animation: popIn 0.2s ease-out forwards;
     }

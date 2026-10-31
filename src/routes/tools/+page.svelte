@@ -47,6 +47,58 @@
         });
         images = images.slice(0, 24);
 
+        // 2b. Auf der Seite gewählte Variante (Grösse, Farbe, Menge …): Auswahllisten, Optionsknöpfe und
+        //     als ausgewählt markierte Varianten-Kacheln – aber nur in Bereichen, die nach Varianten aussehen
+        var picked = [], pickedSeen = {};
+        var pick = function (s) {
+            s = clean(s, 200);
+            if (s && s.length <= 80 && !pickedSeen[s.toLowerCase()]) { pickedSeen[s.toLowerCase()] = 1; picked.push(s); }
+        };
+        var visible = function (el) { return el.getClientRects().length > 0; };
+        var labelOf = function (el) { return el.labels && el.labels[0] ? clean(el.labels[0].innerText, 60).replace(/:$/, '') : ''; };
+        var optionArea = /sku|variant|variation|swatch|option|attribut|property|size|colou?r|farbe|gr(ö|oe)(ss|ß)e|l(ä|ae)nge|menge|pack|ausf(ü|ue)hrung|modell|style|material/i;
+        var selectedClass = /(^|[\s_-])(selected|active|checked|current|chosen)($|[\s_-])/i;
+        // Liegt das Element in einem Varianten-Bereich (eigene Angaben oder bis zu 5 Ebenen darüber)?
+        var inOptionArea = function (el, extra) {
+            if (el.closest('nav, header, footer, [role="tablist"], [role="navigation"]')) return false;
+            if (optionArea.test(extra || '')) return true;
+            for (var a = el, i = 0; a && a !== d.body && i < 5; a = a.parentElement, i++) {
+                var info = (a.getAttribute('class') || '') + ' ' + (a.id || '') + ' ' + (a.getAttribute('name') || '') + ' ' + (a.getAttribute('data-pl') || '');
+                if (optionArea.test(info)) return true;
+            }
+            return false;
+        };
+        // Optionen wie "Versand ab: China" beschreiben den Versand, nicht den Artikel
+        var shippingOption = function (el) {
+            for (var a = el.parentElement, i = 0; a && a !== d.body && i < 4; a = a.parentElement, i++) {
+                var first = a.firstElementChild;
+                if (first && /^\s*(versand|ships?\b|shipping|lieferung|liefern aus|dispatch|abholung)/i.test(first.innerText || '')) return true;
+            }
+            return false;
+        };
+        d.querySelectorAll('select').forEach(function (s) {
+            var o = s.options[s.selectedIndex];
+            if (!o || !o.value || !visible(s) || /w(ä|ae)hle|choose|select|bitte|auswahl/i.test(o.text)) return;
+            var l = labelOf(s) || s.getAttribute('aria-label') || '';
+            if (!inOptionArea(s, l)) return;
+            pick((l ? l + ': ' : '') + o.text);
+        });
+        d.querySelectorAll('input[type="radio"]:checked').forEach(function (r) {
+            var group = r.closest('fieldset');
+            var legend = group && group.querySelector('legend');
+            var name = legend ? clean(legend.innerText, 40).replace(/:$/, '') : '';
+            if (!inOptionArea(r, name + ' ' + (r.name || ''))) return;
+            pick((name ? name + ': ' : '') + (labelOf(r) || r.value));
+        });
+        d.querySelectorAll('[aria-checked="true"], [aria-selected="true"], [aria-pressed="true"], [class*="selected"], [class*="active"], [class*="checked"], [class*="current"], [class*="chosen"]').forEach(function (el) {
+            var cls = el.getAttribute('class') || '';
+            var marked = /true/.test((el.getAttribute('aria-checked') || '') + (el.getAttribute('aria-selected') || '') + (el.getAttribute('aria-pressed') || '')) || selectedClass.test(cls);
+            if (!marked || !visible(el) || !inOptionArea(el) || shippingOption(el)) return;
+            var img = el.querySelector('img'), titled = el.querySelector('[title]');
+            pick(el.getAttribute('title') || el.getAttribute('aria-label') || el.getAttribute('data-value') || (img && img.alt) || (titled && titled.getAttribute('title')) || el.innerText);
+        });
+        var variant = picked.slice(0, 6).join('; ').slice(0, 300);
+
         // 3. Texte: Datentabellen (technische Daten) und Hauptinhalt der Seite
         var tables = [];
         d.querySelectorAll('table, dl').forEach(function (t) {
@@ -64,7 +116,7 @@
             'SEITENTEXT: ' + clean(main.innerText, 12000)
         ].join('\n');
 
-        var payload = { type: 'sortify-import', version: 2, title: d.title, url: location.href, description: description, text: text, images: images };
+        var payload = { type: 'sortify-import', version: 2, title: d.title, url: location.href, description: description, text: text, images: images, variant: variant };
         // Kurze Basisdaten zusätzlich in der URL (falls die Übergabe z.B. wegen Login nicht klappt)
         var target = mode === 'category'
             ? origin + '/einstellungen/category?ai_import=2&ai_title=' + encodeURIComponent(d.title) + '&ai_url=' + encodeURIComponent(location.href)
