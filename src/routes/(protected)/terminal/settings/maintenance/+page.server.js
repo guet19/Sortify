@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { actor } from '$lib/server/actor.js';
+import { scaleTarget } from '$lib/server/devices.js';
 
 // 🔥 Speichert Timeouts pro User, damit diese sich nicht gegenseitig stören
 const activeUserTimeouts = new Map();
@@ -97,15 +98,18 @@ export const actions = {
     },
 
     // 3. INVENTUR-SCHRITT 2: Waage starten (bleibt unverändert)
-    requestScale: async ({ request, locals }) => { 
+    requestScale: async ({ request, locals, cookies }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
         const barcode = data.get('barcode');
 
+        const target = await scaleTarget(systemId, cookies, { barcode });
+        if (target.error) return { success: false, error: target.error };
+
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const requestId = await db.createScaleRequest(systemId, barcode);
+        const requestId = await db.createScaleRequest(systemId, barcode, { deviceId: target.deviceId });
         return { success: true, requestId };
     },
 

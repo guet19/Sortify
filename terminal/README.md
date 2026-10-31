@@ -75,6 +75,16 @@ Masse (GND) von LED-Netzteil und Raspberry Pi verbinden. Die Pins kannst du oben
 
 Die Zugangsdaten liegen in `terminal_config.json` (nur für root lesbar). Wer diese Datei hat, kann sich als dein Terminal ausgeben. Gib sie deshalb nicht weiter. Bei Verlust trennst du das Terminal in Sortify, dann wird die Datei wertlos.
 
+## Mehrere Terminals pro Lager
+
+Ein Lager kann bis zu 10 Terminals haben, z.B. eines pro Regalwand. Jedes Terminal hat einen eigenen LED-Streifen und eine eigene Waage.
+
+1. Jedes weitere Terminal wie oben koppeln (**Terminal koppeln → Weiteres Terminal koppeln**). Es heisst zuerst „Terminal 2“, „Terminal 3“ usw. Den Namen kannst du dort ändern, z.B. „Regalwand Nord“. Bei mehreren Terminals zeigt das Display unter „Bereit“ auch den Namen des Terminals. **Erkennen** lässt die ersten LEDs eines Terminals kurz weiss blinken.
+2. Unter **Fächer anlernen** gehört jedes Regal zu einem Terminal: beim Anlernen wählen oder später im aufgeklappten Regal ändern. Die LED-Nummern zählen pro Terminal ab 0. Regale ohne Zuordnung (z.B. aus der Zeit mit nur einem Terminal) gehören zum zuerst gekoppelten Terminal.
+3. Jeder Browser, mit dem du am Terminal arbeitest (Tablet, PC), fragt einmal: „An welchem Terminal stehst du?“ Wiegen und Kalibrieren laufen über dieses Terminal. Die Wahl lässt sich oben über den Terminal-Namen ändern.
+
+LED-Befehle (z.B. „Fächer aufleuchten lassen“) gehen automatisch an das Terminal, an dessen Streifen das jeweilige Regal hängt.
+
 ## Fehlerbehebung
 
 | Anzeige | Bedeutung |

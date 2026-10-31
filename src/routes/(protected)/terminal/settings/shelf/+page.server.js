@@ -1,5 +1,21 @@
 import db from '$lib/server/db.js';
-import { redirect } from '@sveltejs/kit';
+import { redirect, fail } from '@sveltejs/kit';
+import { listTerminals } from '$lib/server/devices.js';
+import { defaultTerminalId, shelfTerminalId } from '$lib/terminals.js';
+
+// Mehrere Terminals: Für welches Terminal (LED-Streifen) gilt ein LED-Befehl dieser Seite?
+// shelfId = bestehendes Regal (dessen Terminal), terminalId = neues Regal am gewählten Terminal
+async function ledTerminal(systemId, data) {
+    const terminals = await listTerminals(systemId);
+    if (terminals.length === 0) return null;
+    const shelfId = data.get('shelfId')?.toString();
+    if (shelfId) {
+        const shelf = (await db.getShelves(systemId)).find((s) => s._id === shelfId);
+        if (shelf) return shelfTerminalId(shelf, terminals);
+    }
+    const wanted = data.get('terminalId')?.toString();
+    return terminals.some((t) => t.id === wanted) ? wanted : defaultTerminalId(terminals);
+}
 
 export async function load({ locals }) { 
     const systemId = locals.systemId;
@@ -12,15 +28,9 @@ export async function load({ locals }) {
         console.error("Fehler beim Laden der Regale:", e);
     }
 
-    let nextFreeLedIndex = 0;
-    if (shelves.length > 0) {
-        const lastShelf = shelves[shelves.length - 1];
-        nextFreeLedIndex = parseInt(lastShelf.start_index) + parseInt(lastShelf.drawer_count);
-    }
-
+    // Die nächste freie LED rechnet die Seite pro Terminal selbst aus ($lib/terminals.js, nextFreeLed)
     return {
-        shelves: JSON.parse(JSON.stringify(shelves)),
-        nextFreeLedIndex
+        shelves: JSON.parse(JSON.stringify(shelves))
     };
 }
 
@@ -31,25 +41,27 @@ export const actions = {
 
         const data = await request.formData();
         const ledIndex = parseInt(data.get('ledIndex'));
+        const deviceId = await ledTerminal(systemId, data);
         
-        // 🔥 FIX 1: Zuerst IMMER alle LEDs ausschalten (als Array [0]!)
-        await db.createHardwareCommand(systemId, [0]);
+        // 🔥 FIX 1: Zuerst IMMER alle LEDs ausschalten (als Array [0]!) – nur am betroffenen Terminal
+        await db.createHardwareCommand(systemId, [0], null, { deviceId });
         
         // Ein Wimpernschlag Pause, damit der Pi die Befehle sauber nacheinander liest
         await new Promise(resolve => setTimeout(resolve, 100));
         
         // 🔥 FIX 2: Dann die neue LED einschalten (ebenfalls als Array!)
-        await db.createHardwareCommand(systemId, [ledIndex + 1]);
+        await db.createHardwareCommand(systemId, [ledIndex + 1], null, { deviceId });
         
         return { success: true };
     },
 
-    cancelCalibration: async ({ locals }) => { 
+    cancelCalibration: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
-        // 🔥 FIX: [0] statt 0
-        await db.createHardwareCommand(systemId, [0]); 
+        // 🔥 FIX: [0] statt 0 – nur am Terminal, an dem gerade angelernt wird
+        const deviceId = await ledTerminal(systemId, await request.formData());
+        await db.createHardwareCommand(systemId, [0], null, { deviceId }); 
         return { success: true };
     },
 
@@ -62,12 +74,14 @@ export const actions = {
         const startIndex = parseInt(data.get('startIndex'));
         const drawerCount = parseInt(data.get('drawerCount'));
         const barcodes = JSON.parse(data.get('barcodes')); 
+        // Das Regal hängt am LED-Streifen des gewählten Terminals
+        const deviceId = await ledTerminal(systemId, data);
 
         try {
-            await db.createNewShelf(systemId, shelfName, startIndex, drawerCount, barcodes);
+            await db.createNewShelf(systemId, shelfName, startIndex, drawerCount, barcodes, deviceId);
             
             // 🔥 FIX: [0] statt 0
-            await db.createHardwareCommand(systemId, [0]); 
+            await db.createHardwareCommand(systemId, [0], null, { deviceId }); 
             
             return { success: true };
         } catch (err) {
@@ -96,6 +110,19 @@ export const actions = {
             return { success: false };
         }
     },
+    // Mehrere Terminals: Regal an den LED-Streifen eines anderen Terminals hängen
+    setShelfTerminal: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: 'Kein Lager ausgewählt' });
+        const data = await request.formData();
+        const shelfId = data.get('shelfId')?.toString();
+        const terminalId = data.get('terminalId')?.toString();
+        const terminals = await listTerminals(systemId);
+        if (!terminals.some((t) => t.id === terminalId)) return fail(400, { error: 'Terminal nicht gefunden.' });
+        if (!shelfId || !(await db.setShelfTerminal(systemId, shelfId, terminalId))) return fail(404, { error: 'Regal nicht gefunden.' });
+        return { success: true };
+    },
+
     deleteShelf: async ({ request, locals }) => { 
         const systemId = locals.systemId;
         if (!systemId) return { success: false };

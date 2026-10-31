@@ -12,9 +12,16 @@ export async function GET({ request }) {
     if (!device) return deviceError(401, 'Terminal ist nicht (mehr) gekoppelt.');
 
     const database = await db.getDb();
-    const system = await database.collection('systems').findOne({ _id: new ObjectId(device.systemId) }, { projection: { name: 1 } });
+    const [system, terminalCount] = await Promise.all([
+        database.collection('systems').findOne({ _id: new ObjectId(device.systemId) }, { projection: { name: 1 } }),
+        database.collection('devices').countDocuments({ systemId: device.systemId })
+    ]);
+    const systemName = system?.name || 'Lager';
+    const terminalName = device.name || 'Terminal';
     return json({
-        systemName: system?.name || 'Lager',
+        // Bei mehreren Terminals zeigt das Display auch den Namen des Terminals ("Lager · Regalwand Nord")
+        systemName: terminalCount > 1 ? `${systemName} · ${terminalName}` : systemName,
+        terminalName,
         topic: device.topic,
         topicPrefix: topicPrefix(),
         mqtt: deviceBrokerSettings(),

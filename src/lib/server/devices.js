@@ -7,6 +7,8 @@ import db from '$lib/server/db.js';
 import { hashToken } from '$lib/server/security.js';
 import { publish, topicPrefix, isMqttConfigured } from '$lib/server/mqtt.js';
 import { newDeviceToken, newDeviceKey, newTopicId, commandTopic, encryptMessage, envelope, commandFromDoc, terminalState, versionFromUserAgent } from '$lib/server/deviceProtocol.js';
+import { cookieOptions } from '$lib/server/session.js';
+import { TERMINAL_COOKIE, scaleTerminalId, cleanTerminalName, nextTerminalName } from '$lib/terminals.js';
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // ohne 0/O und 1/I
@@ -91,9 +93,10 @@ export async function completePairing(pairing, systemId, userId) {
     const key = newDeviceKey();
     const topic = newTopicId();
     const now = new Date();
-    await devices.insertOne({
+    const existing = await devices.find({ systemId: new ObjectId(systemId) }, { projection: { name: 1 } }).toArray();
+    const { insertedId } = await devices.insertOne({
         systemId: new ObjectId(systemId),
-        name: 'Terminal',
+        name: nextTerminalName(existing.map((d) => d.name || '')),
         tokenHash: hashToken(token),
         key,
         topic,
@@ -105,6 +108,7 @@ export async function completePairing(pairing, systemId, userId) {
         { _id: pairing._id },
         { $set: { status: 'paired', systemId: String(systemId), delivery: { token, key, topic }, expiresAt: new Date(now.getTime() + PAIRING_TTL_MS) } }
     );
+    return insertedId.toString();
 }
 
 export async function getSystemDevices(systemId) {
@@ -112,11 +116,89 @@ export async function getSystemDevices(systemId) {
     return devices.find({ systemId: new ObjectId(systemId) }, { projection: { tokenHash: 0, key: 0 } }).toArray();
 }
 
-// Terminal(s) eines Lagers entfernen – das Terminal erfährt es sofort und startet die Kopplung neu
+// Alle Terminals eines Lagers entfernen (z.B. beim Löschen des Lagers) – sie erfahren es sofort
+// und starten die Kopplung neu
 export async function removeSystemDevices(systemId) {
     await dispatchToSystem(systemId, { t: 'unpaired' });
     const { devices } = await collections();
     await devices.deleteMany({ systemId: new ObjectId(systemId) });
+}
+
+// ---------- Mehrere Terminals pro Lager ----------
+
+const plainTerminal = (d) => ({
+    id: d._id.toString(),
+    name: d.name || 'Terminal',
+    createdAt: d.createdAt?.toISOString() || null,
+    lastSeenAt: d.lastSeenAt?.toISOString() || null,
+    softwareVersion: d.softwareVersion || null
+});
+
+// Terminals eines Lagers, das zuerst gekoppelte zuerst (Standard für Regale ohne Zuordnung)
+export async function listTerminals(systemId) {
+    const { devices } = await collections();
+    const rows = await devices.find({ systemId: new ObjectId(systemId) }, { projection: { tokenHash: 0, key: 0 } })
+        .sort({ createdAt: 1, _id: 1 }).toArray();
+    return rows.map(plainTerminal);
+}
+
+// Welches Terminal steht bei diesem Browser? (wird bei jeder Verwendung gegen die Terminals des Lagers geprüft)
+export function selectedTerminalId(cookies) {
+    const value = cookies.get(TERMINAL_COOKIE);
+    return value && ObjectId.isValid(value) ? value : null;
+}
+
+export async function rememberTerminal(cookies, systemId, terminalId) {
+    const terminals = await listTerminals(systemId);
+    if (!terminals.some((t) => t.id === terminalId)) return false;
+    cookies.set(TERMINAL_COOKIE, terminalId, cookieOptions(60 * 60 * 24 * 365));
+    return true;
+}
+
+// Ziel für Waage und Kalibrierung: { deviceId } (null = altes Terminal mit Datenbankzugriff) oder { error }.
+// barcode: Fach, um das es geht – hilft, wenn der Browser noch kein Terminal gewählt hat
+export async function scaleTarget(systemId, cookies, { barcode = null } = {}) {
+    const terminals = await listTerminals(systemId);
+    if (terminals.length === 0) return { deviceId: null };
+    let shelf = null;
+    if (barcode && terminals.length > 1) {
+        shelf = await (await db.getDb()).collection('shelves')
+            .findOne({ systemId: new ObjectId(systemId), 'drawers.barcode': String(barcode) }, { projection: { deviceId: 1 } });
+    }
+    const deviceId = scaleTerminalId(terminals, { selectedId: selectedTerminalId(cookies), shelf });
+    return deviceId ? { deviceId } : { error: 'Bitte zuerst oben wählen, an welchem Terminal du stehst.' };
+}
+
+export async function renameTerminal(systemId, terminalId, name) {
+    const clean = cleanTerminalName(name);
+    if (!clean) return { error: 'Bitte einen Namen eingeben.' };
+    if (!ObjectId.isValid(String(terminalId))) return { error: 'Terminal nicht gefunden.' };
+    const { devices } = await collections();
+    const result = await devices.updateOne({ _id: new ObjectId(String(terminalId)), systemId: new ObjectId(systemId) }, { $set: { name: clean } });
+    return result.matchedCount === 1 ? { ok: true } : { error: 'Terminal nicht gefunden.' };
+}
+
+// Ein Terminal entfernen: Es erfährt es sofort und startet die Kopplung neu.
+// Seine Regale fallen an das Standard-Terminal zurück (bis sie neu zugeordnet werden).
+export async function removeTerminal(systemId, terminalId) {
+    if (!ObjectId.isValid(String(terminalId))) return false;
+    const id = new ObjectId(String(terminalId));
+    const { devices } = await collections();
+    const device = await devices.findOne({ _id: id, systemId: new ObjectId(systemId) }, { projection: { _id: 1 } });
+    if (!device) return false;
+    await dispatchToSystem(systemId, { t: 'unpaired' }, { deviceId: id });
+    await devices.deleteOne({ _id: id });
+    await (await db.getDb()).collection('shelves').updateMany({ systemId: new ObjectId(systemId), deviceId: id }, { $unset: { deviceId: '' } });
+    return true;
+}
+
+// "Welches Gerät ist das?": Die ersten LEDs dieses Terminals blinken kurz weiss
+export async function identifyTerminal(systemId, terminalId) {
+    if (!ObjectId.isValid(String(terminalId))) return 0;
+    const deviceId = new ObjectId(String(terminalId));
+    const sent = await dispatchToSystem(systemId, { t: 'led', drawers: [1, 2, 3, 4, 5, 6, 7, 8], color: '#ffffff', mode: 'blink' }, { deviceId });
+    if (sent) setTimeout(() => dispatchToSystem(systemId, { t: 'led', drawers: [0] }, { deviceId }).catch(() => {}), 8000);
+    return sent;
 }
 
 // ---------- Anfragen der Terminals (HTTPS) ----------
@@ -141,18 +223,23 @@ export async function deviceFromRequest(request, { force = false } = {}) {
     return device;
 }
 
-// Ist das Terminal des Lagers gerade erreichbar? Pingt es bei Bedarf über MQTT an;
+// Ist das Terminal dieses Browsers gerade erreichbar? Pingt es bei Bedarf über MQTT an;
 // die Antwort (/api/device/pong) setzt "zuletzt gesehen" – der nächste Aufruf meldet dann "online".
 // fresh: true bei Neuladen/Klick – dann wird schon nach 10 s ohne Meldung neu angepingt
-export async function getTerminalStatus(systemId, { fresh = false } = {}) {
+// selectedId: im Browser gewähltes Terminal; bei mehreren Terminals ohne Wahl -> state 'choose'
+export async function getTerminalStatus(systemId, { fresh = false, selectedId = null } = {}) {
     const { devices, pairings } = await collections();
-    const [device] = await devices.find({ systemId: new ObjectId(systemId) }).sort({ createdAt: -1 }).limit(1).toArray();
-    if (!device) {
+    const all = await devices.find({ systemId: new ObjectId(systemId) }).sort({ createdAt: 1, _id: 1 }).toArray();
+    if (all.length === 0) {
         // Terminal mit altem Code (direkter Datenbankzugriff) lässt sich nicht prüfen
         const legacy = await pairings.findOne({ systemId: String(systemId), status: 'paired', viaApi: { $ne: true } });
         return { state: legacy ? 'unknown' : 'unpaired' };
     }
-    if (!isMqttConfigured()) return { state: 'unknown', lastSeenAt: device.lastSeenAt?.toISOString() || null };
+    const terminals = all.map((d) => ({ id: d._id.toString(), name: d.name || 'Terminal' }));
+    const device = all.find((d) => d._id.toString() === selectedId) || (all.length === 1 ? all[0] : null);
+    if (!device) return { state: 'choose', terminals };
+    const terminal = { id: device._id.toString(), name: device.name || 'Terminal' };
+    if (!isMqttConfigured()) return { state: 'unknown', lastSeenAt: device.lastSeenAt?.toISOString() || null, terminal, terminals };
 
     const result = terminalState({
         now: Date.now(),
@@ -163,12 +250,13 @@ export async function getTerminalStatus(systemId, { fresh = false } = {}) {
     });
     if (result.sendPing) {
         await devices.updateOne({ _id: device._id }, { $set: { lastPingAt: new Date() } });
-        await dispatchToSystem(systemId, { t: 'ping' });
+        await dispatchToSystem(systemId, { t: 'ping' }, { deviceId: device._id });
     }
-    return { state: result.state, outdated: !!result.outdated, lastSeenAt: device.lastSeenAt?.toISOString() || null };
+    return { state: result.state, outdated: !!result.outdated, lastSeenAt: device.lastSeenAt?.toISOString() || null, terminal, terminals };
 }
 
-// Rückmeldung zu einem Waagen- oder Kalibrier-Auftrag – nur für Aufträge des eigenen Lagers
+// Rückmeldung zu einem Waagen- oder Kalibrier-Auftrag – nur für Aufträge des eigenen Lagers,
+// die an dieses Terminal gingen (bzw. an kein bestimmtes)
 export async function acknowledgeCommand(device, { id, status, weight }) {
     if (!ObjectId.isValid(String(id))) return false;
     const newStatus = ['processing', 'done', 'error'].includes(status) ? status : 'done';
@@ -180,7 +268,10 @@ export async function acknowledgeCommand(device, { id, status, weight }) {
     }
     const database = await db.getDb();
     const result = await database.collection('scale_requests').updateOne(
-        { _id: new ObjectId(String(id)), systemId: device.systemId, status: { $in: ['pending', 'processing'] } },
+        {
+            _id: new ObjectId(String(id)), systemId: device.systemId, status: { $in: ['pending', 'processing'] },
+            $or: [{ deviceId: { $exists: false } }, { deviceId: null }, { deviceId: device._id }]
+        },
         { $set: set }
     );
     return result.matchedCount > 0;
@@ -188,12 +279,14 @@ export async function acknowledgeCommand(device, { id, status, weight }) {
 
 // ---------- Befehle an die Terminals ----------
 
-// Schickt eine Nachricht verschlüsselt an alle Terminals eines Lagers
-export async function dispatchToSystem(systemId, body) {
+// Schickt eine Nachricht verschlüsselt an alle Terminals eines Lagers – oder nur an eines (deviceId)
+export async function dispatchToSystem(systemId, body, { deviceId = null } = {}) {
     if (!isMqttConfigured() || !body) return 0;
     try {
         const { devices } = await collections();
-        const targets = await devices.find({ systemId: new ObjectId(systemId) }, { projection: { key: 1, topic: 1 } }).toArray();
+        const filter = { systemId: new ObjectId(systemId) };
+        if (deviceId) filter._id = new ObjectId(String(deviceId));
+        const targets = await devices.find(filter, { projection: { key: 1, topic: 1 } }).toArray();
         const results = await Promise.all(targets.map((device) => {
             const topic = commandTopic(topicPrefix(), device.topic);
             return publish(topic, encryptMessage(device.key, topic, envelope(body)));
@@ -206,4 +299,5 @@ export async function dispatchToSystem(systemId, body) {
 }
 
 // Für db.js: neues Dokument in hardware_commands / scale_requests an die Terminals weiterleiten
-export const dispatchCommandDoc = (collection, doc) => dispatchToSystem(doc.systemId, commandFromDoc(collection, doc));
+// (mit deviceId nur an dieses Terminal, sonst an alle des Lagers)
+export const dispatchCommandDoc = (collection, doc) => dispatchToSystem(doc.systemId, commandFromDoc(collection, doc), { deviceId: doc.deviceId || null });

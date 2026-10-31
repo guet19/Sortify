@@ -4,9 +4,31 @@
     import { enhance } from '$app/forms';
     import { invalidateAll, beforeNavigate } from '$app/navigation';
     import { onDestroy } from 'svelte';
+    import { nextFreeLed, shelfTerminalId } from '$lib/terminals.js';
 
     export let data;
     $: shelves = data?.shelves || [];
+
+    // --- Mehrere Terminals: jedes Regal hängt am LED-Streifen eines Terminals ---
+    $: terminals = data?.terminals || [];
+    $: multi = terminals.length > 1;
+    let chosenSetupTerminal = null;   // Terminal für ein neues Regal
+    $: setupTerminalId = terminals.some((t) => t.id === chosenSetupTerminal) ? chosenSetupTerminal : (data?.currentTerminalId || terminals[0]?.id || null);
+    // Die LED-Nummern zählen pro Terminal-Streifen
+    $: nextFree = nextFreeLed(shelves, setupTerminalId, terminals);
+    const terminalName = (id) => terminals.find((t) => t.id === id)?.name || 'Terminal';
+    const start = (s) => parseInt(s.start_index) || 0;
+    const end = (s) => start(s) + (parseInt(s.drawer_count) || 0);
+    // Regale, deren LED-Bereich sich am selben Terminal mit einem anderen überschneidet
+    $: overlapping = new Set(shelves.filter((a) => shelves.some((b) => b._id !== a._id
+        && shelfTerminalId(a, terminals) === shelfTerminalId(b, terminals) && start(a) < end(b) && start(b) < end(a))).map((s) => s._id));
+
+    // Welches Terminal ist gerade betroffen? Beim Bearbeiten eines Fachs das seines Regals, beim Anlernen das gewählte
+    function ledTarget(formData) {
+        if (editingDrawer) formData.append('shelfId', editingDrawer.shelfId);
+        else if (setupTerminalId) formData.append('terminalId', setupTerminalId);
+        return formData;
+    }
     
     // --- State-Machine für die Hauptansichten ---
     let currentView = 'dashboard'; 
@@ -35,7 +57,7 @@
     // --- SICHERHEITSNETZ: Globale Abbruch-Funktion für die Hardware ---
     async function stopHardware() {
         try {
-            const formData = new FormData();
+            const formData = ledTarget(new FormData());
             await fetch('?/cancelCalibration', {
                 method: 'POST',
                 body: formData
@@ -71,7 +93,7 @@
         currentView = 'calibration';
         scannedBarcodes = [];
         scanError = ''; 
-        currentLedIndex = data?.nextFreeLedIndex || 0;
+        currentLedIndex = nextFree;
         
         // 🔥 FIX: Sicherstellen, dass alle LEDs aus sind, bevor wir starten
         await stopHardware();
@@ -96,7 +118,7 @@
 
     async function triggerLed(index) {
         ledTriggered = true;
-        const formData = new FormData();
+        const formData = ledTarget(new FormData());
         formData.append('ledIndex', index);
         
         await fetch('?/triggerCalibrationLED', {
@@ -163,7 +185,7 @@
         scannedBarcodes = scannedBarcodes.slice(0, -1);
         
         // 2. LED-Index verringern
-        const startIndex = data?.nextFreeLedIndex || 0;
+        const startIndex = nextFree;
         if (currentLedIndex > startIndex) {
             currentLedIndex--;
         }
@@ -210,7 +232,16 @@
                             <span class="label">LED Indizes</span>
                             <span class="value">#{shelf.start_index} - #{parseInt(shelf.start_index) + parseInt(shelf.drawer_count) - 1}</span>
                         </div>
+                        {#if multi}
+                            <div class="stat">
+                                <span class="label">Terminal</span>
+                                <span class="value">{terminalName(shelfTerminalId(shelf, terminals))}</span>
+                            </div>
+                        {/if}
                     </div>
+                    {#if overlapping.has(shelf._id)}
+                        <p class="overlap-warning">⚠️ Der LED-Bereich überschneidet sich mit einem anderen Regal am selben Terminal.</p>
+                    {/if}
 
                     {#if expandedShelfId === shelf._id}
                         <div class="shelf-details">
@@ -232,6 +263,18 @@
                                 {/if}
                             </div>
                             
+                            {#if multi}
+                                <form method="POST" action="?/setShelfTerminal" class="terminal-assign" use:enhance={() => async ({ update }) => { await update(); await invalidateAll(); }}>
+                                    <input type="hidden" name="shelfId" value={shelf._id} >
+                                    <label>
+                                        <span>An welchem Terminal hängt dieses Regal?</span>
+                                        <select name="terminalId" class="terminal-select" value={shelfTerminalId(shelf, terminals)} on:change={(e) => e.currentTarget.form.requestSubmit()}>
+                                            {#each terminals as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+                                        </select>
+                                    </label>
+                                </form>
+                            {/if}
+
                             <div class="shelf-actions">
                                 <button class="btn-cancel-calibration" style="width: auto; padding: 0.5rem 1rem; font-size: 0.9rem;" on:click={() => shelfToDelete = shelf}>
                                     Regal löschen
@@ -244,6 +287,7 @@
 
             <button class="add-shelf-btn" on:click={() => {
                 newShelfName = `Regal ${shelves.length + 1}`;
+                chosenSetupTerminal = data?.currentTerminalId || terminals[0]?.id || null;
                 currentView = 'setup';
             }}>
                 <span class="plus-icon">+</span>
@@ -256,7 +300,15 @@
     {#if currentView === 'setup'}
         <div class="setup-container">
             <h2>Neues Regal benennen</h2>
-            <p>Das neue Regal wird ab <strong>LED #{data?.nextFreeLedIndex || 0}</strong> angelernt. Bitte stecke das Datenkabel des neuen Kastens in den Ausgang (DOUT) des vorherigen.</p>
+            {#if multi}
+                <label class="setup-terminal">
+                    <span>An welchem Terminal wird das Regal angeschlossen?</span>
+                    <select class="terminal-select" bind:value={chosenSetupTerminal}>
+                        {#each terminals as t (t.id)}<option value={t.id}>{t.name}</option>{/each}
+                    </select>
+                </label>
+            {/if}
+            <p>Das neue Regal wird ab <strong>LED #{nextFree}</strong>{multi ? ` am Streifen von „${terminalName(setupTerminalId)}“` : ''} angelernt. Bitte stecke das Datenkabel des neuen Kastens in den Ausgang (DOUT) des vorherigen.</p>
             
             <input type="text" class="terminal-input" bind:value={newShelfName} placeholder="z.B. Kleinteile Links" >
             
@@ -338,7 +390,8 @@
                     };
                 }}>
                     <input type="hidden" name="shelfName" value={newShelfName} >
-                    <input type="hidden" name="startIndex" value={data?.nextFreeLedIndex || 0} >
+                    <input type="hidden" name="startIndex" value={nextFree} >
+                    {#if setupTerminalId}<input type="hidden" name="terminalId" value={setupTerminalId} >{/if}
                     <input type="hidden" name="drawerCount" value={scannedBarcodes.length} > 
                     <input type="hidden" name="barcodes" value={JSON.stringify(scannedBarcodes)} >
                     
@@ -472,6 +525,14 @@
 <style>
     /* Generelles Layout */
     .terminal-page { max-width: 1400px; margin: 0 auto; color: #f8fafc; }
+
+    /* Mehrere Terminals */
+    .overlap-warning { margin: -0.5rem 0 1rem 0; color: #fcd34d; font-weight: 600; font-size: 0.95rem; }
+    .terminal-assign { margin: 0 0 1.25rem 0; }
+    .terminal-assign label, .setup-terminal { display: flex; flex-direction: column; gap: 0.5rem; color: #94a3b8; font-weight: 600; }
+    .setup-terminal { margin-bottom: 1.25rem; text-align: left; }
+    .terminal-select { padding: 0.8rem 1rem; border-radius: 10px; border: 2px solid #334155; background: #0f172a; color: #f8fafc; font-size: 1.05rem; font-family: inherit; }
+    .terminal-select:focus { border-color: #3b82f6; outline: none; }
 
     /* Dashboard & Regale */
     .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 2rem; align-items: start; }

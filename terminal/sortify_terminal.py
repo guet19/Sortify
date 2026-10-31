@@ -34,7 +34,8 @@ import neopixel
 import RPi.GPIO as GPIO
 from hx711 import HX711
 
-VERSION = "2.1.1"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr
+VERSION = "2.2.0"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr;
+                    # 2.2.0: Name des Terminals (mehrere pro Lager) wird beim Lebenszeichen aktualisiert
 
 # ==========================================
 # 1. EINSTELLUNGEN
@@ -536,7 +537,11 @@ def run_normal_mode():
             if now - last_heartbeat > HEARTBEAT_SECONDS:
                 last_heartbeat = now
                 try:
-                    fetch_device_config()
+                    new_name = fetch_device_config().get("systemName", system_name)
+                    if new_name != system_name:   # z.B. Terminal in Sortify umbenannt
+                        system_name = new_name
+                        if not sleeping:
+                            show_ready()
                 except requests.RequestException as e:
                     print("Lebenszeichen fehlgeschlagen:", e)
 

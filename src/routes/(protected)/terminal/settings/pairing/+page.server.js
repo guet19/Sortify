@@ -1,12 +1,14 @@
 import dbModule from '$lib/server/db';
 import { fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
-import { completePairing, getSystemDevices, removeSystemDevices } from '$lib/server/devices.js';
+import { completePairing, listTerminals, removeTerminal, renameTerminal, identifyTerminal, selectedTerminalId } from '$lib/server/devices.js';
 import { isMqttConfigured } from '$lib/server/mqtt.js';
+import { MAX_TERMINALS, shelfTerminalId } from '$lib/terminals.js';
 
 // Kopplung neuer Terminals: Das Terminal meldet sich über /api/device/pair/* an (viaApi),
-// hier bestätigt der Nutzer die beiden Codes. Ältere Terminals, die noch direkt mit der
-// Datenbank arbeiten (ohne viaApi), werden für den Übergang weiterhin unterstützt.
+// hier bestätigt der Nutzer die beiden Codes. Ein Lager kann mehrere Terminals haben
+// (z.B. eines pro Regalwand). Ältere Terminals, die noch direkt mit der Datenbank arbeiten
+// (ohne viaApi), werden für den Übergang weiterhin unterstützt – dann aber nur eines.
 
 function getActiveSystemId(locals) {
     if (!locals.systemId) throw new Error('Konnte keine aktive System-ID ermitteln.');
@@ -15,22 +17,29 @@ function getActiveSystemId(locals) {
 
 const notExpired = () => ({ $or: [{ expiresAt: { $gt: new Date() } }, { expiresAt: { $exists: false } }] });
 
-async function hasTerminal(pairings, systemId) {
-    const [devices, legacy] = await Promise.all([
-        getSystemDevices(systemId),
+async function pairingState(pairings, systemId) {
+    const [terminals, legacy] = await Promise.all([
+        listTerminals(systemId),
         pairings.findOne({ systemId, status: 'paired', viaApi: { $ne: true } })
     ]);
-    return { devices, legacy, paired: devices.length > 0 || !!legacy };
+    return { terminals, legacy };
 }
 
-export const load = async ({ locals }) => {
+export const load = async ({ locals, cookies }) => {
     const systemId = getActiveSystemId(locals);
     const db = await dbModule.getDb();
-    const { devices, paired } = await hasTerminal(db.collection('device_pairings'), systemId);
+    const [{ terminals, legacy }, shelves] = await Promise.all([
+        pairingState(db.collection('device_pairings'), systemId),
+        dbModule.getShelves(systemId)
+    ]);
 
     return {
-        isPaired: paired,
-        lastSeenAt: devices[0]?.lastSeenAt?.toISOString() || null,
+        // Regale pro Terminal (Regale ohne Zuordnung zählen beim zuerst gekoppelten)
+        terminals: terminals.map((t) => ({ ...t, shelves: shelves.filter((s) => shelfTerminalId(s, terminals) === t.id).length })),
+        legacy: !!legacy,
+        canAddMore: !legacy && terminals.length < MAX_TERMINALS,
+        maxTerminals: MAX_TERMINALS,
+        browserTerminalId: selectedTerminalId(cookies),
         mqttReady: isMqttConfigured()
     };
 };
@@ -48,8 +57,12 @@ export const actions = {
         const db = await dbModule.getDb();
         const pairings = db.collection('device_pairings');
 
-        if ((await hasTerminal(pairings, systemId)).paired) {
-            return fail(400, { error: 'Es ist bereits ein Terminal mit diesem System verbunden.', step: 1 });
+        const { terminals, legacy } = await pairingState(pairings, systemId);
+        if (legacy) {
+            return fail(400, { error: 'Mit diesem Lager ist noch ein Terminal mit alter Software verbunden. Bitte dieses zuerst trennen und mit der aktuellen Software neu koppeln.', step: 1 });
+        }
+        if (terminals.length >= MAX_TERMINALS) {
+            return fail(400, { error: `Ein Lager kann höchstens ${MAX_TERMINALS} Terminals haben.`, step: 1 });
         }
 
         // Atomar übernehmen: Ein Code kann nur von einem Lager beansprucht werden
@@ -93,21 +106,39 @@ export const actions = {
             return fail(400, { error: 'Falscher Code 2. Bitte erneut versuchen.', step: 2, pairingId });
         }
 
+        let terminalCount = 1;
         if (device.viaApi) {
             await completePairing(device, systemId, locals.user?.id);
+            terminalCount = (await listTerminals(systemId)).length;
         } else {
             await pairings.updateOne({ _id: device._id }, { $set: { status: 'paired', systemId } });
         }
-        return { success: true, step: 3, message: 'Terminal erfolgreich gekoppelt!' };
+        return { success: true, step: 3, message: 'Terminal erfolgreich gekoppelt!', terminalCount };
     },
 
-    removeTerminal: async ({ locals }) => {
+    renameTerminal: async ({ request, locals }) => {
+        const data = await request.formData();
+        const result = await renameTerminal(getActiveSystemId(locals), data.get('terminalId')?.toString(), data.get('name')?.toString());
+        return result.error ? fail(400, { error: result.error }) : { renamed: true };
+    },
+
+    // Kurz die LEDs blinken lassen, um das Gerät im Lager zu finden
+    identifyTerminal: async ({ request, locals }) => {
+        const data = await request.formData();
+        const sent = await identifyTerminal(getActiveSystemId(locals), data.get('terminalId')?.toString());
+        return sent ? { identified: data.get('terminalId')?.toString() } : fail(400, { error: 'Das Terminal ist gerade nicht erreichbar.' });
+    },
+
+    // Ein Terminal entfernen (terminalId) bzw. das alte Terminal mit Datenbankzugriff (legacy)
+    removeTerminal: async ({ request, locals }) => {
         const systemId = getActiveSystemId(locals);
-        const db = await dbModule.getDb();
-        await Promise.all([
-            removeSystemDevices(systemId),
-            db.collection('device_pairings').deleteMany({ systemId, status: 'paired' })
-        ]);
-        return { success: true };
+        const data = await request.formData();
+        const terminalId = data.get('terminalId')?.toString();
+        if (terminalId === 'legacy') {
+            const db = await dbModule.getDb();
+            await db.collection('device_pairings').deleteMany({ systemId, status: 'paired', viaApi: { $ne: true } });
+            return { removed: true };
+        }
+        return (await removeTerminal(systemId, terminalId)) ? { removed: true } : fail(404, { error: 'Terminal nicht gefunden.' });
     }
 };

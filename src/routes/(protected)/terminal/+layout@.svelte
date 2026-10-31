@@ -1,6 +1,8 @@
 <script>
-    import { beforeNavigate, afterNavigate } from '$app/navigation';
+    import { beforeNavigate, afterNavigate, invalidateAll } from '$app/navigation';
+    import { page } from '$app/stores';
     import { onMount } from 'svelte';
+    export let data;
 
     // --- Verbindung zum Terminal (Raspberry Pi) ---
     // Der Server pingt das Terminal bei Bedarf per MQTT an; es antwortet per HTTPS.
@@ -10,6 +12,7 @@
         checking: { label: 'Prüfe…', hint: 'Verbindung zum Terminal wird geprüft.' },
         offline:  { label: 'Terminal offline', hint: 'Das Terminal antwortet nicht. LEDs und Waage reagieren erst wieder, wenn es verbunden ist.' },
         unpaired: { label: 'Kein Terminal', hint: 'Mit diesem Lager ist noch kein Terminal gekoppelt.' },
+        choose:   { label: 'Terminal wählen', hint: 'Dieses Lager hat mehrere Terminals. Bitte wählen, an welchem dieser Browser steht.' },
         unknown:  { label: 'Status unbekannt', hint: 'Der Verbindungsstatus lässt sich gerade nicht ermitteln.' }
     };
     let status = { state: 'checking' };
@@ -34,6 +37,26 @@
         document.addEventListener('visibilitychange', onVisibility);
         return () => { clearTimeout(statusTimer); document.removeEventListener('visibilitychange', onVisibility); };
     });
+
+    // --- Mehrere Terminals: An welchem steht dieser Browser? ---
+    $: terminals = data.terminals || [];
+    $: currentTerminal = terminals.find((t) => t.id === data.currentTerminalId) || null;
+    $: needsChoice = terminals.length > 1 && !currentTerminal;
+    // Diese Seiten wiegen oder kalibrieren und brauchen deshalb ein eindeutiges Terminal
+    const SCALE_PAGES = ['/terminal/return', '/terminal/inventur', '/terminal/settings/assign', '/terminal/settings/scale',
+        '/terminal/settings/calibration', '/terminal/settings/maintenance', '/terminal/settings/shelf'];
+    $: blocksContent = needsChoice && SCALE_PAGES.some((p) => $page.url.pathname === p || $page.url.pathname.startsWith(p + '/'));
+    let choosing = false;
+    let chooseError = '';
+
+    async function chooseTerminal(id) {
+        chooseError = '';
+        const res = await fetch('/api/terminal-select', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ terminalId: id }) });
+        if (!res.ok) { chooseError = 'Das Terminal wurde nicht gefunden. Bitte Seite neu laden.'; return; }
+        choosing = false;
+        await invalidateAll();
+        checkStatus(true);
+    }
 
     $: info = STATUS[status.state] || STATUS.unknown;
     $: lastSeen = status.lastSeenAt ? new Date(status.lastSeenAt).toLocaleString('de-CH', { dateStyle: 'short', timeStyle: 'short' }) : null;
@@ -73,10 +96,17 @@
                     <span class="status-text">{info.label}</span>
                 </a>
             {:else}
-                <button type="button" class="status-indicator" on:click={() => checkStatus(true)} title="{title} Klicken zum erneuten Prüfen." aria-label="{info.label}: {info.hint} Erneut prüfen">
-                    <span class="dot {status.state}"></span>
-                    <span class="status-text">{info.label}</span>
-                </button>
+                {#if terminals.length > 1}
+                    <button type="button" class="terminal-name" on:click={() => (choosing = !choosing)} aria-expanded={choosing} title="Anderes Terminal wählen">
+                        {currentTerminal ? currentTerminal.name : 'Terminal wählen'} <span aria-hidden="true">▾</span>
+                    </button>
+                {/if}
+                {#if status.state !== 'choose'}
+                    <button type="button" class="status-indicator" on:click={() => checkStatus(true)} title="{title} Klicken zum erneuten Prüfen." aria-label="{info.label}: {info.hint} Erneut prüfen">
+                        <span class="dot {status.state}"></span>
+                        <span class="status-text">{info.label}</span>
+                    </button>
+                {/if}
             {/if}
             
             <!-- NEU: Das kleine Zahnrad-Symbol oben rechts -->
@@ -89,6 +119,20 @@
         </div>
     </header>
 
+    {#if needsChoice || choosing}
+        <section class="terminal-chooser" aria-labelledby="chooser-title">
+            <h2 id="chooser-title">{needsChoice ? 'An welchem Terminal stehst du?' : 'Terminal wechseln'}</h2>
+            <p>Dieses Lager hat {terminals.length} Terminals. Wiegen und Kalibrieren laufen über das gewählte Terminal. Die Wahl gilt für diesen Browser.</p>
+            <div class="chooser-buttons">
+                {#each terminals as t (t.id)}
+                    <button type="button" class="chooser-btn" class:active={t.id === currentTerminal?.id} on:click={() => chooseTerminal(t.id)}>{t.name}</button>
+                {/each}
+            </div>
+            {#if chooseError}<p class="chooser-error" role="alert">{chooseError}</p>{/if}
+            {#if !needsChoice}<button type="button" class="chooser-close" on:click={() => (choosing = false)}>Abbrechen</button>{/if}
+        </section>
+    {/if}
+
     {#if status.state === 'offline'}
         <div class="offline-banner" role="status">
             Das Terminal ist nicht erreichbar{lastSeen ? ` (zuletzt gemeldet ${lastSeen})` : ''}. LEDs und Waage reagieren erst wieder, wenn es verbunden ist.
@@ -96,7 +140,11 @@
     {/if}
 
     <main class="terminal-content" bind:this={contentEl}>
-        <slot />
+        {#if blocksContent}
+            <p class="blocked-hint">Bitte zuerst oben das Terminal wählen – erst dann ist klar, welche Waage misst.</p>
+        {:else}
+            <slot />
+        {/if}
     </main>
 </div>
 
@@ -119,6 +167,17 @@
     .dot.unpaired, .dot.unknown { background-color: #64748b; }
     @keyframes pulse { 50% { opacity: 0.35; } }
     @media (prefers-reduced-motion: reduce) { .dot.checking { animation: none; } }
+    .terminal-name { background: rgba(59, 130, 246, 0.12); border: 1px solid #3b82f6; color: #bfdbfe; border-radius: 10px; padding: 0.45rem 0.85rem; font-weight: 700; font-size: 0.95rem; cursor: pointer; font-family: inherit; max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .terminal-name:hover { background: rgba(59, 130, 246, 0.22); }
+    .terminal-chooser { background: #172554; border-bottom: 2px solid #3b82f6; padding: 1.25rem 2rem; }
+    .terminal-chooser h2 { margin: 0 0 0.35rem 0; font-size: 1.35rem; }
+    .terminal-chooser p { margin: 0 0 1rem 0; color: #bfdbfe; }
+    .chooser-buttons { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+    .chooser-btn { min-height: 56px; padding: 0.75rem 1.5rem; border-radius: 12px; border: 2px solid #3b82f6; background: #1e3a8a; color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .chooser-btn:hover, .chooser-btn.active { background: #2563eb; }
+    .chooser-close { margin-top: 0.85rem; background: none; border: none; color: #93c5fd; font-weight: 600; cursor: pointer; font-family: inherit; font-size: 0.95rem; padding: 0.25rem 0; }
+    .chooser-error { color: #fecaca !important; font-weight: 600; margin-top: 0.75rem !important; }
+    .blocked-hint { color: #94a3b8; font-size: 1.1rem; text-align: center; margin-top: 3rem; }
     .offline-banner { background: rgba(239, 68, 68, 0.12); border-bottom: 1px solid #ef4444; color: #fecaca; padding: 0.6rem 2rem; font-size: 0.95rem; font-weight: 600; }
 
     /* Touch-freundlicher Settings-Button */
@@ -149,5 +208,8 @@
         .settings-btn svg { width: 22px; height: 22px; }
         .terminal-content { padding: 1rem; }
         .offline-banner { padding: 0.5rem 1rem; font-size: 0.85rem; }
+        .terminal-name { max-width: 8rem; padding: 0.35rem 0.6rem; font-size: 0.85rem; }
+        .terminal-chooser { padding: 1rem; }
+        .chooser-btn { flex: 1 1 100%; }
     }
 </style>

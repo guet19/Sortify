@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { actor } from '$lib/server/actor.js';
 import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
+import { scaleTarget } from '$lib/server/devices.js';
 import { projectsEnabled, listProjects, resolveBookingProject } from '$lib/server/projects.js';
 import { selectableProjects } from '$lib/projects.js';
 
@@ -73,15 +74,19 @@ export const actions = {
         }
     },
 
-    requestScale: async ({ request, locals }) => {
+    requestScale: async ({ request, locals, cookies }) => {
         const systemId = locals.systemId;
         if (!systemId) return { success: false, error: 'Unauthorized' };
 
         const data = await request.formData();
         const barcode = data.get('barcode');
 
+        // Gewogen wird am Terminal dieses Browsers (sonst am Terminal des Regals)
+        const target = await scaleTarget(systemId, cookies, { barcode });
+        if (target.error) return { success: false, error: 'choose_terminal' };
+
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const requestId = await db.createScaleRequest(systemId, barcode);
+        const requestId = await db.createScaleRequest(systemId, barcode, { deviceId: target.deviceId });
         return { success: true, requestId };
     },
 

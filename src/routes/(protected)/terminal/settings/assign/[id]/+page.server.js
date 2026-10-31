@@ -2,6 +2,7 @@ import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
 import { actor } from '$lib/server/actor.js';
 import { scheduleLedsOff, cancelLedsOff } from '$lib/server/leds.js';
+import { scaleTarget } from '$lib/server/devices.js';
 
 export async function load({ locals, params }) { 
     const systemId = locals.systemId;
@@ -109,12 +110,15 @@ export const actions = {
         }
     },
 
-    requestScale: async ({ locals }) => {
+    requestScale: async ({ locals, cookies }) => {
         const systemId = locals.systemId;
         if (!systemId) return { success: false };
 
         try {
-            const requestId = await db.createScaleRequest(systemId, "setup");
+            // Gewogen wird an der Waage des Terminals, an dem dieser Browser steht
+            const target = await scaleTarget(systemId, cookies);
+            if (target.error) return { success: false, error: target.error };
+            const requestId = await db.createScaleRequest(systemId, "setup", { deviceId: target.deviceId });
             return { success: true, requestId };
         } catch (err) {
             return { success: false, error: 'Waage nicht erreichbar' };

@@ -5,6 +5,9 @@
 // übergeordnete Berechtigung freigegeben (z.B. gibt '/terminal' keinen Zugriff auf die Hardware-Einstellungen).
 const SEPARATELY_GRANTED = ['/terminal/settings'];
 
+const TERMINAL_PAGES = ['/terminal', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
+    '/terminal/settings/maintenance', '/terminal/settings/shelf', '/terminal/settings/pairing'];
+
 // API-Endpunkte erben die Berechtigung der Seiten, die sie benutzen
 const API_PERMISSIONS = {
     '/api/scale/calibrate': ['/terminal/settings/calibration'],
@@ -20,9 +23,9 @@ const API_PERMISSIONS = {
     '/api/image-cleanup': ['/addarticle', '/editarticle'],
     '/api/article-gtin': ['/addarticle', '/editarticle'],
     '/api/photo-session': ['/addarticle', '/editarticle'],
-    // Verbindungsanzeige im Terminal: für alle, die irgendeine Terminal-Seite öffnen dürfen
-    '/api/terminal-status': ['/terminal', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
-        '/terminal/settings/maintenance', '/terminal/settings/shelf', '/terminal/settings/pairing']
+    // Verbindungsanzeige und Wahl des Terminals: für alle, die irgendeine Terminal-Seite öffnen dürfen
+    '/api/terminal-status': TERMINAL_PAGES,
+    '/api/terminal-select': TERMINAL_PAGES
 };
 
 // Liegt "path" in "route"? Nur an Segmentgrenzen ('/terminal' deckt nicht '/terminalxyz' ab)

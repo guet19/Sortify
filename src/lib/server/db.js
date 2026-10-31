@@ -6,6 +6,7 @@ import { env } from '$env/dynamic/private';
 import bcrypt from "bcryptjs";
 import { generateToken, hashToken, generateNumericCode, escapeRegex, BCRYPT_ROUNDS } from './security.js';
 import { normalizeArticleBarcodes } from '../barcodes.js';
+import { ledTargets } from '../terminals.js';
 
 // ==========================================
 // 0. SERVERLESS CONNECTION POOLING
@@ -899,7 +900,30 @@ async function insertDeviceCommand(db, collectionName, doc, { dispatch = true } 
     return result;
 }
 
-async function createHardwareCommand(systemId, command, color = null) {
+// Gekoppelte Terminals des Lagers, das zuerst gekoppelte zuerst (für die Zuordnung Regal -> LED-Streifen)
+async function terminalsOf(db, systemId) {
+    const rows = await db.collection('devices').find({ systemId: new ObjectId(systemId) }, { projection: { _id: 1 } })
+        .sort({ createdAt: 1, _id: 1 }).toArray();
+    return rows.map(r => ({ id: r._id.toString() }));
+}
+
+// LED-Befehle für Fächer: Jedes Terminal bekommt nur die LEDs seiner Regale (ein Befehl pro Terminal).
+// Liefert die Anzahl der angesteuerten LEDs.
+async function insertLedCommands(db, systemId, shelves, barcodes, fields) {
+    const groups = ledTargets(shelves, barcodes, await terminalsOf(db, systemId));
+    await Promise.all(groups.map(({ terminalId, leds }) => insertDeviceCommand(db, 'hardware_commands', {
+        systemId: new ObjectId(systemId),
+        ...(terminalId ? { deviceId: new ObjectId(terminalId) } : {}),
+        drawer_ids: leds,
+        ...fields,
+        status: "pending",
+        createdAt: new Date()
+    })));
+    return groups.reduce((n, g) => n + g.leds.length, 0);
+}
+
+// command: LED-Nummern (1-basiert) oder [0] = alle aus. Ohne deviceId an alle Terminals des Lagers.
+async function createHardwareCommand(systemId, command, color = null, { deviceId = null } = {}) {
     try {
         const db = await getDb();
         const commandsCollection = db.collection('hardware_commands');
@@ -908,6 +932,7 @@ async function createHardwareCommand(systemId, command, color = null) {
 
         const commandDoc = {
             systemId: new ObjectId(systemId),
+            ...(deviceId ? { deviceId: new ObjectId(String(deviceId)) } : {}),
             drawer_ids: commandArray, 
             status: "pending",
             createdAt: new Date()
@@ -949,13 +974,15 @@ async function getShelves(systemId) {
     }
 }
 
-async function createNewShelf(systemId, shelfName, startIndex, drawerCount, barcodes) {
+// deviceId: Terminal, an dessen LED-Streifen das Regal hängt (ohne = Standard-Terminal)
+async function createNewShelf(systemId, shelfName, startIndex, drawerCount, barcodes, deviceId = null) {
     try {
         const db = await getDb();
         const shelvesCollection = db.collection('shelves');
 
         const newShelf = {
             systemId: new ObjectId(systemId),
+            ...(deviceId ? { deviceId: new ObjectId(String(deviceId)) } : {}),
             name: shelfName,
             start_index: parseInt(startIndex),
             drawer_count: parseInt(drawerCount),
@@ -991,6 +1018,14 @@ async function updateDrawerBarcode(systemId, shelfId, ledIndex, newBarcode) {
         console.error("Fehler beim Aktualisieren des Barcodes:", error);
         throw error;
     }
+}
+
+// Regal einem anderen Terminal zuordnen (deviceId null = Standard-Terminal)
+async function setShelfTerminal(systemId, shelfId, deviceId) {
+    const db = await getDb();
+    const update = deviceId ? { $set: { deviceId: new ObjectId(String(deviceId)) } } : { $unset: { deviceId: "" } };
+    const result = await db.collection('shelves').updateOne({ _id: new ObjectId(shelfId), systemId: new ObjectId(systemId) }, update);
+    return result.matchedCount === 1;
 }
 
 async function deleteShelf(systemId, shelfId) {
@@ -1093,32 +1128,10 @@ export async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
             }
         }
 
-        let drawerIdsToLightUp = [];
-
-        // 3. Suche in allen Regalen nach den passenden LED-Indizes
+        // 3. LED-Indizes in allen Regalen suchen und an das Terminal des jeweiligen Regals schicken
         const shelves = await db.collection('shelves').find({ systemId: new ObjectId(systemId) }).toArray();
-        shelves.forEach(shelf => {
-            if (!shelf.drawers) return;
-            shelf.drawers.forEach(drawer => {
-                if (barcodesToLightUp.includes(drawer.barcode)) {
-                    drawerIdsToLightUp.push(parseInt(drawer.ledIndex) + 1);
-                }
-            });
-        });
-
-        // 4. Hardware-Befehl absetzen
-        if (drawerIdsToLightUp.length > 0) {
-            await insertDeviceCommand(db, 'hardware_commands', {
-                systemId: new ObjectId(systemId),
-                drawer_ids: drawerIdsToLightUp,
-                color: color, 
-                mode: "solid", // 🔥 FIX 3: Zwingend hinzufügen, damit es ruhig leuchtet!
-                status: "pending",
-                createdAt: new Date()
-            });
-        }
-        
-        return drawerIdsToLightUp.length;
+        // mode "solid": ruhig leuchten statt blinken
+        return await insertLedCommands(db, systemId, shelves, barcodesToLightUp, { color, mode: "solid" });
     } catch (error) {
         console.error("Fehler in triggerLedByBarcode:", error);
         throw error;
@@ -1128,32 +1141,10 @@ export async function triggerLedByBarcode(systemId, barcode, arg3 = false) {
 export async function triggerLedsByBarcodeArray(systemId, barcodesArray, color = '#3b82f6') {
     try {
         const db = await getDb();
-        let drawerIdsToLightUp = [];
 
-        // Suche in allen Regalen nach den passenden LED-Indizes für ALLE übergebenen Barcodes
+        // Ein Befehl pro Terminal für alle gefundenen Fächer seiner Regale
         const shelves = await db.collection('shelves').find({ systemId: new ObjectId(systemId) }).toArray();
-        shelves.forEach(shelf => {
-            if (!shelf.drawers) return;
-            shelf.drawers.forEach(drawer => {
-                if (barcodesArray.includes(drawer.barcode)) {
-                    // +1 weil die Hardware 1-basiert arbeitet (in Python)
-                    drawerIdsToLightUp.push(parseInt(drawer.ledIndex) + 1);
-                }
-            });
-        });
-
-        // Ein EINZIGER Hardware-Befehl für alle gefundenen Fächer!
-        if (drawerIdsToLightUp.length > 0) {
-            await insertDeviceCommand(db, 'hardware_commands', {
-                systemId: new ObjectId(systemId),
-                drawer_ids: drawerIdsToLightUp, // Hier liegt jetzt das Array [4, 12] drin!
-                color: color,
-                status: "pending",
-                createdAt: new Date()
-            });
-        }
-        
-        return drawerIdsToLightUp.length;
+        return await insertLedCommands(db, systemId, shelves, barcodesArray, { color });
     } catch (error) {
         console.error("Fehler in triggerLedsByBarcodeArray:", error);
         throw error;
@@ -1177,10 +1168,12 @@ async function getArticleByBarcode(systemId, barcode) {
     }
 }
 
-async function createScaleRequest(systemId, barcode) {
+// deviceId: Terminal, dessen Waage messen soll (siehe devices.scaleTarget); ohne = alle bzw. altes Terminal
+async function createScaleRequest(systemId, barcode, { deviceId = null } = {}) {
     const db = await getDb();
     const result = await insertDeviceCommand(db, 'scale_requests', {
         systemId: new ObjectId(systemId),
+        ...(deviceId ? { deviceId: new ObjectId(String(deviceId)) } : {}),
         barcode: barcode,
         status: 'pending',  
         weight: null,       
@@ -1452,25 +1445,8 @@ export async function triggerEmptyLedsBlue(systemId, color = '#0000FF') {
             if (code) assignedBarcodes.add(code);
         });
 
-        let emptyDrawerIds = [];
-        allDrawers.forEach(drawer => {
-            if (!assignedBarcodes.has(drawer.barcode)) {
-                emptyDrawerIds.push(parseInt(drawer.ledIndex) + 1); 
-            }
-        });
-
-        if (emptyDrawerIds.length > 0) {
-            await insertDeviceCommand(db, 'hardware_commands', {
-                systemId: new ObjectId(systemId),
-                drawer_ids: emptyDrawerIds,
-                color: color,      // 🔥 HIER: Nimmt jetzt den Hex-Code aus dem Frontend!
-                mode: "solid",     
-                status: "pending",
-                createdAt: new Date()
-            });
-        }
-
-        return emptyDrawerIds.length;
+        const emptyBarcodes = allDrawers.filter(drawer => !assignedBarcodes.has(drawer.barcode)).map(drawer => drawer.barcode);
+        return await insertLedCommands(db, systemId, shelves, emptyBarcodes, { color, mode: "solid" });
     } catch (error) {
         console.error("Fehler in triggerEmptyLedsBlue:", error);
         throw error;
@@ -1486,19 +1462,7 @@ async function triggerSingleLedBlue(systemId, barcode) {
         });
         
         if (shelf && shelf.drawers) {
-            const drawer = shelf.drawers.find(d => d.barcode === barcode);
-            if (drawer) {
-                const ledIndex = parseInt(drawer.ledIndex) + 1; 
-                await insertDeviceCommand(db, 'hardware_commands', {
-                    systemId: new ObjectId(systemId),
-                    drawer_ids: [ledIndex],
-                    color: "blue",
-                    mode: "solid",
-                    status: "pending",
-                    createdAt: new Date()
-                });
-                return true;
-            }
+            return (await insertLedCommands(db, systemId, [shelf], [barcode], { color: "blue", mode: "solid" })) > 0;
         }
         return false;
     } catch (error) {
@@ -2074,18 +2038,21 @@ async function updateUserSystemColor(systemId, userId, newColor) {
 
 // Live-Waage: Auftrag für den Raspberry Pi anlegen und SOFORT die ID zurückgeben.
 // Den Status fragt der Browser über /api/scale/[id] ab – so blockiert keine Server-Funktion mehrere Sekunden.
-export async function createLiveScaleRequest(systemId) {
+export async function createLiveScaleRequest(systemId, { deviceId = null } = {}) {
     const db = await getDb();
     const collection = db.collection('scale_requests');
+    const target = deviceId ? { deviceId: new ObjectId(String(deviceId)) } : {};
 
-    // Alte, unbeantwortete Aufträge aufräumen, damit sich nichts verhakt
+    // Alte, unbeantwortete Aufträge (dieses Terminals) aufräumen, damit sich nichts verhakt
     await collection.deleteMany({ 
         systemId: new ObjectId(systemId), 
+        ...target,
         status: { $in: ["pending", "processing"] } 
     });
 
     const result = await insertDeviceCommand(db, 'scale_requests', {
         systemId: new ObjectId(systemId),
+        ...target,
         status: "pending",
         createdAt: new Date()
     });
@@ -2093,7 +2060,7 @@ export async function createLiveScaleRequest(systemId) {
 }
 
 // Sendet den Kalibrierungs-Befehl und wartet, bis der Pi "done" meldet
-export async function sendCalibrationCommand(systemId, commandType, weight = 0) {
+export async function sendCalibrationCommand(systemId, commandType, weight = 0, { deviceId = null } = {}) {
     if (!systemId) throw new Error("Fehlende System-ID.");
     const db = await getDb();
     
@@ -2106,6 +2073,8 @@ export async function sendCalibrationCommand(systemId, commandType, weight = 0) 
 
     const payload = {
         systemId: typeof systemId === 'string' ? new ObjectId(systemId) : systemId,
+        // Kalibriert wird nur die Waage des gewählten Terminals
+        ...(deviceId ? { deviceId: new ObjectId(String(deviceId)) } : {}),
         command: safeCommand,
         weight: Number(weight) || 0,
         status: "pending",
@@ -2204,6 +2173,7 @@ export default {
     createNewShelf,
     updateDrawerBarcode,
     deleteShelf,
+    setShelfTerminal,
     assignBarcodeToArticle,
     checkIfBarcodeExists,
     triggerLedByBarcode,
