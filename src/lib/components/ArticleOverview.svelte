@@ -43,7 +43,8 @@
     const articles = terminal ? data.articles.filter(a => getSlots(a).length > 0) : data.articles;
     const detailBase = terminal ? '/terminal/search/' : '/';
     // Kennzahlen für die Startseite (nur Web-Ansicht)
-    const stats = terminal ? null : inventoryStats(articles);
+    const stats = terminal ? null : inventoryStats(articles, data.onOrder || {});
+    const ordersUnderway = Object.keys(data.onOrder || {}).length;
     const chf = (v) => v.toLocaleString('de-CH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     $: canImport = !terminal && canAccessPath('/einstellungen/import', $page.data.allowedRoutes || []);
 
@@ -403,7 +404,7 @@
             <a href="/nachbestellen" class="stat-tile stat-link" class:warn={stats.lowStock > 0}>
                 <span class="stat-label">Nachbestellen</span>
                 <span class="stat-value">{stats.lowStock}</span>
-                <span class="stat-hint">{stats.lowStock > 0 ? 'zur Liste →' : 'alles im grünen Bereich'}</span>
+                <span class="stat-hint">{stats.lowStock > 0 ? 'zur Liste →' : 'alles im grünen Bereich'}{ordersUnderway > 0 ? ` · ${ordersUnderway} bestellt` : ''}</span>
             </a>
             <div class="stat-tile" class:warn={stats.outOfStock > 0}><span class="stat-label">Nicht auf Lager</span><span class="stat-value">{stats.outOfStock}</span></div>
             <div class="stat-tile"><span class="stat-label">Ohne Lagerplatz</span><span class="stat-value">{stats.notStored}</span></div>

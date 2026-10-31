@@ -31,3 +31,20 @@ describe('Nachbestellung', () => {
         ])).toEqual({ count: 2, value: 20, lowStock: 1, outOfStock: 1, notStored: 1 });
     });
 });
+
+describe('Offene Bestellungen', () => {
+    const screws = { _id: 's1', title: 'Schraube', istBestand: 3, mindestBestand: 10, sollBestand: 50, supplier: 'Würth' };
+    it('bestellte Menge zählt wie Bestand unterwegs', () => {
+        expect(needsReorder(screws)).toBe(true);
+        expect(needsReorder(screws, 40)).toBe(false);   // 3 + 40 > 10
+        expect(needsReorder(screws, 5)).toBe(true);     // 3 + 5 <= 10: zu wenig bestellt
+        expect(suggestedQuantity(screws, 5)).toBe(42);  // bis Soll 50: 50 - 3 - 5
+    });
+    it('bereits ausreichend bestellte Artikel fehlen in der Liste und in der Kennzahl', () => {
+        expect(buildReorderList([screws], { s1: 47 })).toEqual([]);
+        const [group] = buildReorderList([screws], { s1: 5 });
+        expect(group.items[0]).toMatchObject({ onOrder: 5, quantity: 42 });
+        expect(inventoryStats([screws], { s1: 47 }).lowStock).toBe(0);
+        expect(inventoryStats([screws]).lowStock).toBe(1);
+    });
+});

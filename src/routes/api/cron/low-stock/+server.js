@@ -4,6 +4,7 @@ import { env } from '$env/dynamic/private';
 import db from '$lib/server/db.js';
 import { buildReorderList } from '$lib/reorder.js';
 import { sendLowStockEmail } from '$lib/server/email.js';
+import { openOrderQuantities } from '$lib/server/orders.js';
 
 // Täglicher Mindestbestand-Hinweis. Wird von der Netlify Scheduled Function netlify/functions/low-stock.mjs mit
 // "Authorization: Bearer <CRON_SECRET>" aufgerufen – nicht für Nutzer gedacht.
@@ -21,7 +22,9 @@ export async function POST({ request }) {
     const report = [];
     for (const system of await db.listAllSystems()) {
         try {
-            const groups = buildReorderList(await db.getArticles(system._id));
+            // Bereits bestellte Artikel lösen keine Mail aus
+            const [articles, onOrder] = await Promise.all([db.getArticles(system._id), openOrderQuantities(system._id)]);
+            const groups = buildReorderList(articles, onOrder);
             const lowIds = groups.flatMap(g => g.items.map(i => i.id));
             const newIds = lowIds.filter(id => !system.lowStockNotified.includes(id));
 

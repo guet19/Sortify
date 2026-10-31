@@ -1,5 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import db from '$lib/server/db.js';
+import { openOrderQuantities } from '$lib/server/orders.js';
 
 export async function load({ locals }) {
     // 1. Prüfen, ob der Nutzer überhaupt eingeloggt ist
@@ -14,11 +15,13 @@ export async function load({ locals }) {
 
     // 3. Daten für das spezifische System laden
     // Unabhängige Abfragen parallel statt nacheinander
-    const [categories, articles, attributes, topConsumption] = await Promise.all([
+    const [categories, articles, attributes, topConsumption, onOrder] = await Promise.all([
         db.getCategories(locals.systemId),
         db.getArticles(locals.systemId),
         db.getFilterAttributes(locals.systemId),
-        db.getTopConsumption(locals.systemId, 30, 5).catch(() => [])
+        db.getTopConsumption(locals.systemId, 30, 5).catch(() => []),
+        // Offene Bestellungen: bereits bestellte Artikel zählen nicht als "nachbestellen"
+        openOrderQuantities(locals.systemId).catch(() => ({}))
     ]);
     
     // 4. WICHTIG: POJO-Fix anwenden, um Serialisierungsfehler im Frontend zu verhindern
@@ -27,6 +30,7 @@ export async function load({ locals }) {
         articles: JSON.parse(JSON.stringify(articles)),
         attributes: JSON.parse(JSON.stringify(attributes)),
         role: locals.role,
-        topConsumption
+        topConsumption,
+        onOrder
     };
 }

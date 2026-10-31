@@ -85,6 +85,11 @@ const INDEXES = {
         { key: { systemId: 1, rootProjectId: 1, createdAt: -1 }, options: { name: 'systemId_root_createdAt' } },
         { key: { systemId: 1, projectId: 1, createdAt: -1 }, options: { name: 'systemId_project_createdAt' } }
     ],
+    // Bestellungen (Nachbestellen): offene pro Lager/Artikel, abgeschlossene als Verlauf
+    orders: [
+        { key: { systemId: 1, status: 1, articleId: 1 }, options: { name: 'systemId_status_article' } },
+        { key: { systemId: 1, status: 1, closedAt: -1 }, options: { name: 'systemId_status_closedAt' } }
+    ],
     // Fotos vom Smartphone (QR-Code beim Artikel anlegen): nach 15 Minuten automatisch löschen
     photo_sessions: [
         { key: { tokenHash: 1 }, options: { name: 'tokenHash_unique', unique: true } },

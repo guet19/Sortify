@@ -2,9 +2,12 @@
 
 const num = (v) => (v === null || v === undefined || v === '' || isNaN(Number(v)) ? null : Number(v));
 
+// Offene Bestellungen zählen wie Bestand, der unterwegs ist (onOrder = bestellte Restmenge).
+// So wird ein bereits bestellter Artikel nicht noch einmal vorgeschlagen.
+
 // Muss der Artikel nachbestellt werden? Nur wenn ein Mindest- oder Soll-Bestand gepflegt ist.
-export function needsReorder(article) {
-    const stock = num(article.istBestand) ?? 0;
+export function needsReorder(article, onOrder = 0) {
+    const stock = (num(article.istBestand) ?? 0) + (num(onOrder) ?? 0);
     const min = num(article.mindestBestand);
     const target = num(article.sollBestand);
     if (min !== null) return stock <= min;
@@ -13,19 +16,21 @@ export function needsReorder(article) {
 }
 
 // Vorgeschlagene Bestellmenge: auffüllen bis zum Soll-Bestand (sonst bis knapp über den Mindestbestand)
-export function suggestedQuantity(article) {
-    const stock = num(article.istBestand) ?? 0;
+export function suggestedQuantity(article, onOrder = 0) {
+    const stock = (num(article.istBestand) ?? 0) + (num(onOrder) ?? 0);
     const target = num(article.sollBestand) ?? ((num(article.mindestBestand) ?? 0) + 1);
     return Math.max(target - stock, 1);
 }
 
-// Nachbestell-Liste gruppiert nach Lieferant, inkl. Mengenvorschlag und Kosten
-export function buildReorderList(articles) {
+// Nachbestell-Liste gruppiert nach Lieferant, inkl. Mengenvorschlag und Kosten.
+// onOrderByArticle: { articleId: bestellte Restmenge } aus offenen Bestellungen
+export function buildReorderList(articles, onOrderByArticle = {}) {
     const groups = new Map();
     for (const article of articles) {
-        if (!needsReorder(article)) continue;
+        const onOrder = onOrderByArticle[String(article._id)] || 0;
+        if (!needsReorder(article, onOrder)) continue;
         const supplier = (article.supplier || '').trim() || 'Ohne Lieferant';
-        const quantity = suggestedQuantity(article);
+        const quantity = suggestedQuantity(article, onOrder);
         const price = num(article.price);
         if (!groups.has(supplier)) groups.set(supplier, []);
         groups.get(supplier).push({
@@ -37,6 +42,7 @@ export function buildReorderList(articles) {
             stock: num(article.istBestand) ?? 0,
             min: num(article.mindestBestand),
             target: num(article.sollBestand),
+            onOrder,
             quantity,
             price,
             total: price !== null ? Math.round(price * quantity * 100) / 100 : null
@@ -52,13 +58,13 @@ export function buildReorderList(articles) {
 }
 
 // Kennzahlen für die Startseite
-export function inventoryStats(articles) {
+export function inventoryStats(articles, onOrderByArticle = {}) {
     let value = 0, lowStock = 0, outOfStock = 0, notStored = 0;
     for (const a of articles) {
         const stock = num(a.istBestand) ?? 0;
         const price = num(a.price);
         if (price !== null) value += price * stock;
-        if (needsReorder(a)) lowStock++;
+        if (needsReorder(a, onOrderByArticle[String(a._id)] || 0)) lowStock++;
         if (stock === 0) outOfStock++;
         const stored = (Array.isArray(a.assigned_barcodes) && a.assigned_barcodes.length > 0) || a.assigned_barcode;
         if (!stored) notStored++;

@@ -6,6 +6,7 @@ import { lightUpArticle, turnOffArticle } from '$lib/server/leds.js';
 import { projectsEnabled, listProjects, resolveBookingProject } from '$lib/server/projects.js';
 import { selectableProjects } from '$lib/projects.js';
 import { articleDrawers, findDrawer } from '$lib/barcodes.js';
+import { openOrdersForArticle } from '$lib/server/orders.js';
 
 export async function load({ params, locals }) { 
     // 1. Die System-ID aus dem Rucksack (locals) holen
@@ -39,11 +40,13 @@ export async function load({ params, locals }) {
 
     // 5. Metadaten für das aktuelle Lager laden
     // Unabhängige Abfragen parallel statt nacheinander
-    const [categories, attributes, movements, projectsOn] = await Promise.all([
+    const [categories, attributes, movements, projectsOn, openOrders] = await Promise.all([
         db.getCategories(systemId),
         db.getFilterAttributes(systemId),
         db.getStockMovements(systemId, articleId, 20).catch(() => []),
-        projectsEnabled(systemId)
+        projectsEnabled(systemId),
+        // Hinweis "bereits bestellt", damit niemand doppelt bestellt
+        openOrdersForArticle(systemId, articleId).catch(() => [])
     ]);
     // Funktion "Projekte": offene Projekte für die Auswahl bei einer Entnahme
     const projectOptions = projectsOn ? selectableProjects(await listProjects(systemId)) : [];
@@ -57,7 +60,8 @@ export async function load({ params, locals }) {
         userColor: locals.color || '#3b82f6',
         movements,
         projectsEnabled: projectsOn,
-        projectOptions
+        projectOptions,
+        openOrders
     };
 }
 

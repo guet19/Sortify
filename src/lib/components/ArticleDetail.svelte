@@ -8,6 +8,8 @@
     import { page } from "$app/stores";
     import { articleDrawers, findDrawer } from '$lib/barcodes.js';
     import CameraScan from '$lib/components/CameraScan.svelte';
+    import { canAccessPath } from '$lib/permissions.js';
+    import { formatDate } from '$lib/orders.js';
     
     export let data;
     export let terminal = false;
@@ -23,8 +25,10 @@
     const sourceLabels = {
         'web': 'Bestand angepasst', 'web-bearbeiten': 'Artikel bearbeitet', 'angelegt': 'Artikel angelegt', 'import': 'CSV-Import',
         'terminal-rueckgabe': 'Rückgabe am Terminal', 'terminal-inventur': 'Inventur am Terminal',
-        'terminal-zuweisung': 'Fach zugewiesen/gewogen', 'terminal-fach-leer': 'Fach geleert'
+        'terminal-zuweisung': 'Fach zugewiesen/gewogen', 'terminal-fach-leer': 'Fach geleert',
+        'wareneingang': 'Wareneingang (Bestellung)'
     };
+    $: canSeeOrders = canAccessPath('/nachbestellen', $page.data.allowedRoutes || []);
 
     // --- 1. Kategorienamen auflösen ---
     const mainCategory = categories.find(c => c._id === article.mainCategoryId);
@@ -379,6 +383,14 @@
                         {/if}
                     </form>
                     {/if}
+
+                    {#if !terminal && data.openOrders?.length}
+                        <svelte:element this={canSeeOrders ? 'a' : 'div'} href={canSeeOrders ? '/nachbestellen#unterwegs' : undefined} class="order-note">
+                            {#each data.openOrders as o (o.id)}
+                                <span>📦 <strong>{o.remaining} Stk. bestellt</strong> am {new Date(o.orderedAt).toLocaleDateString('de-CH')}{o.expectedDate ? ` · Lieferung erwartet ${formatDate(o.expectedDate)}` : ''}</span>
+                            {/each}
+                        </svelte:element>
+                    {/if}
                 </div>
             </div>
 
@@ -684,6 +696,11 @@
     
     .stock-info.out-of-stock { color: #b91c1c; background: #fee2e2; border-color: #fecaca; }
     .stock-info.out-of-stock .indicator { background: #ef4444; }
+
+    /* Hinweis auf offene Bestellungen */
+    .order-note { flex-basis: 100%; display: flex; flex-direction: column; gap: 0.2rem; background: rgba(59, 130, 246, 0.12); border: 1px solid rgba(96, 165, 250, 0.4); color: #bfdbfe; border-radius: 8px; padding: 0.55rem 0.8rem; font-size: 0.9rem; text-decoration: none; }
+    .order-note strong { color: #eff6ff; }
+    a.order-note:hover { background: rgba(59, 130, 246, 0.2); }
 
     /* Schneller Bestands-Editor - Bleibt weiß */
     .stock-form {

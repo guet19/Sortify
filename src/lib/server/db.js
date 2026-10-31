@@ -468,6 +468,13 @@ async function deleteArticle(systemId, id) {
             _id: new ObjectId(id), 
             systemId: new ObjectId(systemId) 
         });
+        // Offene Bestellungen des Artikels können nicht mehr eingelagert werden
+        if (result.deletedCount === 1) {
+            await db.collection('orders').updateMany(
+                { systemId: new ObjectId(systemId), articleId: new ObjectId(id), status: 'open' },
+                { $set: { status: 'cancelled', closedAt: new Date(), cancelReason: 'Artikel gelöscht' } }
+            );
+        }
         return result;
     } catch (error) {
         console.error("Fehler beim Löschen des Artikels:", error);
@@ -1577,6 +1584,7 @@ async function deleteSystemCompletely(systemId) {
         db.collection('stock_movements').deleteMany(bySystem),
         db.collection('projects').deleteMany(bySystem),
         db.collection('project_bookings').deleteMany(bySystem),
+        db.collection('orders').deleteMany(bySystem),
         db.collection('photo_sessions').deleteMany(bySystem),
         db.collection('photo_session_images').deleteMany(bySystem),
         // Kopplungen speichern die System-ID als Text
