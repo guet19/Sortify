@@ -10,4 +10,5 @@ adafruit-circuitpython-rgb-display
 adafruit-circuitpython-neopixel
 spidev
 RPi.GPIO
-hx711 @ git+https://github.com/gandalf15/HX711.git#subdirectory=HX711_Python3
+# Waage: Paket "hx711" von Marco Roose (github.com/mpibpc-mroose/hx711) – liefert get_raw_data()
+hx711==1.1.2.3

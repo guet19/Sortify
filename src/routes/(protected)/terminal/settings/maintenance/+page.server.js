@@ -108,7 +108,8 @@ export const actions = {
         const target = await scaleTarget(systemId, cookies, { barcode });
         if (target.error) return { success: false, error: target.error };
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        // Ältere Terminals messen sofort: kurz warten, bis die Kiste ruhig steht (ab 2.3.0 wartet das Terminal selbst)
+        if (!target.settles) await new Promise(resolve => setTimeout(resolve, 1000));
         const requestId = await db.createScaleRequest(systemId, barcode, { deviceId: target.deviceId });
         return { success: true, requestId };
     },

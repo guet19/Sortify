@@ -85,6 +85,25 @@ Ein Lager kann bis zu 10 Terminals haben, z.B. eines pro Regalwand. Jedes Termin
 
 LED-Befehle (z.B. „Fächer aufleuchten lassen“) gehen automatisch an das Terminal, an dessen Streifen das jeweilige Regal hängt.
 
+## Waage: so misst das Terminal
+
+Ab Version 2.3.0:
+
+- **Erst messen, wenn die Waage ruhig ist.** Nach dem Abstellen schwingt eine Kiste kurz nach. Das Terminal liest laufend und wartet, bis 24 Messwerte in Folge ruhig sind (bei üblichen HX711-Platinen 2,4 s). Gemittelt werden die letzten zwei Drittel davon. Einzelne Störimpulse werden übersprungen. Wird die Waage nach 8 s nicht ruhig (z.B. weil jemand sie berührt), antwortet das Terminal trotzdem und meldet das Ergebnis als „unruhig“.
+- **Nullpunkt-Nachführung.** Wägezellen driften nach dem Einschalten und mit der Temperatur. Ist die Waage leer und ruhig, zieht das Terminal den Nullpunkt alle 2 Sekunden sanft nach. Liegt etwas auf der Waage (mehr als 3 g), bleibt der Nullpunkt unverändert.
+- **Kalibrieren nur bei ruhiger Waage.** Ist sie unruhig, meldet Sortify das, statt einen falschen Wert zu speichern.
+- Die Live-Anzeige der Waage misst weiterhin sofort.
+
+Feineinstellung in `terminal_config.json` (optional, danach das Terminal neu starten):
+
+| Schlüssel | Standard | Bedeutung |
+|---|---|---|
+| `stable_samples` | 24 | Ruhige Messwerte pro Wiegung. Weniger ist schneller, mehr ist genauer (für sehr kleine Teile). |
+| `stable_tolerance_g` | 0.5 | Erlaubte Schwankung in Gramm. Bei stark rauschenden Waagen erhöht das Terminal sie selbst (4× das beim Tarieren gemessene Rauschen). |
+| `zero_track_range_g` | 3.0 | Bis zu dieser Abweichung gilt die Waage als „leer“ und der Nullpunkt wird nachgeführt. |
+
+Die Waage braucht die Python-Bibliothek `hx711` von Marco Roose (in `requirements.txt` festgelegt). Prüfen mit `venv/bin/pip show hx711`: Dort sollte „Author: Marco Roose“ stehen.
+
 ## Fehlerbehebung
 
 | Anzeige | Bedeutung |

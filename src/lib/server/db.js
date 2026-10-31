@@ -2054,6 +2054,7 @@ export async function createLiveScaleRequest(systemId, { deviceId = null } = {})
     const result = await insertDeviceCommand(db, 'scale_requests', {
         systemId: new ObjectId(systemId),
         ...target,
+        live: true,          // sofort messen (Live-Anzeige), nicht erst auf Ruhe warten
         status: "pending",
         createdAt: new Date()
     });
@@ -2111,6 +2112,13 @@ export async function sendCalibrationCommand(systemId, commandType, weight = 0, 
             await hwCollection.deleteOne({ _id: hwResult.insertedId });
             await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
             return true;
+        }
+
+        // Terminal ab 2.3.0: kalibriert nur bei ruhiger Waage und meldet sonst einen Fehler
+        if (docScale && docScale.status === "error") {
+            await hwCollection.deleteOne({ _id: hwResult.insertedId });
+            await scaleCollection.deleteOne({ _id: scaleResult.insertedId });
+            throw new Error("Die Waage war nicht ruhig. Bitte nichts berühren und erneut versuchen.");
         }
     }
 

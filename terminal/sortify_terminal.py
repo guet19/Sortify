@@ -34,8 +34,9 @@ import neopixel
 import RPi.GPIO as GPIO
 from hx711 import HX711
 
-VERSION = "2.2.0"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr;
-                    # 2.2.0: Name des Terminals (mehrere pro Lager) wird beim Lebenszeichen aktualisiert
+VERSION = "2.3.0"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr;
+                    # 2.2.0: Name des Terminals (mehrere pro Lager) wird beim Lebenszeichen aktualisiert;
+                    # 2.3.0: misst erst, wenn die Waage ruhig ist; Nullpunkt wird im Leerlauf nachgeführt
 
 # ==========================================
 # 1. EINSTELLUNGEN
@@ -60,6 +61,20 @@ HEARTBEAT_SECONDS = 15 * 60    # so oft meldet sich das Terminal bei Sortify
 LED_TIMEOUT_SECONDS = 60       # LEDs gehen spätestens danach aus
 SCREEN_TIMEOUT_SECONDS = 600
 
+# Waage: gemessen wird erst, wenn die Werte ruhig sind (statt nach einer festen Wartezeit)
+STABLE_SAMPLES = 24            # so viele ruhige Messwerte in Folge (bei 10 Messungen/s 2,4 s); gemittelt werden
+                               # die letzten zwei Drittel, weil die Kiste anfangs noch leicht nachschwingt – terminal_config.json
+STABLE_MIN_SECONDS = 0.8       # … und sie müssen mindestens so lange ruhig sein (auch bei schnellen HX711)
+STABLE_MIN_SAMPLES = 6         # reicht bei Zeitablauf noch für ein ruhiges Ergebnis
+WEIGH_TIMEOUT_SECONDS = 8      # spätestens dann antwortet das Terminal (als "unruhig" gemeldet)
+CALIBRATION_TIMEOUT_SECONDS = 6  # Kalibrieren: Sortify wartet höchstens 10 s auf die Antwort
+STABLE_TOLERANCE_G = 0.5       # erlaubte Schwankung um den Median (mind.; mehr bei starkem Rauschen) – terminal_config.json
+NOISE_FACTOR = 4               # … bzw. so viel Mal das Grundrauschen der leeren Waage
+ZERO_TRACK_RANGE_G = 3.0       # Nullpunkt nur nachführen, wenn die Waage (fast) leer ist – terminal_config.json
+ZERO_TRACK_EVERY_SECONDS = 2   # so oft prüft das Terminal im Leerlauf den Nullpunkt
+ZERO_TRACK_PAUSE_SECONDS = 5   # nach einer Messung kurz warten (die Kiste wird gerade weggenommen)
+scale_noise_g = 0.0            # Rauschen der leeren Waage, beim Tarieren gemessen
+
 CALIBRATION_RATIO = 114.0
 SCALE_OFFSET = None
 config = {}
@@ -70,12 +85,16 @@ class Unpaired(Exception):
 
 
 def load_config():
-    global config, CALIBRATION_RATIO, SCALE_OFFSET
+    global config, CALIBRATION_RATIO, SCALE_OFFSET, STABLE_SAMPLES, STABLE_TOLERANCE_G, ZERO_TRACK_RANGE_G
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, "r") as f:
             config = json.load(f)
     CALIBRATION_RATIO = config.get("calibration_ratio", 114.0)
     SCALE_OFFSET = config.get("scale_offset")
+    # Für sehr unruhige oder sehr feine Waagen anpassbar (weniger Messwerte = schneller, mehr = genauer)
+    STABLE_SAMPLES = max(int(config.get("stable_samples", STABLE_SAMPLES)), STABLE_MIN_SAMPLES)
+    STABLE_TOLERANCE_G = float(config.get("stable_tolerance_g", STABLE_TOLERANCE_G))
+    ZERO_TRACK_RANGE_G = float(config.get("zero_track_range_g", ZERO_TRACK_RANGE_G))
 
 
 def save_config():
@@ -112,11 +131,13 @@ def api(method, path, payload=None, auth=True, timeout=15):
     return response
 
 
-def acknowledge(command_id, status="done", weight=None):
+def acknowledge(command_id, status="done", weight=None, stable=None):
     """Rückmeldung zu einem Auftrag (2 Versuche, damit ein kurzer Netzaussetzer nichts verliert)."""
     payload = {"id": command_id, "status": status}
     if weight is not None:
         payload["weight"] = weight
+    if stable is not None:
+        payload["stable"] = bool(stable)
     for attempt in range(2):
         try:
             api("POST", "/api/device/ack", payload)
@@ -226,30 +247,141 @@ def startup_wave():
     pixels.show()
 
 
-def get_stable_average(times=10, tolerance=0.05):
-    readings = []
-    for _ in range(times):
-        raw = hx.get_raw_data()
-        if type(raw) is list and len(raw) > 0:
-            readings.append(raw[0])
-        elif type(raw) in [int, float]:
-            readings.append(raw)
-        time.sleep(0.1)
-    if not readings:
-        return 0.0
-    if len(readings) < 3:
-        return sum(readings) / len(readings)
-    median_val = sorted(readings)[len(readings) // 2]
-    deviation = max(abs(median_val * tolerance), 200)
-    valid = [r for r in readings if abs(r - median_val) <= deviation]
-    return sum(valid) / len(valid) if valid else median_val
+def read_raw(count=2):
+    """Rohwerte der Waage; ungültige Lesungen werden verworfen. Begrenzt: get_raw_data() der Bibliothek
+    wartet bei einer defekten oder abgezogenen Waage endlos – das darf das Terminal (LEDs, Befehle) nicht
+    blockieren. Jede einzelne Lesung (_read) gibt nach spätestens ~0,4 s auf."""
+    read_one = getattr(hx, "_read", None)
+    if read_one is None:
+        data = hx.get_raw_data(count)
+        values = data if isinstance(data, list) else [data]
+    else:
+        values = []
+        for _ in range(count * 2):        # höchstens doppelt so viele Versuche wie Werte
+            value = read_one()
+            if value is not False and value is not None:
+                values.append(value)
+                if len(values) >= count:
+                    break
+    return [v for v in values if isinstance(v, (int, float)) and not isinstance(v, bool)]
+
+
+def median(values):
+    s = sorted(values)
+    n = len(s)
+    return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def trimmed_mean(values):
+    """Mittelwert ohne die äussersten Werte (je ein Sechstel oben und unten)."""
+    s = sorted(values)
+    cut = len(s) // 6
+    core = s[cut:len(s) - cut] or s
+    return sum(core) / len(core)
+
+
+def per_gram():
+    return abs(CALIBRATION_RATIO) or 1.0
+
+
+def tolerance_raw(center_raw):
+    """Erlaubte Schwankung als Rohwert: fest, mindestens 4× das Grundrauschen, bei schwerer Last 0,05 %."""
+    grams = abs(center_raw - SCALE_OFFSET) / per_gram() if SCALE_OFFSET is not None else 0.0
+    return max(STABLE_TOLERANCE_G, NOISE_FACTOR * scale_noise_g, 0.0005 * grams) * per_gram()
+
+
+def measure_raw(samples=None, min_seconds=STABLE_MIN_SECONDS, timeout=WEIGH_TIMEOUT_SECONDS):
+    """Liest, bis die Waage ruhig ist: mindestens `samples` Werte über `min_seconds`, die alle nah am Median
+    liegen. Ein einzelner Ausreisser (Störimpuls) wird übersprungen; zwei in Folge heissen "es bewegt sich
+    etwas" und die ruhige Phase beginnt neu. Gemittelt werden die letzten zwei Drittel der ruhigen Phase.
+    Liefert (robuster Mittelwert, ruhig?, gemittelte Werte)."""
+    samples = samples or STABLE_SAMPLES   # erst hier lesen: kann aus terminal_config.json stammen
+    run, recent = deque(maxlen=200), deque(maxlen=samples)
+    run_start = 0.0
+    outliers = 0
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        for raw in read_raw(2):
+            recent.append(raw)
+            if run:
+                center = median(run)
+                if abs(raw - center) > tolerance_raw(center):
+                    outliers += 1
+                    if outliers < 2:
+                        continue
+                    run.clear()
+            if not run:
+                run_start = time.monotonic()
+            outliers = 0
+            run.append(raw)
+        if len(run) >= samples and time.monotonic() - run_start >= min_seconds:
+            values = list(run)[len(run) // 3:]
+            return trimmed_mean(values), True, values
+    if len(run) >= STABLE_MIN_SAMPLES:
+        values = list(run)[len(run) // 3:]
+        return trimmed_mean(values), True, values
+    return (median(recent) if recent else None), False, list(recent)
+
+
+def measure_grams(quick=False):
+    """Gewicht in Gramm und ob die Waage ruhig war. quick: sofort messen (Live-Anzeige), ohne auf Ruhe zu warten."""
+    if quick:
+        values = read_raw(3)
+        raw, stable = (median(values) if values else None), None
+    else:
+        raw, stable, _ = measure_raw()
+    if raw is None or SCALE_OFFSET is None:
+        return None, False
+    return round((raw - SCALE_OFFSET) / CALIBRATION_RATIO, 3), stable
+
+
+def tare(require_stable=True, timeout=10):
+    """Nullpunkt auf die leere Waage setzen und dabei ihr Grundrauschen bestimmen.
+    Liefert True, wenn die Waage ruhig war (sonst bleibt der alte Nullpunkt, ausser require_stable=False)."""
+    global SCALE_OFFSET, scale_noise_g
+    previous_noise = scale_noise_g
+    # Erst grob das Rauschen schätzen (Median der Abweichungen: unempfindlich gegen Störimpulse),
+    # damit die Ruhe-Erkennung auch bei einer stark rauschenden Waage passende Grenzen hat
+    first = read_raw(10)
+    if len(first) >= 5:
+        center = median(first)
+        scale_noise_g = min(1.4826 * median([abs(v - center) for v in first]) / per_gram(), 2.0)
+    raw, stable, values = measure_raw(samples=20, timeout=timeout)
+    if raw is None or (require_stable and not stable):
+        scale_noise_g = previous_noise    # Unruhe ist kein Rauschen: alte Schätzung behalten
+        return False
+    SCALE_OFFSET = raw
+    if stable and len(values) > 2:
+        mean = sum(values) / len(values)
+        spread = (sum((v - mean) ** 2 for v in values) / (len(values) - 1)) ** 0.5
+        scale_noise_g = min(spread / per_gram(), 2.0)
+    return stable
+
+
+def track_zero():
+    """Leerlauf: Ist die Waage leer und ruhig, den Nullpunkt sanft nachziehen.
+    So wirken sich Aufwärmen und Temperatur nicht mehr auf die Messungen aus. Liegt etwas auf
+    der Waage (mehr als ZERO_TRACK_RANGE_G), bleibt der Nullpunkt unverändert."""
+    global SCALE_OFFSET
+    if SCALE_OFFSET is None:
+        return False
+    values = read_raw(3)
+    if len(values) < 3:
+        return None                       # Waage liefert nichts (defekt, abgezogen?)
+    center = median(values)
+    if max(values) - min(values) > tolerance_raw(center):
+        return False                      # unruhig: jemand hantiert an der Waage
+    if abs(center - SCALE_OFFSET) / per_gram() > ZERO_TRACK_RANGE_G:
+        return False                      # da liegt etwas auf der Waage
+    SCALE_OFFSET += (center - SCALE_OFFSET) * 0.5
+    return True
 
 
 def enforce_empty_scale():
     if SCALE_OFFSET is None:
         return
-    raw_val = get_stable_average(5)
-    if abs(raw_val - SCALE_OFFSET) / CALIBRATION_RATIO > 10.0:
+    raw_val, _, _ = measure_raw(samples=5, min_seconds=0.3, timeout=3)
+    if raw_val is not None and abs(raw_val - SCALE_OFFSET) / per_gram() > 10.0:
         pixels.fill((255, 0, 0))
         pixels.show()
         draw_status_screen("Waage leer?", button_text="Bestätigen", bg_color=(150, 0, 0), custom_font=font_medium)
@@ -258,11 +390,6 @@ def enforce_empty_scale():
         time.sleep(0.5)
     pixels.fill((0, 0, 0))
     pixels.show()
-
-
-def get_weight_in_grams(times=10):
-    avg_raw = get_stable_average(times)
-    return round((avg_raw - SCALE_OFFSET) / CALIBRATION_RATIO, 3)
 
 
 def parse_color(raw_color):
@@ -493,9 +620,10 @@ def run_normal_mode():
     startup_wave()
     draw_status_screen("Prüfen...")
     enforce_empty_scale()
-    # Bei jedem Start frisch tarieren (gleicht Temperatur- und Materialdrift aus)
+    # Bei jedem Start frisch tarieren (gleicht Temperatur- und Materialdrift aus); danach führt
+    # track_zero() den Nullpunkt im Leerlauf nach
     draw_status_screen("Tarieren...")
-    SCALE_OFFSET = get_stable_average(15)
+    tare(require_stable=False)
     save_config()
 
     def show_ready():
@@ -507,7 +635,8 @@ def run_normal_mode():
     blink_state = False
     last_blink_time = blink_start_time = 0
     led_color = (0, 255, 0)
-    last_activity = last_heartbeat = time.monotonic()
+    last_activity = last_heartbeat = last_zero_track = time.monotonic()
+    last_weighing = 0.0
     sleeping = False
 
     def wake_up():
@@ -565,22 +694,36 @@ def run_normal_mode():
 
                 elif kind == "calibrate_zero":
                     draw_status_screen("Kalibrierung...")
-                    SCALE_OFFSET = get_stable_average(15)
-                    save_config()
-                    finish_calibration(message.get("id"), True)
+                    ok = tare(timeout=CALIBRATION_TIMEOUT_SECONDS)   # nur, wenn die Waage ruhig ist
+                    if ok:
+                        save_config()
+                    last_weighing = time.monotonic()
+                    finish_calibration(message.get("id"), ok)
 
                 elif kind == "calibrate_ratio":
                     draw_status_screen("Kalibrierung...")
                     known_weight = float(message.get("weight") or 0)
-                    raw_val = get_stable_average(15)
-                    ok = SCALE_OFFSET is not None and known_weight > 0
+                    raw_val, stable, _ = measure_raw(samples=20, timeout=CALIBRATION_TIMEOUT_SECONDS)
+                    ok = stable and raw_val is not None and SCALE_OFFSET is not None and known_weight > 0 and raw_val != SCALE_OFFSET
+                    last_weighing = time.monotonic()
                     if ok:
                         CALIBRATION_RATIO = (raw_val - SCALE_OFFSET) / known_weight
                         save_config()
                     finish_calibration(message.get("id"), ok)
 
                 elif kind == "weigh":
-                    acknowledge(message.get("id"), "done", get_weight_in_grams(10))
+                    # Live-Anzeige ("quick"): sofort messen; sonst warten, bis die Waage ruhig ist
+                    quick = bool(message.get("quick"))
+                    if not quick:
+                        draw_status_screen("Wiegen...", custom_font=font_medium)
+                    grams, stable = measure_grams(quick)
+                    last_weighing = time.monotonic()
+                    if grams is None:
+                        acknowledge(message.get("id"), "error")
+                    else:
+                        acknowledge(message.get("id"), "done", grams, stable)
+                    if not quick:
+                        show_ready()
 
                 elif kind == "led":
                     drawers = [int(d) for d in message.get("drawers", [])]
@@ -623,6 +766,14 @@ def run_normal_mode():
                     pixels[i] = led_color if blink_state else (0, 0, 0)
                 pixels.show()
                 last_blink_time = time.monotonic()
+
+            # Nullpunkt im Leerlauf nachführen (nicht während LEDs leuchten: das Lesen dauert ~0,3 s)
+            if (not message and not blink_indices and not solid_indices
+                    and now - last_zero_track >= ZERO_TRACK_EVERY_SECONDS
+                    and time.monotonic() - last_weighing >= ZERO_TRACK_PAUSE_SECONDS):
+                last_zero_track = now
+                if track_zero() is None:
+                    last_zero_track = now + 60   # Waage antwortet nicht: erst in einer Minute wieder versuchen
 
             time.sleep(0.05)
     finally:

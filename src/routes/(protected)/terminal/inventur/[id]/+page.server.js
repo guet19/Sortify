@@ -37,8 +37,8 @@ export const actions = {
         const barcode = field(await request.formData(), 'barcode');
         const target = await scaleTarget(locals.systemId, cookies, { barcode });
         if (target.error) return fail(409, { error: target.error });
-        // Kurz warten, bis die Kiste ruhig auf der Waage steht (wie bei der Rückgabe)
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        // Ältere Terminals messen sofort: kurz warten, bis die Kiste ruhig steht (ab 2.3.0 wartet das Terminal selbst)
+        if (!target.settles) await new Promise((resolve) => setTimeout(resolve, 1000));
         const requestId = await db.createScaleRequest(locals.systemId, barcode, { deviceId: target.deviceId });
         return { requestId };
     },

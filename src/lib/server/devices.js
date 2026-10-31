@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import db from '$lib/server/db.js';
 import { hashToken } from '$lib/server/security.js';
 import { publish, topicPrefix, isMqttConfigured } from '$lib/server/mqtt.js';
-import { newDeviceToken, newDeviceKey, newTopicId, commandTopic, encryptMessage, envelope, commandFromDoc, terminalState, versionFromUserAgent } from '$lib/server/deviceProtocol.js';
+import { newDeviceToken, newDeviceKey, newTopicId, commandTopic, encryptMessage, envelope, commandFromDoc, terminalState, versionFromUserAgent, versionAtLeast, SETTLE_MIN_VERSION } from '$lib/server/deviceProtocol.js';
 import { cookieOptions } from '$lib/server/session.js';
 import { TERMINAL_COOKIE, scaleTerminalId, cleanTerminalName, nextTerminalName } from '$lib/terminals.js';
 
@@ -155,18 +155,21 @@ export async function rememberTerminal(cookies, systemId, terminalId) {
     return true;
 }
 
-// Ziel für Waage und Kalibrierung: { deviceId } (null = altes Terminal mit Datenbankzugriff) oder { error }.
+// Ziel für Waage und Kalibrierung: { deviceId, settles } (deviceId null = altes Terminal mit Datenbankzugriff)
+// oder { error }. settles: das Terminal wartet selbst, bis die Waage ruhig ist (ab 2.3.0).
 // barcode: Fach, um das es geht – hilft, wenn der Browser noch kein Terminal gewählt hat
 export async function scaleTarget(systemId, cookies, { barcode = null } = {}) {
     const terminals = await listTerminals(systemId);
-    if (terminals.length === 0) return { deviceId: null };
+    if (terminals.length === 0) return { deviceId: null, settles: false };
     let shelf = null;
     if (barcode && terminals.length > 1) {
         shelf = await (await db.getDb()).collection('shelves')
             .findOne({ systemId: new ObjectId(systemId), 'drawers.barcode': String(barcode) }, { projection: { deviceId: 1 } });
     }
     const deviceId = scaleTerminalId(terminals, { selectedId: selectedTerminalId(cookies), shelf });
-    return deviceId ? { deviceId } : { error: 'Bitte zuerst oben wählen, an welchem Terminal du stehst.' };
+    if (!deviceId) return { error: 'Bitte zuerst oben wählen, an welchem Terminal du stehst.' };
+    const version = terminals.find((t) => t.id === deviceId)?.softwareVersion;
+    return { deviceId, settles: versionAtLeast(version, SETTLE_MIN_VERSION) };
 }
 
 export async function renameTerminal(systemId, terminalId, name) {
@@ -257,10 +260,12 @@ export async function getTerminalStatus(systemId, { fresh = false, selectedId = 
 
 // Rückmeldung zu einem Waagen- oder Kalibrier-Auftrag – nur für Aufträge des eigenen Lagers,
 // die an dieses Terminal gingen (bzw. an kein bestimmtes)
-export async function acknowledgeCommand(device, { id, status, weight }) {
+export async function acknowledgeCommand(device, { id, status, weight, stable }) {
     if (!ObjectId.isValid(String(id))) return false;
     const newStatus = ['processing', 'done', 'error'].includes(status) ? status : 'done';
     const set = { status: newStatus, answeredBy: device._id, answeredAt: new Date() };
+    // Ab Terminal 2.3.0: War die Waage beim Messen ruhig?
+    if (typeof stable === 'boolean') set.stable = stable;
     if (newStatus === 'done' && weight !== undefined && weight !== null) {
         const value = Number(weight);
         if (!Number.isFinite(value) || Math.abs(value) > 1e7) return false;

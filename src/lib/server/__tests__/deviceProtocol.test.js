@@ -22,6 +22,7 @@ describe('Geräte-Protokoll', () => {
         expect(commandFromDoc('hardware_commands', { _id: 'a', drawer_ids: [4, 12], color: 'blue', mode: 'solid' }))
             .toEqual({ t: 'led', drawers: [4, 12], color: 'blue', mode: 'solid' });
         expect(commandFromDoc('scale_requests', { _id: 'b' })).toEqual({ t: 'weigh', id: 'b' });
+        expect(commandFromDoc('scale_requests', { _id: 'l', live: true })).toEqual({ t: 'weigh', id: 'l', quick: true });
         expect(commandFromDoc('scale_requests', { _id: 'c', command: 'calibrate_ratio', weight: 500 }))
             .toEqual({ t: 'calibrate_ratio', id: 'c', weight: 500 });
     });

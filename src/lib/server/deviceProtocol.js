@@ -48,7 +48,8 @@ export function commandFromDoc(collection, doc) {
     if (command === 'calibrate_zero' || command === 'calibrate_ratio') {
         return { t: command, id, weight: Number(doc.weight) || 0 };
     }
-    if (collection === 'scale_requests') return { t: 'weigh', id };
+    // live: Live-Anzeige der Waage – sofort messen statt auf Ruhe zu warten (ab Terminal 2.3.0)
+    if (collection === 'scale_requests') return doc.live ? { t: 'weigh', id, quick: true } : { t: 'weigh', id };
     if (collection === 'hardware_commands') {
         return {
             t: 'led',
@@ -63,6 +64,8 @@ export function commandFromDoc(collection, doc) {
 // ---------- Erreichbarkeit des Terminals ----------
 // Terminals ab Version 2.1.0 beantworten einen "ping" sofort per HTTPS (/api/device/pong).
 export const PING_MIN_VERSION = '2.1.0';
+// Ab dieser Version wartet das Terminal selbst, bis die Waage ruhig ist (Sortify braucht keine feste Pause mehr)
+export const SETTLE_MIN_VERSION = '2.3.0';
 export const STATUS_TIMING = {
     freshMs: 60_000,          // so lange gilt eine Meldung des Terminals als "verbunden"
     pingTimeoutMs: 8_000,     // ohne Antwort nach dieser Zeit: "nicht erreichbar"
