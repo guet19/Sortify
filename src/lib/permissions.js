@@ -18,6 +18,7 @@ const API_PERMISSIONS = {
     '/api/pairing-status': ['/terminal/settings/pairing'],
     // Artikel-Editor: KI-Bildbearbeitung und Fotos vom Smartphone
     '/api/image-cleanup': ['/addarticle', '/editarticle'],
+    '/api/article-gtin': ['/addarticle', '/editarticle'],
     '/api/photo-session': ['/addarticle', '/editarticle'],
     // Verbindungsanzeige im Terminal: für alle, die irgendeine Terminal-Seite öffnen dürfen
     '/api/terminal-status': ['/terminal', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',

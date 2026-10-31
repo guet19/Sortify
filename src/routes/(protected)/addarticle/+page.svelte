@@ -7,6 +7,7 @@
     import { prepareOnWhite, rotateBlob, imageItem, articleImageUrls, appendImagesToFormData, MAX_ARTICLE_IMAGES } from "$lib/imageTools.js";
     import ImageAiTools from "$lib/components/ImageAiTools.svelte";
     import PhonePhotoButton from "$lib/components/PhonePhotoButton.svelte";
+    import GtinWarning from "$lib/components/GtinWarning.svelte";
     import ArticleImageList from "$lib/components/ArticleImageList.svelte";
     import { page } from "$app/stores";
     import { goto, invalidateAll } from "$app/navigation"; 
@@ -39,6 +40,9 @@
     
     let supplier = copiedArticle?.supplier || "";
     let gtin = copiedArticle?.gtin || ""; 
+    // Doppelte GTIN: nach der Rückfrage des Servers mit "Trotzdem speichern" bestätigt
+    let confirmDuplicateGtin = false;
+    let articleFormEl;
     let price = copiedArticle?.price || "";
     let istBestand = copiedArticle ? 0 : ""; // Bei Kopie Start auf 0
 
@@ -610,7 +614,18 @@
         <div class="alert success">{form?.message || "Artikel erfolgreich gespeichert!"}</div>
     {/if}
     {#if form?.error}
-        <div class="alert error">{form.error}</div>
+        <div class="alert error">
+            {form.error}
+            {#if form?.duplicateGtin}
+                <div class="duplicate-list">
+                    Vorhanden:
+                    {#each form.duplicateGtin as m (m.id)}<a href="/{m.id}" target="_blank" rel="noopener">{m.title}</a>{/each}
+                </div>
+                <button type="button" class="btn-confirm-duplicate" on:click={async () => { confirmDuplicateGtin = true; await tick(); articleFormEl.requestSubmit(); }}>
+                    Trotzdem speichern
+                </button>
+            {/if}
+        </div>
     {/if}
     {#if copiedArticle}
         <div class="alert" style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe;">
@@ -619,6 +634,7 @@
     {/if}
 
     <form
+        bind:this={articleFormEl}
         method="POST"
         class="article-form"
         enctype="multipart/form-data"
@@ -893,7 +909,9 @@
                 </div>
                 <div class="form-group">
                     <label for="gtin" class="label-text">GTIN / EAN / Art.Nr.</label>
-                    <input type="text" id="gtin" name="gtin" bind:value={gtin} />
+                    <input type="text" id="gtin" name="gtin" bind:value={gtin} on:input={() => (confirmDuplicateGtin = false)} />
+                    <input type="hidden" name="confirmDuplicateGtin" value={confirmDuplicateGtin ? '1' : ''} />
+                    <GtinWarning {gtin} />
                 </div>
                 
                 <div class="form-group">
@@ -1296,4 +1314,9 @@
     .image-limit-hint { margin-top: 0.75rem; font-size: 0.85rem; color: #64748b; }
 
     .phone-queue-hint { margin: -0.25rem 0 0.75rem 0; font-size: 0.85rem; color: #2563eb; font-weight: 600; }
+
+    .duplicate-list { margin-top: 0.4rem; font-weight: 500; display: flex; flex-wrap: wrap; gap: 0.25rem 0.6rem; }
+    .duplicate-list a { color: inherit; text-decoration: underline; }
+    .btn-confirm-duplicate { margin-top: 0.6rem; background: #fff; color: #b91c1c; border: 1px solid #fca5a5; border-radius: 6px; padding: 0.4rem 0.9rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-confirm-duplicate:hover { background: #fef2f2; }
 </style>

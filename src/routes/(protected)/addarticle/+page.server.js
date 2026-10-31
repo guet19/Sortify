@@ -88,6 +88,15 @@ export const actions = {
             return fail(400, { error: "Ungültige Hauptkategorie." });
         }
 
+        // Doppelte GTIN: nur nach Bestätigung speichern (vor dem Bild-Upload, damit keine verwaisten Bilder entstehen)
+        const gtinValue = String(data.get('gtin') || '').trim();
+        if (gtinValue && data.get('confirmDuplicateGtin') !== '1') {
+            const duplicates = await db.findArticlesByGtin(systemId, gtinValue);
+            if (duplicates.length > 0) {
+                return fail(409, { error: `Die GTIN „${gtinValue}“ ist bereits vergeben.`, duplicateGtin: duplicates });
+            }
+        }
+
         try {
             const istBestand = parseInt(istBestandRaw, 10);
             const sollBestand = data.get('sollBestand') ? parseInt(data.get('sollBestand'), 10) : null;

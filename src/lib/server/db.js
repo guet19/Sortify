@@ -448,6 +448,18 @@ async function updateArticle(systemId, id, updateData, meta = {}) {
     }
 }
 
+// Artikel mit gleicher GTIN (Leerzeichen und Gross-/Kleinschreibung egal), z.B. für eine Warnung beim Anlegen
+async function findArticlesByGtin(systemId, gtin, excludeId = null) {
+    const compact = String(gtin || '').replace(/\s+/g, '');
+    if (!compact || compact.length > 64) return [];
+    const pattern = '^\\s*' + compact.split('').map(escapeRegex).join('\\s*') + '\\s*$';
+    const filter = { systemId: new ObjectId(systemId), gtin: { $regex: pattern, $options: 'i' } };
+    if (excludeId && ObjectId.isValid(String(excludeId))) filter._id = { $ne: new ObjectId(String(excludeId)) };
+    const db = await getDb();
+    const rows = await db.collection('articles').find(filter, { projection: { title: 1, gtin: 1 } }).limit(5).toArray();
+    return rows.map(r => ({ id: r._id.toString(), title: r.title, gtin: r.gtin }));
+}
+
 async function deleteArticle(systemId, id) {
     try {
         const db = await getDb();
@@ -2195,6 +2207,7 @@ export default {
     getDrawerByBarcode,
     updateArticleStockFromWeights,
     setDrawerStock,
+    findArticlesByGtin,
     removeBarcodes,
     logArticleAction,
     updateArticleItemWeight,

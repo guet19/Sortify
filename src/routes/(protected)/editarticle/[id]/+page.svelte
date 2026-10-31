@@ -11,6 +11,7 @@
     import ArticleImageList from "$lib/components/ArticleImageList.svelte";
     import ImageAiTools from "$lib/components/ImageAiTools.svelte";
     import PhonePhotoButton from "$lib/components/PhonePhotoButton.svelte";
+    import GtinWarning from "$lib/components/GtinWarning.svelte";
 
     export let data;
     export let form;
@@ -366,6 +367,7 @@
                     <div class="meta-item">
                         <label class="meta-label">GTIN / EAN / Art.Nr.</label>
                         <input type="text" name="gtin" class="meta-input" bind:value={gtin} placeholder="-" />
+                        <GtinWarning {gtin} excludeId={article._id} />
                     </div>
                     <div class="meta-item">
                         <label class="meta-label">Soll-Bestand</label>
