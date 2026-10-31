@@ -1549,6 +1549,7 @@ async function deleteSystemCompletely(systemId) {
         db.collection('projects').deleteMany(bySystem),
         db.collection('project_bookings').deleteMany(bySystem),
         db.collection('orders').deleteMany(bySystem),
+        db.collection('stocktakes').deleteMany(bySystem),
         db.collection('photo_sessions').deleteMany(bySystem),
         db.collection('photo_session_images').deleteMany(bySystem),
         // Kopplungen speichern die System-ID als Text

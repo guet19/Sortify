@@ -90,6 +90,11 @@ const INDEXES = {
         { key: { systemId: 1, status: 1, articleId: 1 }, options: { name: 'systemId_status_article' } },
         { key: { systemId: 1, status: 1, closedAt: -1 }, options: { name: 'systemId_status_closedAt' } }
     ],
+    // Inventur (Regal Fach für Fach zählen)
+    stocktakes: [
+        { key: { systemId: 1, status: 1, startedAt: -1 }, options: { name: 'systemId_status_startedAt' } },
+        { key: { systemId: 1, status: 1, finishedAt: -1 }, options: { name: 'systemId_status_finishedAt' } }
+    ],
     // Fotos vom Smartphone (QR-Code beim Artikel anlegen): nach 15 Minuten automatisch löschen
     photo_sessions: [
         { key: { tokenHash: 1 }, options: { name: 'tokenHash_unique', unique: true } },

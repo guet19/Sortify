@@ -76,6 +76,10 @@ const INDEXES = {
         [{ systemId: 1, status: 1, articleId: 1 }, { name: 'systemId_status_article' }],
         [{ systemId: 1, status: 1, closedAt: -1 }, { name: 'systemId_status_closedAt' }]
     ],
+    stocktakes: [
+        [{ systemId: 1, status: 1, startedAt: -1 }, { name: 'systemId_status_startedAt' }],
+        [{ systemId: 1, status: 1, finishedAt: -1 }, { name: 'systemId_status_finishedAt' }]
+    ],
     photo_sessions: [
         [{ tokenHash: 1 }, { name: 'tokenHash_unique', unique: true }],
         [{ expiresAt: 1 }, { name: 'ttl_expiresAt', expireAfterSeconds: 0 }]

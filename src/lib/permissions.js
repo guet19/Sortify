@@ -2,16 +2,19 @@
 // damit Anzeige und tatsächlicher Zugriff immer übereinstimmen.
 
 // Diese Bereiche sind sensibel und werden NICHT automatisch über eine
-// übergeordnete Berechtigung freigegeben (z.B. gibt '/terminal' keinen Zugriff auf die Hardware-Einstellungen).
-const SEPARATELY_GRANTED = ['/terminal/settings'];
+// übergeordnete Berechtigung freigegeben (z.B. gibt '/terminal' keinen Zugriff auf die Hardware-Einstellungen
+// oder die Inventur, die Bestände korrigiert).
+const SEPARATELY_GRANTED = ['/terminal/settings', '/terminal/inventur'];
+// Übersichtsseiten gesperrter Bereiche, die trotzdem für alle mit Zugriff auf den Bereich darüber offen sind
+const OPEN_OVERVIEWS = ['/terminal/settings'];
 
-const TERMINAL_PAGES = ['/terminal', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
+const TERMINAL_PAGES = ['/terminal', '/terminal/inventur', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
     '/terminal/settings/maintenance', '/terminal/settings/shelf', '/terminal/settings/pairing'];
 
 // API-Endpunkte erben die Berechtigung der Seiten, die sie benutzen
 const API_PERMISSIONS = {
     '/api/scale/calibrate': ['/terminal/settings/calibration'],
-    '/api/scale': ['/terminal/return', '/terminal/settings/scale', '/terminal/settings/assign', '/terminal/settings/maintenance'],
+    '/api/scale': ['/terminal/return', '/terminal/inventur', '/terminal/settings/scale', '/terminal/settings/assign', '/terminal/settings/maintenance'],
     '/api/fetch-image': ['/addarticle', '/editarticle'],
     '/api/extract-article': ['/addarticle', '/editarticle'],
     '/api/suggest-category': ['/addarticle'],
@@ -55,7 +58,7 @@ export function canAccessPath(path, allowedRoutes = []) {
     // Übersichtsseite eines gesperrten Bereichs (z.B. Terminal-Einstellungen mit Logout-Button):
     // erlaubt mit Zugriff auf den übergeordneten Bereich oder einen Unterpunkt.
     // Die Seite zeigt selbst nur die freigegebenen Kacheln an.
-    if (SEPARATELY_GRANTED.includes(path) && allowedRoutes.some(r => r !== '/' && (isWithin(r, path) || isWithin(path, r)))) {
+    if (OPEN_OVERVIEWS.includes(path) && allowedRoutes.some(r => r !== '/' && (isWithin(r, path) || isWithin(path, r)))) {
         return true;
     }
 

@@ -17,6 +17,13 @@ describe('canAccessPath', () => {
         expect(canAccessPath('/terminal/settings/pairing', ['/terminal'])).toBe(false);
         expect(canAccessPath('/terminal/settings/assign/123', ['/terminal/settings/assign'])).toBe(true);
     });
+    it('Inventur muss einzeln freigegeben werden (sie korrigiert Bestände)', () => {
+        expect(canAccessPath('/terminal/inventur', ['/terminal'])).toBe(false);
+        expect(canAccessPath('/terminal/inventur/abc', ['/terminal'])).toBe(false);
+        expect(canAccessPath('/terminal/inventur/abc', ['/terminal/inventur'])).toBe(true);
+        expect(canAccessPath('/api/scale/123', ['/terminal/inventur'])).toBe(true);
+        expect(canAccessPath('/api/terminal-select', ['/terminal/inventur'])).toBe(true);
+    });
     it('Übersicht der Einstellungen (mit Logout) bleibt für Terminal-Nutzer erreichbar', () => {
         expect(canAccessPath('/terminal/settings', ['/terminal'])).toBe(true);
         expect(canAccessPath('/terminal/settings', ['/'])).toBe(false);

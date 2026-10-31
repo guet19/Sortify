@@ -24,6 +24,7 @@ const AVAILABLE_ROUTES = [
     // Hinweis: '/terminal' gibt KEINEN Zugriff auf die Hardware-Einstellungen,
     // diese müssen einzeln freigegeben werden
     { path: '/terminal', name: 'Terminal: Suche & Rückgabe' },
+    { path: '/terminal/inventur', name: 'Terminal: Inventur (korrigiert Bestände)' },
     { path: '/terminal/settings/assign', name: 'Terminal-Hardware: Zuweisung' },
     { path: '/terminal/settings/scale', name: 'Terminal-Hardware: Waage' },
     { path: '/terminal/settings/calibration', name: 'Terminal-Hardware: Kalibrierung' },

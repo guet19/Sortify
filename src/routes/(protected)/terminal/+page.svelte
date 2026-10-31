@@ -1,5 +1,9 @@
 <script>
     import TerminalHeader from '$lib/components/TerminalHeader.svelte';
+    import { page } from '$app/stores';
+    import { canAccessPath } from '$lib/permissions.js';
+    // Inventur wird einzeln freigegeben (sie korrigiert Bestände)
+    $: canInventory = canAccessPath('/terminal/inventur', $page.data.allowedRoutes || []);
 </script>
 
 <div class="dashboard-container">
@@ -17,16 +21,24 @@
             <div class="icon">⚖️</div>
             <h3>Artikel retournieren</h3>
         </a>
+
+        {#if canInventory}
+            <!-- Karte 3: Inventur (Regal Fach für Fach wiegen) -->
+            <a href="/terminal/inventur" class="action-card inventory">
+                <div class="icon">📋</div>
+                <h3>Inventur</h3>
+            </a>
+        {/if}
     </div>
 </div>
 
 <style>
     .dashboard-container { max-width: 1000px; margin: 0 auto; }
 
-    /* Grid für exakt 2 Spalten */
+    /* 2 Spalten (mit Inventur-Kachel 3) */
     .action-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
         gap: 3rem;
     }
 
@@ -48,6 +60,7 @@
     /* Verschiedene Akzentfarben für schnelle visuelle Unterscheidung */
     .action-card.search:hover, .action-card.search:active { background-color: #334155; transform: translateY(-5px); border-color: #10b981; }
     .action-card.return:hover, .action-card.return:active { background-color: #334155; transform: translateY(-5px); border-color: #3b82f6; }
+    .action-card.inventory:hover, .action-card.inventory:active { background-color: #334155; transform: translateY(-5px); border-color: #f59e0b; }
 
     .icon { font-size: 5rem; margin-bottom: 1rem; }
     h3 { margin: 0; font-size: 2rem; }
