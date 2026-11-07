@@ -644,7 +644,7 @@
                         
                         <button type="submit" tabindex="-1" class="manual-submit">Barcode prüfen</button>
                     </form>
-                    <CameraScan input={scanInputRef} />
+                    <CameraScan input={scanInputRef} manualCapture />
                 {/if}
 
             {:else if wizardState === 'weigh_box'}

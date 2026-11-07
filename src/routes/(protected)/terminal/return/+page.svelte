@@ -225,7 +225,7 @@
                     >
                     <button type="submit" class="manual-submit">Barcode prüfen</button>
                 </form>
-                <CameraScan input={scanInputRef} />
+                <CameraScan input={scanInputRef} manualCapture />
             </div>
 
         {:else if currentStep === 'instruction'}

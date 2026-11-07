@@ -354,7 +354,7 @@
                 >
                 <button type="submit" class="btn-hidden">Scan</button>
             </form>
-            <CameraScan input={scanInputRef} label="📷 Fach mit Kamera scannen" />
+            <CameraScan input={scanInputRef} label="📷 Fach mit Kamera scannen" manualCapture />
 
             <div class="scanned-list">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
