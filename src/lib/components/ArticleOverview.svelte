@@ -4,6 +4,7 @@
     import { toCsv } from '$lib/csv.js';
     import { articlesToRows } from '$lib/articleCsv.js';
     import { canAccessPath } from '$lib/permissions.js';
+    import { SEARCH_SCOPES, buildSearchIndex, describeSearch, matchesSearch, parseSearchQuery, resolveSearch } from '$lib/articleSearch.js';
     // Artikelübersicht – genutzt von der Inventar-Startseite (/) und der Terminal-Suche (/terminal/search).
     // Im Terminal-Modus: nur eingelagerte Artikel, keine Verwaltungsfunktionen.
     import { page } from '$app/stores';
@@ -65,6 +66,7 @@
     
     // --- 1. STATE FÜR ALLE FILTER (INKL. SESSION-SPEICHER) ---
     let searchQuery = "";
+    let searchScope = "title";   // Suchbereich: 'title' (Titel/GTIN) oder 'all'
     let selectedMainCategoryId = "";
     let selectedSubcategoryId = "";
     let currentSort = "name_asc";
@@ -78,6 +80,7 @@
             try {
                 const parsed = JSON.parse(savedFilters);
                 searchQuery = parsed.searchQuery || "";
+                searchScope = parsed.searchScope === "all" ? "all" : "title";
                 selectedMainCategoryId = parsed.selectedMainCategoryId || "";
                 selectedSubcategoryId = parsed.selectedSubcategoryId || "";
                 currentSort = parsed.currentSort || "name_asc";
@@ -93,6 +96,7 @@
     $: if (browser) {
         sessionStorage.setItem(filterStorageKey, JSON.stringify({
             searchQuery,
+            searchScope,
             selectedMainCategoryId,
             selectedSubcategoryId,
             currentSort,
@@ -100,6 +104,11 @@
             activeRangeFilters
         }));
     }
+
+    // --- SUCHE: mehrere Begriffe (UND), "ODER", Umlaute und Tippfehler (siehe $lib/articleSearch.js) ---
+    const searchIndexes = {};
+    const searchIndexFor = (scope) => (searchIndexes[scope] ||= buildSearchIndex(articles, attributes, scope));
+    $: search = resolveSearch(parseSearchQuery(searchQuery), searchIndexFor(searchScope));
 
     // 1. HAUPTKATEGORIEN FILTERN
     $: mainCategoryOptions = categories
@@ -130,13 +139,7 @@
 
     // --- 2. BASIS-FILTER (Kategorie, Suche & GTIN) ---
     $: baseFilteredArticles = articles.filter(article => {
-        const searchStr = (searchQuery || "").toLowerCase();
-        const safeTitle = article.title || "";
-        const safeGtin = article.gtin || "";
-        
-        const matchSearch = safeTitle.toLowerCase().includes(searchStr) || 
-                            safeGtin.toLowerCase().includes(searchStr);
-                            
+        const matchSearch = matchesSearch(search, article);
         const matchMainCategory = selectedMainCategoryId === "" || article.mainCategoryId === selectedMainCategoryId;
         const matchSubCategory = selectedSubcategoryId === "" || article.subcategoryId === selectedSubcategoryId;
         return matchSearch && matchMainCategory && matchSubCategory;
@@ -452,9 +455,17 @@
         
         <div class="filter-right">
             <div class="search-box">
-                <label for="search">Suchen (Titel oder GTIN)</label>
+                <div class="search-label-row">
+                    <label for="search">Suchen</label>
+                    <div class="search-scope" role="radiogroup" aria-label="Suchen in">
+                        {#each SEARCH_SCOPES as scope (scope.id)}
+                            <button type="button" role="radio" aria-checked={searchScope === scope.id} class:active={searchScope === scope.id}
+                                title={scope.hint} on:click={() => (searchScope = scope.id)}>{scope.label}</button>
+                        {/each}
+                    </div>
+                </div>
                 <div class="search-mobile-wrapper">
-                    <input type="text" id="search" bind:value={searchQuery} placeholder="Artikelname oder Nummer..." />
+                    <input type="text" id="search" bind:value={searchQuery} placeholder="z.B. 12mm Schalter ODER Taster" />
                     
                     <button class="btn-mobile-filter" on:click={() => isMobileFilterOpen = true}>
                         <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
@@ -465,6 +476,17 @@
                 </div>
             </div>
         </div>
+
+        {#if search.hasOr || search.fuzzy.length > 0}
+            <div class="search-note" role="status">
+                {#if search.hasOr}
+                    <span>Gesucht wird: <strong>{describeSearch(search.groups)}</strong></span>
+                {/if}
+                {#each search.fuzzy as typo (typo.term)}
+                    <span>Keine genauen Treffer für „{typo.term}“, ähnlich: <strong>{typo.words.join(', ')}</strong></span>
+                {/each}
+            </div>
+        {/if}
     </div>
 
     <div class="content-wrapper">
@@ -747,6 +769,16 @@
     .btn-mobile-filter { display: none; align-items: center; gap: 0.4rem; background: #f8fafc; border: 1px solid #cbd5e1; padding: 0.6rem 1rem; border-radius: 4px; font-weight: 600; color: #334155; cursor: pointer; transition: all 0.2s; }
     .btn-mobile-filter:hover { background: #e2e8f0; border-color: #94a3b8; }
 
+    /* Suche: Bereich wählen, Hinweis zu ODER und Tippfehlern */
+    .search-label-row { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; }
+    .search-scope { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 5px; overflow: hidden; flex: none; }
+    .search-scope button { background: #ffffff; border: none; padding: 0.22rem 0.6rem; color: #475569; font-size: 0.82rem; font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; transition: background 0.15s; }
+    .search-scope button + button { border-left: 1px solid #cbd5e1; }
+    .search-scope button:hover { background: #f1f5f9; }
+    .search-scope button.active { background: #3b82f6; color: #ffffff; }
+    .search-note { flex-basis: 100%; display: flex; flex-direction: column; gap: 0.25rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; font-size: 0.9rem; color: #64748b; min-width: 0; overflow-wrap: anywhere; }
+    .search-note strong { color: #1e293b; }
+
     /* Content Area */
     .content-wrapper { display: flex; gap: 2rem; align-items: flex-start; }
     .articles-section { flex: 2; }
@@ -932,6 +964,17 @@
         transition: all 0.2s ease;
     }
 
+    /* Die Leiste klebt beim Scrollen fest. Wäre sie höher als der sichtbare Bereich, käme man an ihren
+       unteren Teil erst am Ende der Artikelliste – deshalb scrollt die Filterliste in sich.
+       --content-height: sichtbare Höhe im Terminal (dort scrollt nicht das Fenster, siehe terminal/+layout@.svelte) */
+    @media (min-width: 901px) {
+        .sidebar-section { max-height: calc(100vh - 4rem); max-height: calc(100dvh - 4rem); }
+        /* Im Terminal zählt zusätzlich der Innenabstand des Scrollbereichs */
+        .page-container.in-terminal .sidebar-section { max-height: calc(var(--content-height, 100dvh) - 6rem); }
+        .sidebar-top { flex: none; }
+        .sidebar-bottom { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+    }
+
     /* --- MOBILE STYLES --- */
     @media (max-width: 900px) {
         .content-wrapper { flex-direction: column; }
@@ -964,17 +1007,6 @@
     .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; font-weight: 700; }
     .stat-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
     .stat-hint { font-size: 0.78rem; color: #64748b; }
-    /* Die Leiste klebt beim Scrollen fest. Wäre sie höher als der sichtbare Bereich, käme man an ihren
-       unteren Teil erst am Ende der Artikelliste – deshalb scrollt die Filterliste in sich.
-       --content-height: sichtbare Höhe im Terminal (dort scrollt nicht das Fenster, siehe terminal/+layout@.svelte) */
-    @media (min-width: 901px) {
-        .sidebar-section { max-height: calc(100vh - 4rem); max-height: calc(100dvh - 4rem); }
-        /* Im Terminal zählt zusätzlich der Innenabstand des Scrollbereichs */
-        .page-container.in-terminal .sidebar-section { max-height: calc(var(--content-height, 100dvh) - 6rem); }
-        .sidebar-top { flex: none; }
-        .sidebar-bottom { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
-    }
-
     .stat-tile.warn { border-color: #fecaca; background: #fef2f2; }
     .stat-tile.warn .stat-value { color: #dc2626; }
     .stat-link { transition: transform 0.15s, box-shadow 0.15s; }
