@@ -26,9 +26,9 @@
   let expandedId = $state(null);
   let successMessage = $state("");
 
-  // States für die Quick-Actions (Inline-Editing)
-  let quickOptionSearchQuery = $state("");
-  let quickNewOption = $state("");
+  // States für die Quick-Actions (Inline-Editing): pro Filter, weil bei der Filtersuche mehrere gleichzeitig offen sind
+  let quickOptionSearch = $state({});   // { Filter-ID: Suchtext }
+  let quickNewOption = $state({});      // { Filter-ID: neuer Wert }
 
   // --- STATE: FOCUS-MODUS (Bearbeiten) ---
   let activeAttributeId = $state(null);
@@ -76,8 +76,8 @@
     if (searchQuery.trim() !== "") return;
     expandedId = expandedId === id ? null : id;
     // Setzt die Quick-Suchfelder beim Wechseln zurück
-    quickOptionSearchQuery = "";
-    quickNewOption = "";
+    quickOptionSearch = {};
+    quickNewOption = {};
   }
 
   function addOption() {
@@ -426,7 +426,7 @@
         </div>
 
         <div class="list-group light-list-group">
-          {#each filteredAttributes as attr}
+          {#each filteredAttributes as attr (attr._id)}
             <div class="list-group-item list-group-item-action p-0 overflow-hidden light-list-item">
               <button
                 class="w-100 border-0 bg-transparent p-3 d-flex justify-content-between align-items-center text-start"
@@ -452,11 +452,11 @@
                       <h6 class="text-muted-custom small fw-bold mb-0 text-uppercase">Hinterlegte Optionen</h6>
                       <div class="input-group input-group-sm shadow-sm" style="width: 250px;">
                         <span class="input-group-text light-input-group-text"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control light-input border-start-0" placeholder="{attr.label} durchsuchen..." bind:value={quickOptionSearchQuery} />
+                        <input type="text" class="form-control light-input border-start-0" placeholder="{attr.label} durchsuchen..." bind:value={quickOptionSearch[attr._id]} />
                       </div>
                     </div>
 
-                    {@const filteredQuickOptions = (attr.options || []).filter(o => o.toLowerCase().includes(quickOptionSearchQuery.toLowerCase().trim()))}
+                    {@const filteredQuickOptions = (attr.options || []).filter(o => o.toLowerCase().includes((quickOptionSearch[attr._id] || "").toLowerCase().trim()))}
 
                     <div class="d-flex flex-wrap gap-2">
                       {#each filteredQuickOptions as option}
@@ -464,9 +464,10 @@
                           method="POST"
                           action="?/removeOptionQuick"
                           use:enhance={() => {
+                            const removedOption = option;   // nach dem Neuladen rückt hier der nächste Wert nach
                             return async ({ update }) => {
                               await update();
-                              successMessage = `Wert "${option}" entfernt!`;
+                              successMessage = `Wert "${removedOption}" entfernt!`;
                               setTimeout(() => { successMessage = ""; }, 3000);
                             };
                           }}
@@ -495,11 +496,12 @@
                         method="POST"
                         action="?/addOptionQuick"
                         use:enhance={() => {
+                          const attrId = attr._id;
                           return async ({ result, update }) => {
                             await update();
                             if (result.type === "success") {
                               successMessage = `Wert erfolgreich hinzugefügt!`;
-                              quickNewOption = ""; 
+                              quickNewOption[attrId] = ""; 
                               setTimeout(() => { successMessage = ""; }, 3000);
                             }
                           };
@@ -508,7 +510,7 @@
                       >
                         <input type="hidden" name="id" value={attr._id} />
                         <div class="input-group input-group-sm shadow-sm">
-                          <input type="text" name="newOption" class="form-control light-input border-end-0" placeholder="Neuen Wert hinzufügen..." bind:value={quickNewOption} required />
+                          <input type="text" name="newOption" class="form-control light-input border-end-0" placeholder="Neuen Wert hinzufügen..." bind:value={quickNewOption[attr._id]} required />
                           <button type="submit" class="btn btn-success fw-bold px-3"><i class="bi bi-plus-lg"></i></button>
                         </div>
                       </form>
