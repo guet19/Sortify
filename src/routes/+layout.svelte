@@ -3,6 +3,7 @@
     import { page } from "$app/stores";
     import { canAccessPath } from "$lib/permissions.js";
     import favicon from "$lib/assets/favicon.svg";
+    import FloatingNotice from "$lib/components/FloatingNotice.svelte";
     let { children } = $props();
 
     // Lager für das Dropdown in der Menüleiste
@@ -200,3 +201,5 @@
 {/if}
 
 {@render children()}
+
+<FloatingNotice />

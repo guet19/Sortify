@@ -1,5 +1,6 @@
 <script>
     import { onDestroy, tick } from "svelte";
+    import { reportMissingFields } from "$lib/requiredFields.js";
     import { browser } from "$app/environment";
     import { enhance } from "$app/forms";
     import { goto } from "$app/navigation";
@@ -188,7 +189,7 @@
         id="editForm"
         enctype="multipart/form-data"
         novalidate
-        use:enhance={async ({ formData, cancel }) => {
+        use:enhance={async ({ formData, formElement, cancel }) => {
             formErrors = {};
             let hasError = false;
 
@@ -202,10 +203,8 @@
             
             if (hasError) {
                 cancel();
-                setTimeout(() => {
-                    const firstErrorElement = document.querySelector('.error-highlight');
-                    if (firstErrorElement) firstErrorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 50);
+                await tick();   // erst die Markierungen zeichnen, dann die markierten Felder melden
+                reportMissingFields([...formElement.querySelectorAll('.error-highlight[data-label]')]);
                 return;
             }
 
@@ -237,6 +236,7 @@
                 <select 
                     name="mainCategoryId" 
                     class="category-dropdown" 
+                    data-label="Hauptkategorie"
                     class:error-highlight={formErrors.mainCategory}
                     bind:value={selectedMainCategoryId}>
                     <option value="" disabled>Hauptkategorie wählen...</option>
@@ -250,6 +250,7 @@
                 <select 
                     name="subcategoryId" 
                     class="category-dropdown" 
+                    data-label="Unterkategorie"
                     class:error-highlight={formErrors.subCategory}
                     bind:value={selectedSubcategoryId}
                     disabled={!selectedMainCategoryId}>
@@ -328,7 +329,7 @@
             <div class="info-section">
                 
                 <div class="input-wrapper tooltip-container">
-                    <input type="text" name="title" class="title-input" class:error-highlight={formErrors.title} bind:value={title} placeholder="Artikelbezeichnung eingeben..." required />
+                    <input type="text" name="title" class="title-input" data-label="Artikelbezeichnung" class:error-highlight={formErrors.title} bind:value={title} placeholder="Artikelbezeichnung eingeben..." required />
                     {#if formErrors.title} <div class="warning-bubble">Bezeichnung fehlt</div> {/if}
                 </div>
                 
@@ -340,7 +341,7 @@
                     
                     <div class="stock-manager tooltip-container">
                         <span class="stock-label">Ist-Bestand:</span>
-                        <input type="number" name="istBestand" class="stock-input" class:error-highlight={formErrors.istBestand} bind:value={istBestand} min="0" required readonly={!!data.stockLock} class:locked={!!data.stockLock} />
+                        <input type="number" name="istBestand" class="stock-input" data-label="Ist-Bestand" class:error-highlight={formErrors.istBestand} bind:value={istBestand} min="0" required readonly={!!data.stockLock} class:locked={!!data.stockLock} />
                         <span class="stock-label">Stk.</span>
                         {#if formErrors.istBestand} <div class="warning-bubble">Bestand fehlt</div> {/if}
                     </div>
@@ -354,7 +355,7 @@
                 <div class="description">
                     <h3>Beschreibung</h3>
                     <div class="input-wrapper tooltip-container">
-                        <textarea name="description" class="desc-input" class:error-highlight={formErrors.description} bind:value={description} rows="5" placeholder="Artikelbeschreibung hier eingeben..."></textarea>
+                        <textarea name="description" class="desc-input" data-label="Beschreibung" class:error-highlight={formErrors.description} bind:value={description} rows="5" placeholder="Artikelbeschreibung hier eingeben..."></textarea>
                         {#if formErrors.description} <div class="warning-bubble">Beschreibung fehlt</div> {/if}
                     </div>
                 </div>

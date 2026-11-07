@@ -1,5 +1,6 @@
 <script>
     import { onDestroy, tick, onMount } from "svelte";
+    import { reportMissingFields } from "$lib/requiredFields.js";
     import { browser } from "$app/environment";
     import { enhance } from "$app/forms";
     import SearchableSelect from "$lib/components/SearchableSelect.svelte";
@@ -300,6 +301,7 @@
     $: if (selectedMainCategoryId) formErrors.mainCategory = false;
     $: if (selectedSubcategoryId) formErrors.subCategory = false;
     $: if (title && title.trim() !== "") formErrors.title = false;
+    $: if (description && description.trim() !== "") formErrors.description = false;
     $: if (istBestand !== null && istBestand !== undefined && istBestand.toString().trim() !== "") formErrors.istBestand = false;
 
     // 🔥 KUGELSICHERE Kategorien-Logik
@@ -658,7 +660,7 @@
         class="article-form"
         enctype="multipart/form-data"
         novalidate
-        use:enhance={async ({ formData, cancel }) => {
+        use:enhance={async ({ formData, formElement, cancel }) => {
             formErrors = {};
             let hasError = false;
 
@@ -671,10 +673,8 @@
             
             if (hasError) {
                 cancel();
-                setTimeout(() => {
-                    const firstErrorElement = document.querySelector('.error-highlight');
-                    if (firstErrorElement) firstErrorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 50);
+                await tick();   // erst die Markierungen zeichnen, dann die markierten Felder melden
+                reportMissingFields([...formElement.querySelectorAll('.error-highlight[data-label]')]);
                 return;
             }
 
@@ -832,7 +832,7 @@
             {:else}
                 <div class="form-group tooltip-container">
                     <span class="label-text">Hauptkategorie *</span>
-                    <div class="select-wrapper" class:error-highlight={formErrors.mainCategory || (isFromBookmarklet && !aiChoiceMade && !selectedMainCategoryId)}>
+                    <div class="select-wrapper" data-label="Hauptkategorie" class:error-highlight={formErrors.mainCategory || (isFromBookmarklet && !aiChoiceMade && !selectedMainCategoryId)}>
                         <select 
                             name="mainCategoryId" 
                             class="standard-select" 
@@ -853,7 +853,7 @@
                 {#if selectedMainCategoryId}
                     <div class="form-group tooltip-container">
                         <span class="label-text">Unterkategorie *</span>
-                        <div class="select-wrapper" class:error-highlight={formErrors.subCategory || (isFromBookmarklet && !aiChoiceMade && selectedMainCategoryId && !selectedSubcategoryId)}>
+                        <div class="select-wrapper" data-label="Unterkategorie" class:error-highlight={formErrors.subCategory || (isFromBookmarklet && !aiChoiceMade && selectedMainCategoryId && !selectedSubcategoryId)}>
                             <select name="subcategoryId" class="standard-select" bind:value={selectedSubcategoryId}>
                                 <option value="" disabled selected>Wählen...</option>
                                 {#each subCategoryOptions as opt}
@@ -895,7 +895,7 @@
             
             <div class="form-group tooltip-container">
                 <label for="title" class="label-text">Artikelbezeichnung *</label>
-                <input type="text" id="title" name="title" bind:value={title} class:error-highlight={formErrors.title} placeholder="z.B. Schraube M4x20" required />
+                <input type="text" id="title" name="title" data-label="Artikelbezeichnung" bind:value={title} class:error-highlight={formErrors.title} placeholder="z.B. Schraube M4x20" required />
                 {#if formErrors.title}
                     <div class="info-bubble">Bitte ausfüllen</div>
                 {/if}
@@ -903,7 +903,7 @@
 
             <div class="form-group tooltip-container">
                 <label for="description" class="label-text">Beschreibung *</label>
-                <textarea id="description" name="description" bind:value={description} rows="6" class:error-highlight={formErrors.description} placeholder="Genaue Beschreibung des Artikels..." required></textarea>
+                <textarea id="description" name="description" data-label="Beschreibung" bind:value={description} rows="6" class:error-highlight={formErrors.description} placeholder="Genaue Beschreibung des Artikels..." required></textarea>
                 {#if formErrors.description}
                     <div class="info-bubble">Bitte ausfüllen</div>
                 {/if}
@@ -912,7 +912,7 @@
             <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.2rem;">
                 <div class="form-group tooltip-container" style="margin-bottom: 0;">
                     <label for="istBestand" class="label-text">Ist-Bestand *</label>
-                    <input type="number" id="istBestand" name="istBestand" min="0" bind:value={istBestand} class:error-highlight={formErrors.istBestand} required />
+                    <input type="number" id="istBestand" name="istBestand" data-label="Ist-Bestand" min="0" bind:value={istBestand} class:error-highlight={formErrors.istBestand} required />
                     {#if formErrors.istBestand}
                         <div class="info-bubble">Bitte ausfüllen</div>
                     {/if}
