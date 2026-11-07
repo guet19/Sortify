@@ -67,6 +67,7 @@
     // beim Seitenwechsel nicht zurück. Deshalb: neue Seite immer oben öffnen,
     // beim Zurückgehen zur Liste die vorherige Position wiederherstellen.
     let contentEl;
+    let contentHeight = 0;   // sichtbare Höhe des Bereichs (ohne Kopfzeile und Banner), z.B. für die Filterleiste
     const scrollPositions = new Map();
 
     beforeNavigate(({ from }) => {
@@ -139,7 +140,7 @@
         </div>
     {/if}
 
-    <main class="terminal-content" bind:this={contentEl}>
+    <main class="terminal-content" bind:this={contentEl} bind:clientHeight={contentHeight} style={contentHeight ? `--content-height: ${contentHeight}px` : undefined}>
         {#if blocksContent}
             <p class="blocked-hint">Bitte zuerst oben das Terminal wählen – erst dann ist klar, welche Waage misst.</p>
         {:else}

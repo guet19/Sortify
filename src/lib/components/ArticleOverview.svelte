@@ -964,6 +964,17 @@
     .stat-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; font-weight: 700; }
     .stat-value { font-size: 1.5rem; font-weight: 700; color: #1e293b; }
     .stat-hint { font-size: 0.78rem; color: #64748b; }
+    /* Die Leiste klebt beim Scrollen fest. Wäre sie höher als der sichtbare Bereich, käme man an ihren
+       unteren Teil erst am Ende der Artikelliste – deshalb scrollt die Filterliste in sich.
+       --content-height: sichtbare Höhe im Terminal (dort scrollt nicht das Fenster, siehe terminal/+layout@.svelte) */
+    @media (min-width: 901px) {
+        .sidebar-section { max-height: calc(100vh - 4rem); max-height: calc(100dvh - 4rem); }
+        /* Im Terminal zählt zusätzlich der Innenabstand des Scrollbereichs */
+        .page-container.in-terminal .sidebar-section { max-height: calc(var(--content-height, 100dvh) - 6rem); }
+        .sidebar-top { flex: none; }
+        .sidebar-bottom { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+    }
+
     .stat-tile.warn { border-color: #fecaca; background: #fef2f2; }
     .stat-tile.warn .stat-value { color: #dc2626; }
     .stat-link { transition: transform 0.15s, box-shadow 0.15s; }
