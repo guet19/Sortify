@@ -34,9 +34,10 @@ import neopixel
 import RPi.GPIO as GPIO
 from hx711 import HX711
 
-VERSION = "2.3.0"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr;
+VERSION = "2.4.0"   # 2.1.0: Antwort auf Verbindungstests; 2.1.1: unabhängig von Sprüngen der Systemuhr;
                     # 2.2.0: Name des Terminals (mehrere pro Lager) wird beim Lebenszeichen aktualisiert;
-                    # 2.3.0: misst erst, wenn die Waage ruhig ist; Nullpunkt wird im Leerlauf nachgeführt
+                    # 2.3.0: misst erst, wenn die Waage ruhig ist; Nullpunkt wird im Leerlauf nachgeführt;
+                    # 2.4.0: Lauflicht über alle Fächer (Service-Seite)
 
 # ==========================================
 # 1. EINSTELLUNGEN
@@ -635,6 +636,8 @@ def run_normal_mode():
     blink_state = False
     last_blink_time = blink_start_time = 0
     led_color = (0, 255, 0)
+    wave_indices, wave_position = [], -1   # Lauflicht: Fächer in der Reihenfolge von Sortify
+    wave_step_seconds = next_wave_step = 0
     last_activity = last_heartbeat = last_zero_track = time.monotonic()
     last_weighing = 0.0
     sleeping = False
@@ -729,9 +732,19 @@ def run_normal_mode():
                     drawers = [int(d) for d in message.get("drawers", [])]
                     led_color = parse_color(message.get("color"))
                     mode = message.get("mode", "blink")
+                    if wave_indices:   # jeder neue LED-Befehl beendet ein laufendes Lauflicht
+                        pixels[wave_indices[wave_position]] = (0, 0, 0)
+                        wave_indices = []
                     if not drawers or 0 in drawers or -1 in drawers:
                         blink_indices, solid_indices = [], []
                         pixels.fill((0, 0, 0))
+                    elif mode == "wave":
+                        blink_indices, solid_indices = [], []
+                        pixels.fill((0, 0, 0))
+                        wave_indices = [d - 1 for d in drawers if 0 < d <= NUM_PIXELS]
+                        wave_position = -1
+                        wave_step_seconds = min(max(float(message.get("stepMs") or 300) / 1000, 0.05), 2)
+                        next_wave_step = 0
                     else:
                         for drawer in drawers:
                             i = drawer - 1
@@ -767,8 +780,20 @@ def run_normal_mode():
                 pixels.show()
                 last_blink_time = time.monotonic()
 
+            # Lauflicht: immer nur ein Fach leuchtet, am Ende ist alles aus
+            if wave_indices and time.monotonic() >= next_wave_step:
+                if wave_position >= 0:
+                    pixels[wave_indices[wave_position]] = (0, 0, 0)
+                wave_position += 1
+                if wave_position < len(wave_indices):
+                    pixels[wave_indices[wave_position]] = led_color
+                    next_wave_step = time.monotonic() + wave_step_seconds
+                else:
+                    wave_indices = []
+                pixels.show()
+
             # Nullpunkt im Leerlauf nachführen (nicht während LEDs leuchten: das Lesen dauert ~0,3 s)
-            if (not message and not blink_indices and not solid_indices
+            if (not message and not blink_indices and not solid_indices and not wave_indices
                     and now - last_zero_track >= ZERO_TRACK_EVERY_SECONDS
                     and time.monotonic() - last_weighing >= ZERO_TRACK_PAUSE_SECONDS):
                 last_zero_track = now

@@ -104,6 +104,12 @@ Feineinstellung in `terminal_config.json` (optional, danach das Terminal neu sta
 
 Die Waage braucht die Python-Bibliothek `hx711` von Marco Roose (in `requirements.txt` festgelegt). Prüfen mit `venv/bin/pip show hx711`: Dort sollte „Author: Marco Roose“ stehen.
 
+## LEDs testen
+
+Unter **Terminal → Einstellungen → Service** gibt es ein Lauflicht und die Option, alle Fächer gleichzeitig blau leuchten zu lassen. Beides lässt sich auf ein Regal beschränken und mit „Alle aus“ beenden; spätestens nach 60 Sekunden gehen die LEDs von selbst aus.
+
+Das Lauflicht braucht die Software ab Version 2.4.0 und läuft die Fächer der Reihe nach am LED-Streifen entlang, beginnend bei der niedrigsten LED-Nummer. Sortify schickt dafür nur einen Befehl, die Schritte taktet das Terminal selbst.
+
 ## Fehlerbehebung
 
 | Anzeige | Bedeutung |

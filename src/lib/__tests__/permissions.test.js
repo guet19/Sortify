@@ -17,6 +17,13 @@ describe('canAccessPath', () => {
         expect(canAccessPath('/terminal/settings/pairing', ['/terminal'])).toBe(false);
         expect(canAccessPath('/terminal/settings/assign/123', ['/terminal/settings/assign'])).toBe(true);
     });
+    it('Service-Seite muss einzeln freigegeben werden', () => {
+        expect(canAccessPath('/terminal/settings/service', ['/terminal'])).toBe(false);
+        expect(canAccessPath('/terminal/settings/service', ['/terminal/settings/maintenance'])).toBe(false);
+        expect(canAccessPath('/terminal/settings/service', ['/terminal/settings/service'])).toBe(true);
+        expect(canAccessPath('/terminal/settings', ['/terminal/settings/service'])).toBe(true);
+        expect(canAccessPath('/api/terminal-status', ['/terminal/settings/service'])).toBe(true);
+    });
     it('Inventur muss einzeln freigegeben werden (sie korrigiert Bestände)', () => {
         expect(canAccessPath('/terminal/inventur', ['/terminal'])).toBe(false);
         expect(canAccessPath('/terminal/inventur/abc', ['/terminal'])).toBe(false);

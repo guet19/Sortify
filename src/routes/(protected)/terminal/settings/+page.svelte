@@ -86,6 +86,16 @@
             </a>
         {/if}
 
+        {#if canSee('/terminal/settings/service')}
+            <a href="/terminal/settings/service" class="action-card">
+                <div class="icon">🛠️</div>
+                <div class="card-content">
+                    <h3>Service</h3>
+                    <p>Barcodes vor dem Aufkleben prüfen und die LEDs der Fächer testen.</p>
+                </div>
+            </a>
+        {/if}
+
         <!-- Karte 4: Abmelden (Immer sichtbar) -->
         <!-- Logout per POST (ein Link könnte von fremden Seiten ausgelöst werden) -->
         <form method="POST" action="/logout" class="logout-form">

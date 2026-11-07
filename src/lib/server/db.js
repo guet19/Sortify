@@ -910,7 +910,10 @@ async function terminalsOf(db, systemId) {
 // LED-Befehle für Fächer: Jedes Terminal bekommt nur die LEDs seiner Regale (ein Befehl pro Terminal).
 // Liefert die Anzahl der angesteuerten LEDs.
 async function insertLedCommands(db, systemId, shelves, barcodes, fields) {
-    const groups = ledTargets(shelves, barcodes, await terminalsOf(db, systemId));
+    return insertLedGroups(db, systemId, ledTargets(shelves, barcodes, await terminalsOf(db, systemId)), fields);
+}
+
+async function insertLedGroups(db, systemId, groups, fields) {
     await Promise.all(groups.map(({ terminalId, leds }) => insertDeviceCommand(db, 'hardware_commands', {
         systemId: new ObjectId(systemId),
         ...(terminalId ? { deviceId: new ObjectId(terminalId) } : {}),
@@ -920,6 +923,11 @@ async function insertLedCommands(db, systemId, shelves, barcodes, fields) {
         createdAt: new Date()
     })));
     return groups.reduce((n, g) => n + g.leds.length, 0);
+}
+
+// Fertige LED-Listen senden: groups = [{ terminalId, leds }], siehe allDrawerLeds in $lib/terminals.js
+async function sendLedGroups(systemId, groups, fields) {
+    return insertLedGroups(await getDb(), systemId, groups, fields);
 }
 
 // command: LED-Nummern (1-basiert) oder [0] = alle aus. Ohne deviceId an alle Terminals des Lagers.
@@ -1258,6 +1266,20 @@ async function assignBarcodeAndWeights(systemId, articleId, barcode, boxWeight, 
         console.error("Fehler bei assignBarcodeAndWeights:", error);
         throw error;
     }
+}
+
+// Alle Artikel, denen dieser Barcode zugewiesen ist (Gross-/Kleinschreibung egal, wie beim Scannen eines Fachs)
+async function getArticlesWithBarcode(systemId, barcode) {
+    const db = await getDb();
+    const articles = await db.collection('articles').find({
+        systemId: new ObjectId(systemId),
+        $or: [
+            { "assigned_barcodes.barcode": barcode },
+            { assigned_barcodes: barcode },
+            { assigned_barcode: barcode }
+        ]
+    }, { projection: { title: 1 } }).collation({ locale: 'en', strength: 2 }).toArray();
+    return articles.map((a) => ({ id: a._id.toString(), title: a.title }));
 }
 
 async function getDrawerByBarcode(systemId, barcode) {
@@ -2178,6 +2200,7 @@ export default {
     resetUserPassword,
     renewVerificationData,
     createHardwareCommand,
+    sendLedGroups,
     getShelves,
     createNewShelf,
     updateDrawerBarcode,
@@ -2187,6 +2210,7 @@ export default {
     checkIfBarcodeExists,
     triggerLedByBarcode,
     getArticleByBarcode,
+    getArticlesWithBarcode,
     createScaleRequest,
     getScaleRequest,
     updateArticleStock,

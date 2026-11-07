@@ -21,11 +21,21 @@ export function shelfTerminalId(shelf, terminals) {
 // Ohne gekoppelte Terminals (alte Terminals mit Datenbankzugriff) gibt es eine Gruppe mit terminalId null.
 export function ledTargets(shelves, barcodes, terminals) {
     const wanted = new Set(barcodes);
+    return groupLeds(shelves, terminals, (drawer) => wanted.has(drawer.barcode));
+}
+
+// Alle Fächer pro Terminal, der Reihe nach am LED-Streifen entlang (auch Fächer ohne Barcode)
+export function allDrawerLeds(shelves, terminals) {
+    return groupLeds(shelves, terminals, () => true)
+        .map(({ terminalId, leds }) => ({ terminalId, leds: [...new Set(leds)].sort((a, b) => a - b) }));
+}
+
+function groupLeds(shelves, terminals, includes) {
     const groups = new Map();
     for (const shelf of shelves) {
         const terminalId = shelfTerminalId(shelf, terminals);
         for (const drawer of shelf.drawers || []) {
-            if (!wanted.has(drawer.barcode)) continue;
+            if (!includes(drawer)) continue;
             const led = parseInt(drawer.ledIndex, 10) + 1;
             if (!Number.isFinite(led)) continue;
             if (!groups.has(terminalId)) groups.set(terminalId, []);

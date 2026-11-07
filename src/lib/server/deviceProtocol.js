@@ -41,6 +41,14 @@ export function envelope(body, now = Date.now()) {
     return { v: PROTOCOL_VERSION, mid: crypto.randomBytes(8).toString('hex'), ts: now, ...body };
 }
 
+// Lauflicht: Das Terminal taktet selbst. Sortify schickt nur die Fächer in der gewünschten Reihenfolge.
+export const WAVE_STEP_MS = 300;
+
+function ledMode(doc) {
+    if (doc.mode === 'wave') return { mode: 'wave', stepMs: Number(doc.stepMs) || WAVE_STEP_MS };
+    return { mode: doc.mode === 'solid' ? 'solid' : 'blink' };
+}
+
 // Übersetzt ein Datenbank-Dokument (hardware_commands / scale_requests) in eine Geräte-Nachricht
 export function commandFromDoc(collection, doc) {
     const id = doc._id ? String(doc._id) : undefined;
@@ -55,7 +63,7 @@ export function commandFromDoc(collection, doc) {
             t: 'led',
             drawers: (doc.drawer_ids || []).map(Number).filter(Number.isFinite),
             color: typeof doc.color === 'string' ? doc.color : '#00ff00',
-            mode: doc.mode === 'solid' ? 'solid' : 'blink'
+            ...ledMode(doc)
         };
     }
     return null;
@@ -66,6 +74,8 @@ export function commandFromDoc(collection, doc) {
 export const PING_MIN_VERSION = '2.1.0';
 // Ab dieser Version wartet das Terminal selbst, bis die Waage ruhig ist (Sortify braucht keine feste Pause mehr)
 export const SETTLE_MIN_VERSION = '2.3.0';
+// Ab dieser Version kann das Terminal ein Lauflicht abspielen (ältere würden alle Fächer gleichzeitig blinken lassen)
+export const WAVE_MIN_VERSION = '2.4.0';
 export const STATUS_TIMING = {
     freshMs: 60_000,          // so lange gilt eine Meldung des Terminals als "verbunden"
     pingTimeoutMs: 8_000,     // ohne Antwort nach dieser Zeit: "nicht erreichbar"

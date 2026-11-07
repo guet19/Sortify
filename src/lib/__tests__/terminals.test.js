@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shelfTerminalId, ledTargets, scaleTerminalId, nextFreeLed, nextTerminalName, cleanTerminalName } from '../terminals.js';
+import { shelfTerminalId, ledTargets, allDrawerLeds, scaleTerminalId, nextFreeLed, nextTerminalName, cleanTerminalName } from '../terminals.js';
 
 const north = { id: 'n1' }, south = { id: 's2' };
 const terminals = [north, south];
@@ -24,6 +24,13 @@ describe('Mehrere Terminals', () => {
         expect(ledTargets(shelves, ['unbekannt'], terminals)).toEqual([]);
         // ohne gekoppelte Terminals: eine Gruppe wie bisher
         expect(ledTargets(shelves, ['A-01', 'S-01'], [])).toEqual([{ terminalId: null, leds: [1, 1] }]);
+    });
+
+    it('alle Fächer pro Terminal, der Reihe nach und auch ohne Barcode', () => {
+        expect(allDrawerLeds(shelves, terminals)).toEqual([{ terminalId: 'n1', leds: [1, 2, 3, 6] }, { terminalId: 's2', leds: [1, 2, 3] }]);
+        const unsorted = [{ deviceId: 'n1', drawers: [{ ledIndex: 9 }, { ledIndex: 2 }, { ledIndex: 2 }, { ledIndex: 'kaputt' }] }];
+        expect(allDrawerLeds(unsorted, terminals)).toEqual([{ terminalId: 'n1', leds: [3, 10] }]);
+        expect(allDrawerLeds([], terminals)).toEqual([]);
     });
 
     it('Waage: gewähltes Terminal, sonst das einzige, sonst das des Regals', () => {

@@ -21,6 +21,11 @@ describe('Geräte-Protokoll', () => {
     it('übersetzt Datenbank-Befehle', () => {
         expect(commandFromDoc('hardware_commands', { _id: 'a', drawer_ids: [4, 12], color: 'blue', mode: 'solid' }))
             .toEqual({ t: 'led', drawers: [4, 12], color: 'blue', mode: 'solid' });
+        expect(commandFromDoc('hardware_commands', { drawer_ids: [1, 2], color: '#0000FF', mode: 'wave', stepMs: 200 }))
+            .toEqual({ t: 'led', drawers: [1, 2], color: '#0000FF', mode: 'wave', stepMs: 200 });
+        expect(commandFromDoc('hardware_commands', { drawer_ids: [3, 1], color: 'blue', mode: 'wave' }))
+            .toEqual({ t: 'led', drawers: [3, 1], color: 'blue', mode: 'wave', stepMs: 300 });   // Reihenfolge bleibt
+        expect(commandFromDoc('hardware_commands', { drawer_ids: [1], color: 'blue', mode: 'unbekannt' }).mode).toBe('blink');
         expect(commandFromDoc('scale_requests', { _id: 'b' })).toEqual({ t: 'weigh', id: 'b' });
         expect(commandFromDoc('scale_requests', { _id: 'l', live: true })).toEqual({ t: 'weigh', id: 'l', quick: true });
         expect(commandFromDoc('scale_requests', { _id: 'c', command: 'calibrate_ratio', weight: 500 }))

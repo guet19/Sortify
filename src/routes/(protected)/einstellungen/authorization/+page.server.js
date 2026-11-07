@@ -29,6 +29,7 @@ const AVAILABLE_ROUTES = [
     { path: '/terminal/settings/scale', name: 'Terminal-Hardware: Waage' },
     { path: '/terminal/settings/calibration', name: 'Terminal-Hardware: Kalibrierung' },
     { path: '/terminal/settings/maintenance', name: 'Terminal-Hardware: Wartung' },
+    { path: '/terminal/settings/service', name: 'Terminal-Hardware: Service (Barcodes prüfen, LEDs testen)' },
     { path: '/terminal/settings/shelf', name: 'Terminal-Hardware: Regalverwaltung' },
     { path: '/terminal/settings/pairing', name: 'Terminal-Hardware: Kopplung' }
 ];

@@ -9,7 +9,7 @@ const SEPARATELY_GRANTED = ['/terminal/settings', '/terminal/inventur'];
 const OPEN_OVERVIEWS = ['/terminal/settings'];
 
 const TERMINAL_PAGES = ['/terminal', '/terminal/inventur', '/terminal/settings/assign', '/terminal/settings/scale', '/terminal/settings/calibration',
-    '/terminal/settings/maintenance', '/terminal/settings/shelf', '/terminal/settings/pairing'];
+    '/terminal/settings/maintenance', '/terminal/settings/service', '/terminal/settings/shelf', '/terminal/settings/pairing'];
 
 // API-Endpunkte erben die Berechtigung der Seiten, die sie benutzen
 const API_PERMISSIONS = {
