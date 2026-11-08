@@ -5,6 +5,8 @@ import { cancelLedsOff } from '$lib/server/leds.js';
 import { versionAtLeast, WAVE_MIN_VERSION, WAVE_STEP_MS } from '$lib/server/deviceProtocol.js';
 import { allDrawerLeds } from '$lib/terminals.js';
 import { barcodeUsage, cleanBarcode } from '$lib/barcodeCheck.js';
+import { listLabels, addLabel, forgetLabel, clearLabels } from '$lib/server/labelBuffer.js';
+import { actor } from '$lib/server/actor.js';
 
 const BLUE = '#0000FF';
 const NO_DRAWERS = 'Keine angelernten Fächer gefunden.';
@@ -28,8 +30,9 @@ export async function load({ locals }) {
     const systemId = locals.systemId;
     if (!systemId) throw redirect(303, '/login');
 
-    const [shelves, terminals] = await Promise.all([db.getShelves(systemId), listTerminals(systemId)]);
+    const [shelves, terminals, labels] = await Promise.all([db.getShelves(systemId), listTerminals(systemId), listLabels(systemId)]);
     return {
+        labels,
         shelves: shelves.map((s) => ({ id: s._id, name: s.name || 'Regal', drawers: (s.drawers || []).length })),
         waveReady: terminals.some(canWave),
         waveOutdated: terminals.filter((t) => !canWave(t)).map((t) => t.name),
@@ -46,10 +49,41 @@ export const actions = {
         if (!barcode) return fail(400, { error: 'Bitte einen Barcode scannen oder eingeben.' });
 
         try {
-            return { success: true, usage: await usageOf(systemId, barcode) };
+            // Jedes geprüfte Etikett kommt in den Zwischenspeicher; doppelte Codes zeigt die Seite an
+            const usage = await usageOf(systemId, barcode);
+            const labelId = await addLabel(systemId, { code: usage.barcode, free: usage.free, by: actor(locals, 'service').userName });
+            return { success: true, usage, labelId, labels: await listLabels(systemId) };
         } catch (err) {
             console.error('Fehler bei der Barcode-Prüfung:', err);
             return fail(500, { error: 'Die Prüfung ist fehlgeschlagen. Der Barcode gilt damit nicht als frei.' });
+        }
+    },
+
+    // Einen Eintrag aus dem Zwischenspeicher entfernen (z.B. dasselbe Etikett versehentlich zweimal gescannt)
+    forgetLabel: async ({ request, locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: 'Kein Lager ausgewählt' });
+
+        try {
+            const removed = await forgetLabel(systemId, (await request.formData()).get('id'));
+            if (!removed) return fail(404, { error: 'Eintrag nicht gefunden.', labels: await listLabels(systemId) });
+            return { success: true, labels: await listLabels(systemId) };
+        } catch (err) {
+            console.error('Fehler beim Entfernen aus dem Zwischenspeicher:', err);
+            return fail(500, { error: 'Der Eintrag konnte nicht entfernt werden.' });
+        }
+    },
+
+    clearLabels: async ({ locals }) => {
+        const systemId = locals.systemId;
+        if (!systemId) return fail(401, { error: 'Kein Lager ausgewählt' });
+
+        try {
+            await clearLabels(systemId);
+            return { success: true, labels: [] };
+        } catch (err) {
+            console.error('Fehler beim Leeren des Zwischenspeichers:', err);
+            return fail(500, { error: 'Der Zwischenspeicher konnte nicht geleert werden.' });
         }
     },
 

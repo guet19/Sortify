@@ -95,6 +95,10 @@ const INDEXES = {
         { key: { systemId: 1, status: 1, startedAt: -1 }, options: { name: 'systemId_status_startedAt' } },
         { key: { systemId: 1, status: 1, finishedAt: -1 }, options: { name: 'systemId_status_finishedAt' } }
     ],
+    // Zwischenspeicher der Etikettenprüfung (Terminal > Service), neueste zuerst
+    label_checks: [
+        { key: { systemId: 1, at: -1, _id: -1 }, options: { name: 'systemId_at' } }
+    ],
     // Fotos vom Smartphone (QR-Code beim Artikel anlegen): nach 15 Minuten automatisch löschen
     photo_sessions: [
         { key: { tokenHash: 1 }, options: { name: 'tokenHash_unique', unique: true } },

@@ -80,6 +80,9 @@ const INDEXES = {
         [{ systemId: 1, status: 1, startedAt: -1 }, { name: 'systemId_status_startedAt' }],
         [{ systemId: 1, status: 1, finishedAt: -1 }, { name: 'systemId_status_finishedAt' }]
     ],
+    label_checks: [
+        [{ systemId: 1, at: -1, _id: -1 }, { name: 'systemId_at' }]
+    ],
     photo_sessions: [
         [{ tokenHash: 1 }, { name: 'tokenHash_unique', unique: true }],
         [{ expiresAt: 1 }, { name: 'ttl_expiresAt', expireAfterSeconds: 0 }]
